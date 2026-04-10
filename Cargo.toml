@@ -1,0 +1,42 @@
+[workspace]
+members = ["crates/driggsby-cli"]
+default-members = ["crates/driggsby-cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.94"
+version = "0.1.15"
+repository = "https://github.com/thegoodsoftwareco/driggsby-cli"
+license = "Apache-2.0"
+
+[profile.dev]
+debug = 0
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+axum = "0.8.6"
+base64 = "0.22.1"
+clap = { version = "4.6.0", features = ["derive", "wrap_help"] }
+jsonwebtoken = { version = "10.3.0", default-features = false, features = ["rust_crypto", "use_pem"] }
+keyring = { version = "3.6.2", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
+open = "5.3.3"
+p256 = { version = "0.13.2", features = ["jwk"] }
+rand = "0.10.0"
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
+rmcp = { version = "1.4.0", features = ["server", "transport-io"] }
+ring = "0.17.14"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.145", features = ["preserve_order"] }
+serial_test = "3.4.0"
+sha2 = "0.11.0"
+tempfile = "3.27.0"
+time = { version = "0.3.47", features = ["formatting", "parsing"] }
+tokio = { version = "1.51.1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = "0.1.41"
+url = "2.5.8"
+uuid = { version = "1.23.0", features = ["serde", "v7"] }
