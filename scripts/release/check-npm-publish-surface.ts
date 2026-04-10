@@ -52,7 +52,7 @@ const requiredJsEntrypoints = [
 ];
 
 const thisFilePath = fileURLToPath(import.meta.url);
-const rootDir = resolve(dirname(thisFilePath), "..", "..");
+const rootDir = findRepoRoot(dirname(thisFilePath));
 const configPath = join(
   rootDir,
   "scripts",
@@ -113,6 +113,31 @@ function assertPackageContract(publishDir: string, relativeFiles: string[]): voi
   assertExpectedArtifactDownloadUrls(artifactDownloadUrls, version);
   assertExpectedPlatforms(supportedPlatforms);
   assertNoEmbeddedNativeArtifacts(relativeFiles);
+}
+
+function findRepoRoot(startDirectory: string): string {
+  let currentDirectory = resolve(startDirectory);
+
+  while (true) {
+    const candidatePackageJson = join(currentDirectory, "package.json");
+    const candidateConfig = join(
+      currentDirectory,
+      "scripts",
+      "release",
+      "npm-publish-surface.secretlintrc.json",
+    );
+
+    if (existsSync(candidatePackageJson) && existsSync(candidateConfig)) {
+      return currentDirectory;
+    }
+
+    const parentDirectory = dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      throw new Error("Could not find repository root for npm package surface check.");
+    }
+
+    currentDirectory = parentDirectory;
+  }
 }
 
 function readPackageJson(path: string): PackageJson {
