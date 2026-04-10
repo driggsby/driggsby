@@ -12,6 +12,11 @@ on:
       - ".github/workflows/security-background.yml"
       - ".github/workflows/release.yml"
       - "Cargo.lock"
+      - "Cargo.toml"
+      - "Justfile"
+      - "LICENSE"
+      - "README.md"
+      - "crates/driggsby-cli/**"
       - "dist-workspace.toml"
       - "**/Cargo.toml"
       - "scripts/check_github_action_pins.sh"
@@ -27,6 +32,51 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Typecheck npm package tooling
+        run: npm run check
+
+      - name: Build npm package tooling
+        run: npm run build
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint Rust libraries and binaries
+        run: |
+          cargo clippy --workspace --lib --bins --examples --all-features -- \
+            -D warnings -D clippy::unwrap_used -D clippy::expect_used \
+            -D clippy::panic -D clippy::todo -D clippy::unimplemented \
+            -D clippy::undocumented_unsafe_blocks
+
+      - name: Lint Rust tests
+        run: |
+          cargo clippy --workspace --tests --all-features -- \
+            -D warnings -D clippy::unwrap_used -D clippy::expect_used \
+            -D clippy::todo -D clippy::unimplemented \
+            -D clippy::undocumented_unsafe_blocks
+
+      - name: Test Rust CLI
+        run: cargo test --all-features --locked
+
+      - name: Build Rust CLI
+        run: cargo build --locked
+
   cargo-audit:
     runs-on: ubuntu-latest
 
