@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertChecksumVerificationBehavior } from "./npm-package-behavior-check.js";
 
 type JsonValue =
   | boolean
@@ -72,6 +73,12 @@ const tarballPath = resolve(process.cwd(), tarballInput);
 const tempDir = mkdtempSync(join(tmpdir(), "driggsby-pack-scan-"));
 
 try {
+  await main();
+} finally {
+  rmSync(tempDir, { force: true, recursive: true });
+}
+
+async function main(): Promise<void> {
   execFileSync("tar", ["-xzf", tarballPath, "-C", tempDir], {
     stdio: "inherit",
   });
@@ -82,18 +89,24 @@ try {
   const allFiles = listFiles(publishDir);
   const relativeFiles = allFiles.map((filePath) => relative(publishDir, filePath));
 
-  assertPackageContract(publishDir, relativeFiles);
+  const artifacts = assertPackageContract(publishDir, relativeFiles);
   assertGeneratedJavaScriptParses(publishDir);
   secretScanTextFiles(publishDir, allFiles);
+  await assertChecksumVerificationBehavior({
+    artifactConfig: artifacts,
+    packageJsonPath: join(publishDir, "package.json"),
+    publishDir,
+  });
 
   process.stdout.write(
     `NPM package surface check passed for ${relative(rootDir, tarballPath)}.\n`,
   );
-} finally {
-  rmSync(tempDir, { force: true, recursive: true });
 }
 
-function assertPackageContract(publishDir: string, relativeFiles: string[]): void {
+function assertPackageContract(
+  publishDir: string,
+  relativeFiles: string[],
+): ReturnType<typeof assertArtifactConfig> {
   const packageJson = readPackageJson(join(publishDir, "package.json"));
   const version = assertString(packageJson.version, "package.json version");
   const artifacts = assertArtifactConfig(packageJson.driggsbyArtifacts);
@@ -114,6 +127,8 @@ function assertPackageContract(publishDir: string, relativeFiles: string[]): voi
   assertExpectedPlatforms(artifacts.supportedPlatforms, artifacts.checksums);
   assertNoEmbeddedNativeArtifacts(relativeFiles);
   assertChecksumVerificationCode(publishDir);
+
+  return artifacts;
 }
 
 function findRepoRoot(startDirectory: string): string {
@@ -272,7 +287,7 @@ function assertChecksumVerificationCode(publishDir: string): void {
   if (
     !installJs.includes("createHash") ||
     !installJs.includes("driggsbyArtifacts.checksums") ||
-    !installJs.includes("verifyChecksum")
+    !installJs.includes("downloadAndVerifyFile")
   ) {
     throw new Error("install.js does not verify artifact SHA-256 before extraction.");
   }
