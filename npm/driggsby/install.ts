@@ -3,15 +3,18 @@ import {
   chmodSync,
   createWriteStream,
   existsSync,
+  lstatSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { spawnFile } from "./lib/process.js";
+import { readCommandOutput, writeCommandOutputToFile } from "./lib/process.js";
 
 type ArtifactConfig = {
   artifactName: string;
@@ -28,6 +31,7 @@ type PackageJson = {
 
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
 const installDirectory = join(packageDirectory, "node_modules", ".bin_real");
+const maxArtifactBytes = 64 * 1024 * 1024;
 const packageJson = JSON.parse(
   readFileSync(join(packageDirectory, "package.json"), "utf8"),
 ) as PackageJson;
@@ -56,7 +60,9 @@ async function install(): Promise<void> {
   mkdirSync(installDirectory, { recursive: true });
 
   const artifactUrl = `${packageJson.driggsbyArtifacts.baseUrl}/${platform.artifactName}`;
-  const tempArtifact = join(tmpdir(), `${process.pid}-${platform.artifactName}`);
+  const tempDirectory = mkdtempSync(join(tmpdir(), "driggsby-install-"));
+  chmodSync(tempDirectory, 0o700);
+  const tempArtifact = join(tempDirectory, platform.artifactName);
 
   try {
     const expectedChecksum = packageJson.driggsbyArtifacts.checksums[platform.artifactName];
@@ -64,12 +70,14 @@ async function install(): Promise<void> {
       throw new Error(`Driggsby package is missing a checksum for ${platform.artifactName}.`);
     }
 
-    await downloadFile(artifactUrl, tempArtifact);
-    verifyChecksum(tempArtifact, expectedChecksum);
-    extractTarball(tempArtifact, installDirectory);
+    await downloadAndVerifyFile(artifactUrl, tempArtifact, expectedChecksum);
+    await extractTarball(tempArtifact, installDirectory, platform.binaryPath);
     chmodSync(binaryPath, 0o755);
+  } catch (error) {
+    rmSync(installDirectory, { force: true, recursive: true });
+    throw error;
   } finally {
-    rmSync(tempArtifact, { force: true });
+    rmSync(tempDirectory, { force: true, recursive: true });
   }
 }
 
@@ -124,26 +132,108 @@ function mapOperatingSystem(platform: NodeJS.Platform): string {
   return platform;
 }
 
-async function downloadFile(url: string, destination: string): Promise<void> {
+async function downloadAndVerifyFile(
+  url: string,
+  destination: string,
+  expectedChecksum: string,
+): Promise<void> {
   const response = await fetch(url);
 
   if (!response.ok || response.body === null) {
     throw new Error(`Could not download Driggsby binary ${url}: HTTP ${response.status}.`);
   }
 
-  await pipeline(response.body, createWriteStream(destination));
-}
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) > maxArtifactBytes) {
+    throw new Error(`Driggsby binary download is unexpectedly large: ${contentLength} bytes.`);
+  }
 
-function verifyChecksum(path: string, expectedChecksum: string): void {
-  const actualChecksum = createHash("sha256").update(readFileSync(path)).digest("hex");
+  const hash = createHash("sha256");
+  let bytesRead = 0;
+  const verifier = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytesRead += chunk.byteLength;
+      if (bytesRead > maxArtifactBytes) {
+        callback(new Error(`Driggsby binary download exceeded ${maxArtifactBytes} bytes.`));
+        return;
+      }
+
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+
+  await pipeline(response.body, verifier, createWriteStream(destination, { flags: "wx", mode: 0o600 }));
+
+  const actualChecksum = hash.digest("hex");
 
   if (actualChecksum !== expectedChecksum) {
     throw new Error(
-      `Driggsby binary checksum mismatch for ${basename(path)}. Expected ${expectedChecksum}, got ${actualChecksum}.`,
+      `Driggsby binary checksum mismatch for ${basename(destination)}. Expected ${expectedChecksum}, got ${actualChecksum}.`,
     );
   }
 }
 
-function extractTarball(artifactPath: string, destination: string): void {
-  spawnFile("tar", ["-xf", artifactPath, "--strip-components", "1", "-C", destination]);
+function extractTarball(artifactPath: string, destination: string, binaryPath: string): void {
+  const tarPath = trustedTarPath();
+  const entry = findBinaryTarEntry(tarPath, artifactPath, binaryPath);
+  const installedBinary = join(destination, binaryPath);
+
+  writeCommandOutputToFile(tarPath, ["-xOf", artifactPath, "--", entry], installedBinary, maxArtifactBytes);
+
+  if (!existsSync(installedBinary)) {
+    throw new Error(`Driggsby archive did not contain expected binary ${binaryPath}.`);
+  }
+
+  const installedBinaryStats = lstatSync(installedBinary);
+  if (!installedBinaryStats.isFile() || installedBinaryStats.isSymbolicLink()) {
+    throw new Error(`Driggsby archive entry ${binaryPath} was not a regular file.`);
+  }
+}
+
+function trustedTarPath(): string {
+  for (const candidate of ["/usr/bin/tar", "/bin/tar"]) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Could not find the system tar executable required to unpack Driggsby.");
+}
+
+function findBinaryTarEntry(tarPath: string, artifactPath: string, binaryPath: string): string {
+  const entries = readCommandOutput(tarPath, ["-tf", artifactPath])
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const binaryEntries: string[] = [];
+
+  for (const entry of entries) {
+    const normalizedEntry = entry.replace(/\\/g, "/");
+    const segments = normalizedEntry.split("/").filter((segment) => segment.length > 0);
+
+    if (
+      normalizedEntry.startsWith("/") ||
+      /^[A-Za-z]:/.test(normalizedEntry) ||
+      segments.includes("..") ||
+      segments.some((segment) => segment.startsWith("-"))
+    ) {
+      throw new Error(`Driggsby archive contains unsafe path ${entry}.`);
+    }
+
+    if (segments.length === 2 && segments[1] === binaryPath) {
+      binaryEntries.push(entry);
+    }
+  }
+
+  if (binaryEntries.length !== 1) {
+    throw new Error(`Driggsby archive did not contain exactly one ${binaryPath} binary.`);
+  }
+
+  const [binaryEntry] = binaryEntries;
+  if (!binaryEntry) {
+    throw new Error(`Driggsby archive did not contain expected binary ${binaryPath}.`);
+  }
+
+  return binaryEntry;
 }
