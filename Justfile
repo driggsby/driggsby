@@ -4,6 +4,7 @@ required-check:
     npm ci
     npm run check
     npm run build
+    bash scripts/check_source_line_lengths.sh
     cargo fmt --all -- --check
     cargo clippy --workspace --lib --bins --examples --all-features -- \
       -D warnings -D clippy::unwrap_used -D clippy::expect_used \
