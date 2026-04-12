@@ -25,6 +25,7 @@ pub fn session_needs_refresh(session: &BrokerRemoteSession) -> bool {
 pub async fn refresh_remote_session(
     session: &BrokerRemoteSession,
     dpop_key_pair: &super::installation::BrokerDpopKeyPair,
+    resource_url: &str,
 ) -> Result<BrokerRemoteSession> {
     let metadata = fetch_authorization_server_metadata(&session.issuer).await.map_err(|_| {
         PublicBrokerError::new(
@@ -42,7 +43,7 @@ pub async fn refresh_remote_session(
         &metadata,
         &session.client_id,
         &session.refresh_token,
-        &session.resource,
+        resource_url,
         &dpop_proof,
     )
     .await?;

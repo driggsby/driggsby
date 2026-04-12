@@ -41,6 +41,7 @@ async fn coalesces_tool_discovery_and_handles_parallel_calls() -> anyhow::Result
     });
 
     let dpop = generate_dpop_key_material()?;
+    let resource_url = format!("http://127.0.0.1:{}/mcp", address.port());
     let session = BrokerRemoteSession {
         schema_version: 1,
         access_token: "access-token".to_string(),
@@ -50,7 +51,6 @@ async fn coalesces_tool_discovery_and_handles_parallel_calls() -> anyhow::Result
         issuer: format!("http://127.0.0.1:{}", address.port()),
         redirect_uri: "http://127.0.0.1/callback".to_string(),
         refresh_token: "refresh-token".to_string(),
-        resource: format!("http://127.0.0.1:{}/mcp", address.port()),
         scope: "driggsby.default".to_string(),
         token_type: "DPoP".to_string(),
     };
@@ -65,7 +65,7 @@ async fn coalesces_tool_discovery_and_handles_parallel_calls() -> anyhow::Result
         let client = client.clone();
         let session = session.clone();
         let dpop_keys = dpop_keys.clone();
-        let resource_url = session.resource.clone();
+        let resource_url = resource_url.clone();
         tasks.spawn(async move {
             client
                 .call_tool(
@@ -113,6 +113,7 @@ async fn supports_stateless_remote_mcp_without_session_header() -> anyhow::Resul
     });
 
     let dpop = generate_dpop_key_material()?;
+    let resource_url = format!("http://127.0.0.1:{}/mcp", address.port());
     let session = BrokerRemoteSession {
         schema_version: 1,
         access_token: "access-token".to_string(),
@@ -122,7 +123,6 @@ async fn supports_stateless_remote_mcp_without_session_header() -> anyhow::Resul
         issuer: format!("http://127.0.0.1:{}", address.port()),
         redirect_uri: "http://127.0.0.1/callback".to_string(),
         refresh_token: "refresh-token".to_string(),
-        resource: format!("http://127.0.0.1:{}/mcp", address.port()),
         scope: "driggsby.default".to_string(),
         token_type: "DPoP".to_string(),
     };
@@ -136,7 +136,7 @@ async fn supports_stateless_remote_mcp_without_session_header() -> anyhow::Resul
         .call_tool(
             &session,
             &dpop_keys,
-            &session.resource,
+            &resource_url,
             "echo_balance",
             Some(json!({ "amount": "stateless" })),
         )

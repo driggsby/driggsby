@@ -126,13 +126,15 @@ impl LocalBrokerServer {
                 std::process::exit(0);
             }
             "list_tools" => {
-                let (session, dpop_keys, resource_url) = self.fresh_remote_session().await?;
+                let resource_url = self.remote_resource_url()?;
+                let (session, dpop_keys) = self.fresh_remote_session(&resource_url).await?;
                 json!({
                     "tools": self.remote_client.list_tools(&session, &dpop_keys, &resource_url).await?
                 })
             }
             "call_tool" => {
-                let (session, dpop_keys, resource_url) = self.fresh_remote_session().await?;
+                let resource_url = self.remote_resource_url()?;
+                let (session, dpop_keys) = self.fresh_remote_session(&resource_url).await?;
                 let tool_name = request
                     .tool_name
                     .ok_or_else(|| anyhow::anyhow!("Missing tool name."))?;
@@ -172,7 +174,7 @@ impl LocalBrokerServer {
                 None => (
                     false,
                     BrokerRemoteAccessState::NotConnected,
-                "The CLI is not signed in to Driggsby yet.".to_string(),
+                    "The CLI is not signed in to Driggsby yet.".to_string(),
                     Some("npx driggsby@latest login".to_string()),
                 ),
                 Some(session) if !session_needs_refresh(session) => (
@@ -181,8 +183,16 @@ impl LocalBrokerServer {
                     "The CLI is connected and remote MCP access is ready to use.".to_string(),
                     None,
                 ),
-                Some(_) => match self.fresh_remote_session().await {
-                    Ok((session, _, _)) => {
+                Some(_) => {
+                    let refreshed = match self.remote_resource_url() {
+                        Ok(resource_url) => self
+                            .fresh_remote_session(&resource_url)
+                            .await
+                            .map(|(session, _)| (session, resource_url)),
+                        Err(error) => Err(error),
+                    };
+                    match refreshed {
+                        Ok((session, resource_url)) => {
                         return Ok(BrokerStatus {
                             installed: true,
                             broker_running: true,
@@ -195,17 +205,21 @@ impl LocalBrokerServer {
                             ),
                             remote_access_state: Some(BrokerRemoteAccessState::Ready),
                             next_step_command: None,
-                            remote_session: Some(summarize_broker_remote_session(&session)),
+                            remote_session: Some(summarize_broker_remote_session(
+                                &session,
+                                &resource_url,
+                            )),
                             socket_path: self.runtime_paths.socket_path.display().to_string(),
                         });
+                        }
+                        Err(_) => (
+                            false,
+                            BrokerRemoteAccessState::TemporarilyUnavailable,
+                            "Driggsby could not refresh remote MCP access right now. The CLI will stay blocked until the refresh succeeds.".to_string(),
+                            Some("npx driggsby@latest status".to_string()),
+                        ),
                     }
-                    Err(_) => (
-                        false,
-                        BrokerRemoteAccessState::TemporarilyUnavailable,
-                        "Driggsby could not refresh remote MCP access right now. The CLI will stay blocked until the refresh succeeds.".to_string(),
-                        Some("npx driggsby@latest status".to_string()),
-                    ),
-                },
+                }
             };
 
         Ok(BrokerStatus {
@@ -217,14 +231,19 @@ impl LocalBrokerServer {
             remote_access_detail: Some(remote_access_detail),
             remote_access_state: Some(remote_access_state),
             next_step_command,
-            remote_session: session.as_ref().map(summarize_broker_remote_session),
+            remote_session: session.as_ref().and_then(|session| {
+                self.remote_resource_url()
+                    .ok()
+                    .map(|resource_url| summarize_broker_remote_session(session, &resource_url))
+            }),
             socket_path: self.runtime_paths.socket_path.display().to_string(),
         })
     }
 
     async fn fresh_remote_session(
         &self,
-    ) -> Result<(BrokerRemoteSession, BrokerDpopKeyPair, String)> {
+        resource_url: &str,
+    ) -> Result<(BrokerRemoteSession, BrokerDpopKeyPair)> {
         self.reload_installation_if_not_connected().await?;
         let mut installation = self.installation.lock().await;
         let Some(session) = installation.remote_session() else {
@@ -236,15 +255,14 @@ impl LocalBrokerServer {
             .into());
         };
         let dpop_keys = installation.dpop_key_pair();
-        let resource_url = self.remote_resource_url()?;
         if !session_needs_refresh(&session) {
-            return Ok((session, dpop_keys, resource_url));
+            return Ok((session, dpop_keys));
         }
-        let refreshed = refresh_remote_session(&session, &dpop_keys).await?;
+        let refreshed = refresh_remote_session(&session, &dpop_keys, resource_url).await?;
         installation.set_remote_session(refreshed.clone());
         write_broker_installation_secrets(self.secret_store.as_ref(), &installation)?;
-        write_broker_remote_session_snapshot(&self.runtime_paths, &refreshed)?;
-        Ok((refreshed, dpop_keys, resource_url))
+        write_broker_remote_session_snapshot(&self.runtime_paths, &refreshed, resource_url)?;
+        Ok((refreshed, dpop_keys))
     }
 
     fn remote_resource_url(&self) -> Result<String> {

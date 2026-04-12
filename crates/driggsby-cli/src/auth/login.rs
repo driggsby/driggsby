@@ -160,13 +160,16 @@ async fn exchange_and_store_session(
         issuer: input.authorization_server_metadata.issuer.clone(),
         redirect_uri: input.redirect_uri.to_string(),
         refresh_token: tokens.refresh_token,
-        resource: input.protected_resource_metadata.resource.clone(),
         scope: tokens.scope,
         token_type: tokens.token_type,
     };
     installation.set_remote_session(session.clone());
     write_broker_installation_secrets(secret_store, installation)?;
-    write_broker_remote_session_snapshot(runtime_paths, &session)?;
+    write_broker_remote_session_snapshot(
+        runtime_paths,
+        &session,
+        &input.protected_resource_metadata.resource,
+    )?;
     Ok(session)
 }
 

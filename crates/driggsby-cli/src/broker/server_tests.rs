@@ -89,6 +89,7 @@ async fn local_broker_handles_parallel_forwarded_calls() -> Result<()> {
         let _ = axum::serve(listener, app).await;
     });
 
+    let resource_url = format!("http://127.0.0.1:{}/mcp", address.port());
     let session = BrokerRemoteSession {
         schema_version: 1,
         access_token: "access-token".to_string(),
@@ -98,12 +99,11 @@ async fn local_broker_handles_parallel_forwarded_calls() -> Result<()> {
         issuer: format!("http://127.0.0.1:{}", address.port()),
         redirect_uri: "http://127.0.0.1/callback".to_string(),
         refresh_token: "refresh-token".to_string(),
-        resource: format!("http://127.0.0.1:{}/mcp", address.port()),
         scope: "driggsby.default".to_string(),
         token_type: "DPoP".to_string(),
     };
     write_broker_remote_session(secret_store.as_ref(), installation.broker_id(), &session)?;
-    write_broker_remote_session_snapshot(&runtime_paths, &session)?;
+    write_broker_remote_session_snapshot(&runtime_paths, &session, &resource_url)?;
 
     let installation = ensure_broker_installation(&runtime_paths, secret_store.as_ref()).await?;
     let server = LocalBrokerServer::bind(

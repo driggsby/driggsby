@@ -23,7 +23,6 @@ pub struct BrokerRemoteSession {
     pub issuer: String,
     pub redirect_uri: String,
     pub refresh_token: String,
-    pub resource: String,
     pub scope: String,
     pub token_type: String,
 }
@@ -89,12 +88,13 @@ pub fn read_broker_remote_session_snapshot(
 pub fn write_broker_remote_session_snapshot(
     runtime_paths: &RuntimePaths,
     session: &BrokerRemoteSession,
+    resource: &str,
 ) -> Result<()> {
     write_json_file(
         &runtime_paths.session_snapshot_path,
         &BrokerRemoteSessionSnapshot {
             schema_version: SESSION_SNAPSHOT_SCHEMA_VERSION,
-            session: summarize_broker_remote_session(session),
+            session: summarize_broker_remote_session(session, resource),
         },
     )
 }
@@ -105,13 +105,14 @@ pub fn clear_broker_remote_session_snapshot(runtime_paths: &RuntimePaths) -> Res
 
 pub fn summarize_broker_remote_session(
     session: &BrokerRemoteSession,
+    resource: &str,
 ) -> BrokerRemoteSessionSummary {
     BrokerRemoteSessionSummary {
         access_token_expires_at: session.access_token_expires_at.clone(),
         authenticated_at: session.authenticated_at.clone(),
         client_id: session.client_id.clone(),
         issuer: session.issuer.clone(),
-        resource: session.resource.clone(),
+        resource: resource.to_string(),
         scope: session.scope.clone(),
     }
 }
