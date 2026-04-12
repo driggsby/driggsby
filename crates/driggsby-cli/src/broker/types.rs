@@ -32,16 +32,6 @@ pub struct BrokerDpopMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BrokerReadiness {
-    pub installed: bool,
-    pub broker_id: Option<String>,
-    pub dpop_thumbprint: Option<String>,
-    pub local_auth_token_present: bool,
-    pub private_key_present: bool,
-    pub remote_session_present: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrokerStatus {
     pub installed: bool,
     pub broker_running: bool,

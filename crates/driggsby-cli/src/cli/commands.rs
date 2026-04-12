@@ -31,6 +31,9 @@ pub async fn run_login_command(runtime_paths: &RuntimePaths) -> Result<()> {
         print_manual_sign_in_url,
     )
     .await?;
+    if let Some(notice) = resolved_secret_store.activated_fallback_notice() {
+        println!("{notice}");
+    }
 
     println!("Connected successfully.");
     println!();
@@ -55,9 +58,15 @@ fn flush_stdout() -> Result<()> {
 pub async fn run_logout_command(runtime_paths: &RuntimePaths) -> Result<()> {
     let resolved_secret_store = resolve_secret_store_for_logout(runtime_paths)?;
     let _ = shutdown_broker(runtime_paths, resolved_secret_store.store.as_ref()).await;
-    clear_broker_installation(runtime_paths, resolved_secret_store.store.as_ref())?;
+    let clear_result =
+        clear_broker_installation(runtime_paths, resolved_secret_store.store.as_ref())?;
     if let Some(notice) = resolved_secret_store.notice {
         println!("{notice}");
+    }
+    if clear_result.platform_secret_delete_failed {
+        println!(
+            "Platform secure storage could not be fully cleared from this shell. Any unreachable platform-keyring entries will remain until you return to the original session."
+        );
     }
     println!("Disconnected.");
     println!();

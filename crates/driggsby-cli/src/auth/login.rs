@@ -2,14 +2,13 @@ use anyhow::{Result, bail};
 
 use crate::{
     broker::{
-        installation::{ensure_broker_installation, read_broker_dpop_key_pair},
-        secret_store::SecretStore,
-        session::{
-            BrokerRemoteSession, write_broker_remote_session, write_broker_remote_session_snapshot,
+        installation::{
+            BrokerInstallation, ensure_broker_installation, write_broker_installation_secrets,
         },
+        secret_store::SecretStore,
+        session::{BrokerRemoteSession, write_broker_remote_session_snapshot},
     },
     runtime_paths::RuntimePaths,
-    user_guidance::build_reauthentication_required_message,
 };
 
 use super::{
@@ -44,7 +43,7 @@ pub async fn login_broker(
     on_manual_sign_in_url: impl FnOnce(&str) -> Result<()>,
 ) -> Result<BrokerLoginResult> {
     let config = resolve_broker_auth_config()?;
-    let metadata = ensure_broker_installation(runtime_paths, secret_store).await?;
+    let mut installation = ensure_broker_installation(runtime_paths, secret_store).await?;
     let protected_resource_metadata =
         fetch_protected_resource_metadata(&config.protected_resource_metadata_url).await?;
     let authorization_server_metadata =
@@ -97,7 +96,7 @@ pub async fn login_broker(
     let session = exchange_and_store_session(
         runtime_paths,
         secret_store,
-        &metadata.broker_id,
+        &mut installation,
         ExchangeSessionInput {
             authorization_code: &callback.code,
             authorization_server_metadata: &authorization_server_metadata,
@@ -111,8 +110,8 @@ pub async fn login_broker(
 
     Ok(BrokerLoginResult {
         browser_opened,
-        broker_id: metadata.broker_id,
-        dpop_thumbprint: metadata.dpop.thumbprint,
+        broker_id: installation.broker_id().to_string(),
+        dpop_thumbprint: installation.dpop_thumbprint().to_string(),
         session,
         sign_in_url,
     })
@@ -130,15 +129,10 @@ struct ExchangeSessionInput<'a> {
 async fn exchange_and_store_session(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
-    broker_id: &str,
+    installation: &mut BrokerInstallation,
     input: ExchangeSessionInput<'_>,
 ) -> Result<BrokerRemoteSession> {
-    let dpop_key_pair = read_broker_dpop_key_pair(runtime_paths, secret_store, broker_id)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(build_reauthentication_required_message(
-                "The local CLI DPoP key is missing"
-            ))
-        })?;
+    let dpop_key_pair = installation.dpop_key_pair();
     let dpop_proof = create_dpop_proof(
         &dpop_key_pair.private_jwk,
         &dpop_key_pair.public_jwk,
@@ -170,7 +164,8 @@ async fn exchange_and_store_session(
         scope: tokens.scope,
         token_type: tokens.token_type,
     };
-    write_broker_remote_session(secret_store, broker_id, &session)?;
+    installation.set_remote_session(session.clone());
+    write_broker_installation_secrets(secret_store, installation)?;
     write_broker_remote_session_snapshot(runtime_paths, &session)?;
     Ok(session)
 }

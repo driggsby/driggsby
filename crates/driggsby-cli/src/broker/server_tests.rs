@@ -16,14 +16,14 @@ use crate::runtime_paths::{RuntimePaths, ensure_runtime_directories};
 
 use super::{
     client::{call_broker_tool, ping_broker},
-    installation::{
-        ensure_broker_installation, read_broker_dpop_key_pair, read_broker_local_auth_token,
-    },
+    installation::ensure_broker_installation,
     public_error::PublicBrokerError,
     remote_mcp::RemoteMcpClient,
     secret_store::SecretStore,
     server::LocalBrokerServer,
-    session::{BrokerRemoteSession, write_broker_remote_session},
+    session::{
+        BrokerRemoteSession, write_broker_remote_session, write_broker_remote_session_snapshot,
+    },
 };
 
 const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
@@ -73,7 +73,7 @@ async fn local_broker_handles_parallel_forwarded_calls() -> Result<()> {
     let runtime_paths = temp_runtime_paths()?;
     ensure_runtime_directories(&runtime_paths)?;
     let secret_store: Arc<dyn SecretStore> = Arc::new(TestSecretStore::default());
-    let metadata = ensure_broker_installation(&runtime_paths, secret_store.as_ref()).await?;
+    let installation = ensure_broker_installation(&runtime_paths, secret_store.as_ref()).await?;
 
     let remote_state = FakeRemoteState {
         call_tool_count: Arc::new(AtomicUsize::new(0)),
@@ -89,44 +89,32 @@ async fn local_broker_handles_parallel_forwarded_calls() -> Result<()> {
         let _ = axum::serve(listener, app).await;
     });
 
-    write_broker_remote_session(
-        secret_store.as_ref(),
-        &metadata.broker_id,
-        &BrokerRemoteSession {
-            schema_version: 1,
-            access_token: "access-token".to_string(),
-            access_token_expires_at: "2099-01-01T00:00:00Z".to_string(),
-            authenticated_at: "2099-01-01T00:00:00Z".to_string(),
-            client_id: "client-123".to_string(),
-            issuer: format!("http://127.0.0.1:{}", address.port()),
-            redirect_uri: "http://127.0.0.1/callback".to_string(),
-            refresh_token: "refresh-token".to_string(),
-            resource: format!("http://127.0.0.1:{}/mcp", address.port()),
-            scope: "driggsby.default".to_string(),
-            token_type: "DPoP".to_string(),
-        },
-    )?;
+    let session = BrokerRemoteSession {
+        schema_version: 1,
+        access_token: "access-token".to_string(),
+        access_token_expires_at: "2099-01-01T00:00:00Z".to_string(),
+        authenticated_at: "2099-01-01T00:00:00Z".to_string(),
+        client_id: "client-123".to_string(),
+        issuer: format!("http://127.0.0.1:{}", address.port()),
+        redirect_uri: "http://127.0.0.1/callback".to_string(),
+        refresh_token: "refresh-token".to_string(),
+        resource: format!("http://127.0.0.1:{}/mcp", address.port()),
+        scope: "driggsby.default".to_string(),
+        token_type: "DPoP".to_string(),
+    };
+    write_broker_remote_session(secret_store.as_ref(), installation.broker_id(), &session)?;
+    write_broker_remote_session_snapshot(&runtime_paths, &session)?;
 
-    let Some(auth_token) =
-        read_broker_local_auth_token(secret_store.as_ref(), &metadata.broker_id)?
-    else {
-        panic!("missing auth token");
-    };
-    let Some(dpop_keys) =
-        read_broker_dpop_key_pair(&runtime_paths, secret_store.as_ref(), &metadata.broker_id)?
-    else {
-        panic!("missing dpop keys");
-    };
+    let installation = ensure_broker_installation(&runtime_paths, secret_store.as_ref()).await?;
     let server = LocalBrokerServer::bind(
-        auth_token,
-        RemoteMcpClient::new()?,
+        RemoteMcpClient::new_for_loopback_tests()?,
         runtime_paths.clone(),
         secret_store.clone(),
-        metadata.broker_id.clone(),
+        installation,
     )
     .await?;
     let broker_task = tokio::spawn(async move {
-        let _ = server.run(dpop_keys).await;
+        let _ = server.run().await;
     });
 
     sleep(Duration::from_millis(100)).await;

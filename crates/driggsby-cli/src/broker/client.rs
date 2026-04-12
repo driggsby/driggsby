@@ -27,13 +27,32 @@ const BROKER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
 const BROKER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const LOCAL_SERVER_DETECTION_TIMEOUT: Duration = Duration::from_millis(250);
 
+#[derive(Clone)]
+pub struct BrokerClientAuth {
+    auth_token: String,
+}
+
+impl BrokerClientAuth {
+    pub fn new(auth_token: String) -> Self {
+        Self { auth_token }
+    }
+}
+
 pub async fn ping_broker(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
 ) -> Result<Option<PingResult>> {
-    let Some(response) =
-        send_broker_request(runtime_paths, secret_store, "ping", None, None).await?
-    else {
+    let Some(auth) = read_broker_client_auth(runtime_paths, secret_store)? else {
+        return Ok(None);
+    };
+    ping_broker_with_auth(runtime_paths, &auth).await
+}
+
+pub async fn ping_broker_with_auth(
+    runtime_paths: &RuntimePaths,
+    auth: &BrokerClientAuth,
+) -> Result<Option<PingResult>> {
+    let Some(response) = send_broker_request(runtime_paths, auth, "ping", None, None).await? else {
         return Ok(None);
     };
     Ok(Some(serde_json::from_value(response)?))
@@ -43,8 +62,17 @@ pub async fn get_broker_status(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
 ) -> Result<Option<BrokerStatus>> {
-    let Some(response) =
-        send_broker_request(runtime_paths, secret_store, "get_status", None, None).await?
+    let Some(auth) = read_broker_client_auth(runtime_paths, secret_store)? else {
+        return Ok(None);
+    };
+    get_broker_status_with_auth(runtime_paths, &auth).await
+}
+
+pub async fn get_broker_status_with_auth(
+    runtime_paths: &RuntimePaths,
+    auth: &BrokerClientAuth,
+) -> Result<Option<BrokerStatus>> {
+    let Some(response) = send_broker_request(runtime_paths, auth, "get_status", None, None).await?
     else {
         return Ok(None);
     };
@@ -60,8 +88,17 @@ pub async fn shutdown_broker(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
 ) -> Result<bool> {
-    let Some(response) =
-        send_broker_request(runtime_paths, secret_store, "shutdown", None, None).await?
+    let Some(auth) = read_broker_client_auth(runtime_paths, secret_store)? else {
+        return Ok(false);
+    };
+    shutdown_broker_with_auth(runtime_paths, &auth).await
+}
+
+pub async fn shutdown_broker_with_auth(
+    runtime_paths: &RuntimePaths,
+    auth: &BrokerClientAuth,
+) -> Result<bool> {
+    let Some(response) = send_broker_request(runtime_paths, auth, "shutdown", None, None).await?
     else {
         return Ok(false);
     };
@@ -75,7 +112,17 @@ pub async fn list_broker_tools(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
 ) -> Result<Option<Value>> {
-    send_broker_request(runtime_paths, secret_store, "list_tools", None, None).await
+    let Some(auth) = read_broker_client_auth(runtime_paths, secret_store)? else {
+        return Ok(None);
+    };
+    list_broker_tools_with_auth(runtime_paths, &auth).await
+}
+
+pub async fn list_broker_tools_with_auth(
+    runtime_paths: &RuntimePaths,
+    auth: &BrokerClientAuth,
+) -> Result<Option<Value>> {
+    send_broker_request(runtime_paths, auth, "list_tools", None, None).await
 }
 
 pub async fn call_broker_tool(
@@ -84,9 +131,21 @@ pub async fn call_broker_tool(
     tool_name: &str,
     args: Option<Value>,
 ) -> Result<Option<Value>> {
+    let Some(auth) = read_broker_client_auth(runtime_paths, secret_store)? else {
+        return Ok(None);
+    };
+    call_broker_tool_with_auth(runtime_paths, &auth, tool_name, args).await
+}
+
+pub async fn call_broker_tool_with_auth(
+    runtime_paths: &RuntimePaths,
+    auth: &BrokerClientAuth,
+    tool_name: &str,
+    args: Option<Value>,
+) -> Result<Option<Value>> {
     send_broker_request(
         runtime_paths,
-        secret_store,
+        auth,
         "call_tool",
         Some(tool_name.to_string()),
         args,
@@ -111,7 +170,7 @@ pub async fn local_server_is_running(runtime_paths: &RuntimePaths) -> bool {
 
 async fn send_broker_request(
     runtime_paths: &RuntimePaths,
-    secret_store: &dyn SecretStore,
+    auth: &BrokerClientAuth,
     method: &str,
     tool_name: Option<String>,
     args: Option<Value>,
@@ -120,14 +179,8 @@ async fn send_broker_request(
         return Ok(None);
     }
 
-    let Some(metadata) = read_broker_metadata(runtime_paths)? else {
-        return Ok(None);
-    };
-    let Some(auth_token) = read_broker_local_auth_token(secret_store, &metadata.broker_id)? else {
-        return Ok(None);
-    };
     let request = BrokerRequest {
-        auth_token,
+        auth_token: auth.auth_token.clone(),
         challenge: uuid::Uuid::now_v7().to_string(),
         id: uuid::Uuid::now_v7().to_string(),
         method: method.to_string(),
@@ -170,6 +223,16 @@ async fn send_broker_request(
         .into());
     }
     Ok(response.result)
+}
+
+pub fn read_broker_client_auth(
+    runtime_paths: &RuntimePaths,
+    secret_store: &dyn SecretStore,
+) -> Result<Option<BrokerClientAuth>> {
+    let Some(metadata) = read_broker_metadata(runtime_paths)? else {
+        return Ok(None);
+    };
+    Ok(read_broker_local_auth_token(secret_store, &metadata.broker_id)?.map(BrokerClientAuth::new))
 }
 
 fn broker_response_timeout(method: &str) -> Duration {

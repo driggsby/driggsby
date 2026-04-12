@@ -1,3 +1,8 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use anyhow::{Result, bail};
 
 use crate::runtime_paths::RuntimePaths;
@@ -14,8 +19,24 @@ const LOGOUT_FALLBACK_NOTICE: &str = "Platform secure storage is unavailable her
 
 pub struct ResolvedSecretStore {
     pub backend: &'static str,
+    fallback: Option<ActivatedFallbackNotice>,
     pub notice: Option<String>,
     pub store: Box<dyn SecretStore>,
+}
+
+impl ResolvedSecretStore {
+    pub fn activated_fallback_notice(&self) -> Option<&str> {
+        let fallback = self.fallback.as_ref()?;
+        fallback
+            .active
+            .load(Ordering::Acquire)
+            .then_some(fallback.message.as_str())
+    }
+}
+
+struct ActivatedFallbackNotice {
+    active: Arc<AtomicBool>,
+    message: String,
 }
 
 pub fn resolve_secret_store(runtime_paths: &RuntimePaths) -> Result<ResolvedSecretStore> {
@@ -23,6 +44,7 @@ pub fn resolve_secret_store(runtime_paths: &RuntimePaths) -> Result<ResolvedSecr
     if file_store.has_stored_secrets()? {
         return Ok(ResolvedSecretStore {
             backend: "file",
+            fallback: None,
             notice: None,
             store: Box::new(file_store),
         });
@@ -49,6 +71,7 @@ fn resolve_secret_store_with_keyring_policy(
     if file_store.has_stored_secrets()? {
         return Ok(ResolvedSecretStore {
             backend: "file",
+            fallback: None,
             notice: None,
             store: Box::new(file_store),
         });
@@ -76,18 +99,93 @@ fn resolve_secret_store_without_file_secrets(
     if matches!(keyring_availability, KeyringAvailability::Available)
         && (metadata_present || prefer_keyring_for_fresh_install)
     {
+        let (store, fallback): (Box<dyn SecretStore>, Option<ActivatedFallbackNotice>) =
+            if metadata_present {
+                (Box::new(KeyringSecretStore::default()), None)
+            } else {
+                let fallback_active = Arc::new(AtomicBool::new(false));
+                let fallback = ActivatedFallbackNotice {
+                    active: fallback_active.clone(),
+                    message: fallback_notice(runtime_paths),
+                };
+                (
+                    Box::new(FreshInstallSecretStore::new(
+                        Box::new(KeyringSecretStore::default()),
+                        file_store,
+                        fallback_active,
+                    )),
+                    Some(fallback),
+                )
+            };
         return Ok(ResolvedSecretStore {
             backend: "keyring",
+            fallback,
             notice: None,
-            store: Box::new(KeyringSecretStore::default()),
+            store,
         });
     }
 
     Ok(ResolvedSecretStore {
         backend: "file",
+        fallback: None,
         notice: Some(fallback_notice(runtime_paths)),
         store: Box::new(file_store),
     })
+}
+
+struct FreshInstallSecretStore {
+    fallback_active: Arc<AtomicBool>,
+    primary_write_succeeded: AtomicBool,
+    fallback: FileSecretStore,
+    primary: Box<dyn SecretStore>,
+}
+
+impl FreshInstallSecretStore {
+    fn new(
+        primary: Box<dyn SecretStore>,
+        fallback: FileSecretStore,
+        fallback_active: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            fallback_active,
+            primary_write_succeeded: AtomicBool::new(false),
+            fallback,
+            primary,
+        }
+    }
+}
+
+impl SecretStore for FreshInstallSecretStore {
+    fn set_secret(&self, account: &str, secret: &str) -> Result<()> {
+        if self.fallback_active.load(Ordering::Acquire) {
+            return self.fallback.set_secret(account, secret);
+        }
+        match self.primary.set_secret(account, secret) {
+            Ok(()) => {
+                self.primary_write_succeeded.store(true, Ordering::Release);
+                Ok(())
+            }
+            Err(_) if !self.primary_write_succeeded.load(Ordering::Acquire) => {
+                self.fallback_active.store(true, Ordering::Release);
+                self.fallback.set_secret(account, secret)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn get_secret(&self, account: &str) -> Result<Option<String>> {
+        if self.fallback_active.load(Ordering::Acquire) {
+            return self.fallback.get_secret(account);
+        }
+        self.primary.get_secret(account)
+    }
+
+    fn delete_secret(&self, account: &str) -> Result<bool> {
+        if self.fallback_active.load(Ordering::Acquire) {
+            return self.fallback.delete_secret(account);
+        }
+        self.primary.delete_secret(account)
+    }
 }
 
 fn fallback_notice(runtime_paths: &RuntimePaths) -> String {
@@ -104,6 +202,7 @@ pub fn resolve_secret_store_for_logout(
         Ok(store) => Ok(store),
         Err(_) => Ok(ResolvedSecretStore {
             backend: "file",
+            fallback: None,
             notice: Some(LOGOUT_FALLBACK_NOTICE.to_string()),
             store: Box::new(FileSecretStore::new(runtime_paths)),
         }),
@@ -112,6 +211,11 @@ pub fn resolve_secret_store_for_logout(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
     use anyhow::Result;
 
     use crate::{
@@ -126,7 +230,52 @@ mod tests {
         runtime_paths::RuntimePaths,
     };
 
-    use super::resolve_secret_store_with_keyring_policy;
+    use super::{FreshInstallSecretStore, resolve_secret_store_with_keyring_policy};
+
+    struct FailingSecretStore;
+
+    impl SecretStore for FailingSecretStore {
+        fn set_secret(&self, _account: &str, _secret: &str) -> Result<()> {
+            anyhow::bail!("keyring unavailable")
+        }
+
+        fn get_secret(&self, _account: &str) -> Result<Option<String>> {
+            anyhow::bail!("keyring unavailable")
+        }
+
+        fn delete_secret(&self, _account: &str) -> Result<bool> {
+            anyhow::bail!("keyring unavailable")
+        }
+    }
+
+    struct OneSuccessThenFailSecretStore {
+        writes: AtomicUsize,
+    }
+
+    impl OneSuccessThenFailSecretStore {
+        fn new() -> Self {
+            Self {
+                writes: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl SecretStore for OneSuccessThenFailSecretStore {
+        fn set_secret(&self, _account: &str, _secret: &str) -> Result<()> {
+            if self.writes.fetch_add(1, Ordering::AcqRel) == 0 {
+                return Ok(());
+            }
+            anyhow::bail!("keyring unavailable")
+        }
+
+        fn get_secret(&self, _account: &str) -> Result<Option<String>> {
+            Ok(None)
+        }
+
+        fn delete_secret(&self, _account: &str) -> Result<bool> {
+            Ok(false)
+        }
+    }
 
     fn test_runtime_paths(temp_dir: &tempfile::TempDir) -> RuntimePaths {
         let config_dir = temp_dir.path().join("config");
@@ -235,6 +384,44 @@ mod tests {
         )?;
 
         assert_eq!(resolved.backend, "file");
+        Ok(())
+    }
+
+    #[test]
+    fn fresh_install_store_falls_back_when_first_keyring_write_fails() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let runtime_paths = test_runtime_paths(&temp_dir);
+        let fallback_active = Arc::new(AtomicBool::new(false));
+        let store = FreshInstallSecretStore::new(
+            Box::new(FailingSecretStore),
+            FileSecretStore::new(&runtime_paths),
+            fallback_active.clone(),
+        );
+
+        store.set_secret("account", "secret")?;
+
+        assert!(fallback_active.load(Ordering::Acquire));
+        assert_eq!(store.get_secret("account")?.as_deref(), Some("secret"));
+        Ok(())
+    }
+
+    #[test]
+    fn fresh_install_store_does_not_fallback_after_primary_write_succeeds() -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let runtime_paths = test_runtime_paths(&temp_dir);
+        let fallback_active = Arc::new(AtomicBool::new(false));
+        let store = FreshInstallSecretStore::new(
+            Box::new(OneSuccessThenFailSecretStore::new()),
+            FileSecretStore::new(&runtime_paths),
+            fallback_active.clone(),
+        );
+
+        store.set_secret("first", "secret")?;
+        let second = store.set_secret("second", "secret");
+
+        assert!(second.is_err());
+        assert!(!fallback_active.load(Ordering::Acquire));
+        assert!(!FileSecretStore::new(&runtime_paths).has_stored_secrets()?);
         Ok(())
     }
 

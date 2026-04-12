@@ -58,18 +58,20 @@ async fn coalesces_tool_discovery_and_handles_parallel_calls() -> anyhow::Result
         private_jwk: dpop.private_jwk,
         public_jwk: dpop.public_jwk,
     };
-    let client = RemoteMcpClient::new()?;
+    let client = RemoteMcpClient::new_for_loopback_tests()?;
 
     let mut tasks = tokio::task::JoinSet::new();
     for index in 0..20 {
         let client = client.clone();
         let session = session.clone();
         let dpop_keys = dpop_keys.clone();
+        let resource_url = session.resource.clone();
         tasks.spawn(async move {
             client
                 .call_tool(
                     &session,
                     &dpop_keys,
+                    &resource_url,
                     "echo_balance",
                     Some(json!({ "amount": format!("{index}") })),
                 )
@@ -128,12 +130,13 @@ async fn supports_stateless_remote_mcp_without_session_header() -> anyhow::Resul
         private_jwk: dpop.private_jwk,
         public_jwk: dpop.public_jwk,
     };
-    let client = RemoteMcpClient::new()?;
+    let client = RemoteMcpClient::new_for_loopback_tests()?;
 
     let result = client
         .call_tool(
             &session,
             &dpop_keys,
+            &session.resource,
             "echo_balance",
             Some(json!({ "amount": "stateless" })),
         )

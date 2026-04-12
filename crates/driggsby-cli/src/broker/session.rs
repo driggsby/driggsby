@@ -6,9 +6,11 @@ use crate::{
     runtime_paths::RuntimePaths,
 };
 
-use super::secret_store::SecretStore;
+use super::{
+    secret_store::SecretStore,
+    secrets::{read_broker_secrets, write_broker_secrets},
+};
 
-const REMOTE_SESSION_ACCOUNT_SUFFIX: &str = "remote-session";
 const SESSION_SNAPSHOT_SCHEMA_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,16 +48,16 @@ pub fn read_broker_remote_session(
     secret_store: &dyn SecretStore,
     broker_id: &str,
 ) -> Result<Option<BrokerRemoteSession>> {
-    match secret_store.get_secret(&remote_session_account_name(broker_id))? {
-        Some(raw) => {
-            let mut parsed: BrokerRemoteSession = serde_json::from_str(&raw)?;
-            if parsed.token_type.is_empty() {
-                parsed.token_type = "Bearer".to_string();
-            }
-            Ok(Some(parsed))
-        }
-        None => Ok(None),
+    let Some(secrets) = read_broker_secrets(secret_store, broker_id)? else {
+        return Ok(None);
+    };
+    let Some(mut session) = secrets.remote_session() else {
+        return Ok(None);
+    };
+    if session.token_type.is_empty() {
+        session.token_type = "Bearer".to_string();
     }
+    Ok(Some(session))
 }
 
 pub fn write_broker_remote_session(
@@ -63,14 +65,18 @@ pub fn write_broker_remote_session(
     broker_id: &str,
     session: &BrokerRemoteSession,
 ) -> Result<()> {
-    secret_store.set_secret(
-        &remote_session_account_name(broker_id),
-        &serde_json::to_string(session)?,
-    )
+    let mut secrets = read_broker_secrets(secret_store, broker_id)?.ok_or_else(|| {
+        anyhow::anyhow!("The local Driggsby secure storage record is incomplete.")
+    })?;
+    secrets.set_remote_session(Some(session.clone()));
+    write_broker_secrets(secret_store, broker_id, &secrets)
 }
 
 pub fn clear_broker_remote_session(secret_store: &dyn SecretStore, broker_id: &str) -> Result<()> {
-    let _ = secret_store.delete_secret(&remote_session_account_name(broker_id))?;
+    if let Some(mut secrets) = read_broker_secrets(secret_store, broker_id)? {
+        secrets.set_remote_session(None);
+        write_broker_secrets(secret_store, broker_id, &secrets)?;
+    }
     Ok(())
 }
 
@@ -108,8 +114,4 @@ pub fn summarize_broker_remote_session(
         resource: session.resource.clone(),
         scope: session.scope.clone(),
     }
-}
-
-fn remote_session_account_name(broker_id: &str) -> String {
-    format!("driggsby__{broker_id}__{REMOTE_SESSION_ACCOUNT_SUFFIX}")
 }

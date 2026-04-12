@@ -73,7 +73,7 @@ fn resolve_details(
 
     if !matches!(remote_access_state, BrokerRemoteAccessState::NotConnected) {
         lines.push(format!(
-            "Session: {}",
+            "Driggsby account: {}",
             match remote_access_state {
                 BrokerRemoteAccessState::Ready => "connected",
                 BrokerRemoteAccessState::NotConnected => "not connected",
@@ -107,19 +107,17 @@ fn resolve_explanation(
             Some("This CLI is ready to serve MCP requests.".to_string())
         }
         BrokerRemoteAccessState::Ready => None,
-        BrokerRemoteAccessState::NotConnected => Some(
-            "Sign in is required before this CLI can serve MCP requests.".to_string(),
-        ),
+        BrokerRemoteAccessState::NotConnected => {
+            Some("Sign in is required before this CLI can serve MCP requests.".to_string())
+        }
         BrokerRemoteAccessState::ReauthRequired => Some(
-            "The saved session is no longer valid, so this CLI cannot serve MCP requests yet."
+            "Driggsby sign-in is no longer authorized, so this CLI cannot serve MCP requests yet."
                 .to_string(),
         ),
-        BrokerRemoteAccessState::TemporarilyUnavailable if status.remote_session.is_some() => {
-            Some(
-                "The saved session will be refreshed automatically the next time the MCP server starts."
-                    .to_string(),
-            )
-        }
+        BrokerRemoteAccessState::TemporarilyUnavailable if status.remote_session.is_some() => Some(
+            "Driggsby access will refresh automatically the next time the MCP server starts."
+                .to_string(),
+        ),
         BrokerRemoteAccessState::TemporarilyUnavailable => {
             Some("This CLI is not ready to serve MCP requests yet.".to_string())
         }
@@ -208,7 +206,7 @@ mod tests {
         });
 
         assert!(text.starts_with("Ready\n"));
-        assert!(text.contains("Session: connected"));
+        assert!(text.contains("Driggsby account: connected"));
         assert!(text.contains("Local auth broker: waiting for client launch"));
         assert!(
             text.contains("Configure your MCP client with:\n  npx -y driggsby@latest mcp-server")
@@ -237,7 +235,7 @@ mod tests {
         assert!(text.contains("Sign in is required before this CLI can serve MCP requests."));
         assert!(text.contains("Next:\n  npx driggsby@latest login"));
         assert!(!text.contains('`'));
-        assert!(!text.contains("Session:"));
+        assert!(!text.contains("Driggsby account:"));
         assert!(!text.contains("Local auth broker:"));
     }
 

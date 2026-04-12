@@ -14,7 +14,11 @@ use rmcp::{
 use crate::{
     broker::public_error::PublicBrokerError,
     broker::{
-        client::{call_broker_tool, list_broker_tools},
+        client::{
+            BrokerClientAuth, call_broker_tool_with_auth, get_broker_status_with_auth,
+            list_broker_tools_with_auth,
+        },
+        installation::ensure_broker_installation,
         launch::ensure_broker_running,
         resolve_secret_store::resolve_secret_store,
     },
@@ -26,8 +30,8 @@ const LOCAL_STATUS_TOOL_NAME: &str = "get_local_cli_status";
 
 #[derive(Clone)]
 struct BrokerShimServer {
+    auth: BrokerClientAuth,
     runtime_paths: RuntimePaths,
-    secret_store: Arc<dyn crate::broker::secret_store::SecretStore>,
 }
 
 impl ServerHandler for BrokerShimServer {
@@ -40,9 +44,10 @@ impl ServerHandler for BrokerShimServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListToolsResult, ErrorData> {
-        let remote = self.remote_tools().await.map_err(to_mcp_error)?;
         let mut tools = vec![local_status_tool().map_err(to_mcp_error)?];
-        tools.extend(remote);
+        if let Ok(remote) = self.remote_tools().await {
+            tools.extend(remote);
+        }
         Ok(ListToolsResult {
             tools,
             meta: None,
@@ -69,9 +74,9 @@ impl ServerHandler for BrokerShimServer {
             ));
         }
 
-        let result = call_broker_tool(
+        let result = call_broker_tool_with_auth(
             &self.runtime_paths,
-            self.secret_store.as_ref(),
+            &self.auth,
             request.name.as_ref(),
             request.arguments.map(serde_json::Value::Object),
         )
@@ -90,7 +95,7 @@ impl ServerHandler for BrokerShimServer {
 
 impl BrokerShimServer {
     async fn remote_tools(&self) -> Result<Vec<Tool>> {
-        let tools = list_broker_tools(&self.runtime_paths, self.secret_store.as_ref())
+        let tools = list_broker_tools_with_auth(&self.runtime_paths, &self.auth)
             .await?
             .ok_or_else(|| {
                 anyhow::anyhow!("The local Driggsby CLI service is not responding yet.")
@@ -108,11 +113,7 @@ impl BrokerShimServer {
     }
 
     async fn local_status_text(&self) -> Result<String> {
-        let status = crate::broker::client::get_broker_status(
-            &self.runtime_paths,
-            self.secret_store.as_ref(),
-        )
-        .await?;
+        let status = get_broker_status_with_auth(&self.runtime_paths, &self.auth).await?;
         let status = crate::broker::installation::resolve_broker_status_for_display(
             &self.runtime_paths,
             status,
@@ -129,10 +130,14 @@ pub async fn run_mcp_server_command(
     let resolved_secret_store = resolve_secret_store(runtime_paths)?;
     let secret_store: Arc<dyn crate::broker::secret_store::SecretStore> =
         Arc::from(resolved_secret_store.store);
-    ensure_broker_running(runtime_paths, secret_store.as_ref(), current_exe).await?;
+    let auth = {
+        let installation = ensure_broker_installation(runtime_paths, secret_store.as_ref()).await?;
+        BrokerClientAuth::new(installation.local_auth_token())
+    };
+    ensure_broker_running(runtime_paths, &auth, current_exe).await?;
     let service = BrokerShimServer {
+        auth,
         runtime_paths: runtime_paths.clone(),
-        secret_store,
     }
     .serve(stdio())
     .await?;

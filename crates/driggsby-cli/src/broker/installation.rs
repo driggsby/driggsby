@@ -10,30 +10,18 @@ use rand::Rng;
 
 use super::{
     file_secret_store::FileSecretStore,
-    remote_session::inspect_remote_session_readiness,
     secret_store::SecretStore,
-    session::{
-        clear_broker_remote_session, clear_broker_remote_session_snapshot,
-        read_broker_remote_session, read_broker_remote_session_snapshot,
-    },
-    types::{
-        BrokerDpopMetadata, BrokerMetadata, BrokerReadiness, BrokerRemoteAccessState, BrokerStatus,
-    },
+    secrets::{BrokerSecrets, clear_broker_secrets, read_broker_secrets, write_broker_secrets},
+    session::{clear_broker_remote_session_snapshot, read_broker_remote_session_snapshot},
+    types::{BrokerDpopMetadata, BrokerMetadata, BrokerRemoteAccessState, BrokerStatus},
 };
-
-const LOCAL_AUTH_TOKEN_ACCOUNT_SUFFIX: &str = "local-auth-token";
-const PRIVATE_KEY_ACCOUNT_SUFFIX: &str = "dpop-private-jwk";
 
 pub async fn ensure_broker_installation(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
-) -> Result<BrokerMetadata> {
-    let readiness = inspect_broker_readiness(runtime_paths, secret_store)?;
-    if readiness.installed
-        && readiness.private_key_present
-        && let Some(metadata) = read_broker_metadata(runtime_paths)?
-    {
-        return Ok(metadata);
+) -> Result<BrokerInstallation> {
+    if let Some(installation) = read_broker_installation(runtime_paths, secret_store)? {
+        return Ok(installation);
     }
 
     let broker_id = uuid::Uuid::now_v7().to_string();
@@ -49,79 +37,28 @@ pub async fn ensure_broker_installation(
             thumbprint: dpop.thumbprint.clone(),
         },
     };
+    let secrets = BrokerSecrets::new(generate_local_auth_token(), dpop.private_jwk);
 
-    secret_store.set_secret(
-        &local_auth_token_account_name(&broker_id),
-        &generate_local_auth_token(),
-    )?;
-    secret_store.set_secret(
-        &private_key_account_name(&broker_id),
-        &serde_json::to_string(&dpop.private_jwk)?,
-    )?;
-    write_json_file(&runtime_paths.metadata_path, &metadata)?;
+    write_broker_secrets(secret_store, &broker_id, &secrets)?;
+    if let Err(error) = write_json_file(&runtime_paths.metadata_path, &metadata) {
+        let _ = clear_broker_secrets(secret_store, &broker_id);
+        return Err(error);
+    }
 
-    Ok(metadata)
+    Ok(BrokerInstallation { metadata, secrets })
 }
 
-pub fn inspect_broker_readiness(
+pub fn read_broker_installation(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
-) -> Result<BrokerReadiness> {
+) -> Result<Option<BrokerInstallation>> {
     let Some(metadata) = read_broker_metadata(runtime_paths)? else {
-        return Ok(BrokerReadiness {
-            installed: false,
-            broker_id: None,
-            dpop_thumbprint: None,
-            local_auth_token_present: false,
-            private_key_present: false,
-            remote_session_present: false,
-        });
+        return Ok(None);
     };
-
-    let local_auth_token_present = secret_store
-        .get_secret(&local_auth_token_account_name(&metadata.broker_id))?
-        .is_some();
-    let private_key_present = secret_store
-        .get_secret(&private_key_account_name(&metadata.broker_id))?
-        .is_some();
-    let remote_session_present =
-        read_broker_remote_session(secret_store, &metadata.broker_id)?.is_some();
-
-    Ok(BrokerReadiness {
-        installed: local_auth_token_present && private_key_present,
-        broker_id: Some(metadata.broker_id.clone()),
-        dpop_thumbprint: Some(metadata.dpop.thumbprint.clone()),
-        local_auth_token_present,
-        private_key_present,
-        remote_session_present,
-    })
-}
-
-pub async fn build_broker_status(
-    runtime_paths: &RuntimePaths,
-    secret_store: &dyn SecretStore,
-    broker_running: bool,
-) -> Result<BrokerStatus> {
-    let readiness = inspect_broker_readiness(runtime_paths, secret_store)?;
-    let remote = match &readiness.broker_id {
-        Some(broker_id) => {
-            inspect_remote_session_readiness(runtime_paths, secret_store, broker_id, true).await?
-        }
-        None => inspect_remote_session_readiness(runtime_paths, secret_store, "", false).await?,
+    let Some(secrets) = read_broker_secrets(secret_store, &metadata.broker_id)? else {
+        return Ok(None);
     };
-
-    Ok(BrokerStatus {
-        installed: readiness.installed && readiness.private_key_present,
-        broker_running,
-        broker_id: readiness.broker_id,
-        dpop_thumbprint: readiness.dpop_thumbprint,
-        remote_mcp_ready: remote.ready,
-        remote_access_detail: Some(remote.detail),
-        remote_access_state: Some(remote.state),
-        next_step_command: remote.next_step_command,
-        remote_session: remote.session,
-        socket_path: runtime_paths.socket_path.display().to_string(),
-    })
+    Ok(Some(BrokerInstallation { metadata, secrets }))
 }
 
 pub fn resolve_broker_status_for_display(
@@ -141,11 +78,12 @@ pub fn resolve_broker_status_for_display(
 pub fn clear_broker_installation(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
-) -> Result<()> {
-    if let Some(metadata) = read_broker_metadata(runtime_paths).ok().flatten() {
-        clear_broker_remote_session(secret_store, &metadata.broker_id)?;
-        let _ = secret_store.delete_secret(&local_auth_token_account_name(&metadata.broker_id))?;
-        let _ = secret_store.delete_secret(&private_key_account_name(&metadata.broker_id))?;
+) -> Result<ClearBrokerInstallationResult> {
+    let mut platform_secret_delete_failed = false;
+    if let Some(metadata) = read_broker_metadata(runtime_paths).ok().flatten()
+        && clear_broker_secrets(secret_store, &metadata.broker_id).is_err()
+    {
+        platform_secret_delete_failed = true;
     }
     clear_broker_remote_session_snapshot(runtime_paths)?;
     FileSecretStore::new(runtime_paths).clear_all_files()?;
@@ -154,7 +92,14 @@ pub fn clear_broker_installation(
     remove_file_if_present(&runtime_paths.socket_path)?;
     remove_empty_directory(&runtime_paths.config_dir)?;
     remove_empty_directory(&runtime_paths.state_dir)?;
-    Ok(())
+    Ok(ClearBrokerInstallationResult {
+        platform_secret_delete_failed,
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ClearBrokerInstallationResult {
+    pub platform_secret_delete_failed: bool,
 }
 
 pub fn read_broker_metadata(runtime_paths: &RuntimePaths) -> Result<Option<BrokerMetadata>> {
@@ -165,14 +110,7 @@ pub fn read_broker_local_auth_token(
     secret_store: &dyn SecretStore,
     broker_id: &str,
 ) -> Result<Option<String>> {
-    secret_store.get_secret(&local_auth_token_account_name(broker_id))
-}
-
-pub fn read_broker_private_jwk(
-    secret_store: &dyn SecretStore,
-    broker_id: &str,
-) -> Result<Option<String>> {
-    secret_store.get_secret(&private_key_account_name(broker_id))
+    Ok(read_broker_secrets(secret_store, broker_id)?.map(|secrets| secrets.local_auth_token()))
 }
 
 pub fn read_broker_dpop_key_pair(
@@ -180,19 +118,59 @@ pub fn read_broker_dpop_key_pair(
     secret_store: &dyn SecretStore,
     broker_id: &str,
 ) -> Result<Option<BrokerDpopKeyPair>> {
-    let Some(metadata) = read_broker_metadata(runtime_paths)? else {
+    let Some(installation) = read_broker_installation(runtime_paths, secret_store)? else {
         return Ok(None);
     };
-    if metadata.broker_id != broker_id {
+    if installation.metadata.broker_id != broker_id {
         return Ok(None);
     }
-    let Some(private_jwk) = read_broker_private_jwk(secret_store, broker_id)? else {
-        return Ok(None);
-    };
-    Ok(Some(BrokerDpopKeyPair {
-        private_jwk: serde_json::from_str(&private_jwk)?,
-        public_jwk: metadata.dpop.public_jwk,
-    }))
+    Ok(Some(installation.dpop_key_pair()))
+}
+
+#[derive(Clone)]
+pub struct BrokerInstallation {
+    pub metadata: BrokerMetadata,
+    secrets: BrokerSecrets,
+}
+
+impl BrokerInstallation {
+    pub fn broker_id(&self) -> &str {
+        &self.metadata.broker_id
+    }
+
+    pub fn dpop_key_pair(&self) -> BrokerDpopKeyPair {
+        BrokerDpopKeyPair {
+            private_jwk: self.secrets.dpop_private_jwk(),
+            public_jwk: self.metadata.dpop.public_jwk.clone(),
+        }
+    }
+
+    pub fn dpop_thumbprint(&self) -> &str {
+        &self.metadata.dpop.thumbprint
+    }
+
+    pub fn local_auth_token(&self) -> String {
+        self.secrets.local_auth_token()
+    }
+
+    pub fn remote_session(&self) -> Option<super::session::BrokerRemoteSession> {
+        self.secrets.remote_session()
+    }
+
+    pub fn set_remote_session(&mut self, session: super::session::BrokerRemoteSession) {
+        self.secrets.set_remote_session(Some(session));
+    }
+}
+
+pub fn write_broker_installation_secrets(
+    secret_store: &dyn SecretStore,
+    installation: &BrokerInstallation,
+) -> Result<()> {
+    write_broker_secrets(
+        secret_store,
+        installation.broker_id(),
+        &installation.secrets,
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -212,14 +190,6 @@ fn generate_local_auth_token() -> String {
     rendered
 }
 
-fn local_auth_token_account_name(broker_id: &str) -> String {
-    format!("driggsby__{broker_id}__{LOCAL_AUTH_TOKEN_ACCOUNT_SUFFIX}")
-}
-
-fn private_key_account_name(broker_id: &str) -> String {
-    format!("driggsby__{broker_id}__{PRIVATE_KEY_ACCOUNT_SUFFIX}")
-}
-
 fn build_display_status_from_local_state(
     runtime_paths: &RuntimePaths,
     local_server_running: bool,
@@ -232,7 +202,7 @@ fn build_display_status_from_local_state(
             None => (
                 false,
                 BrokerRemoteAccessState::NotConnected,
-                "The CLI does not have a saved session yet.".to_string(),
+                "The CLI is not signed in to Driggsby yet.".to_string(),
                 Some("npx driggsby@latest login".to_string()),
             ),
             Some(session) if session_has_comfortable_headroom(session.access_token_expires_at.as_str()) => (
@@ -244,7 +214,7 @@ fn build_display_status_from_local_state(
             Some(_) => (
                 false,
                 BrokerRemoteAccessState::TemporarilyUnavailable,
-                "The CLI has a saved session. The next MCP launch will refresh it automatically before forwarding runs.".to_string(),
+                "Driggsby access will refresh automatically before the next MCP request is forwarded.".to_string(),
                 Some("npx -y driggsby@latest mcp-server".to_string()),
             ),
         };

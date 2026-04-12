@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, Notify, Semaphore};
 
-use crate::auth::dpop::create_dpop_proof;
+use crate::auth::{dpop::create_dpop_proof, url_security::parse_broker_remote_url};
 
 use super::session::BrokerRemoteSession;
 use super::{installation::BrokerDpopKeyPair, public_error::PublicBrokerError};
@@ -50,10 +50,27 @@ struct JsonRpcError {
 
 impl RemoteMcpClient {
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            http_client: reqwest::Client::builder()
+        Self::from_http_client(
+            reqwest::Client::builder()
                 .timeout(Duration::from_secs(30))
+                .https_only(true)
                 .build()?,
+        )
+    }
+
+    #[cfg(test)]
+    pub fn new_for_loopback_tests() -> Result<Self> {
+        Self::from_http_client(
+            reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .https_only(false)
+                .build()?,
+        )
+    }
+
+    fn from_http_client(http_client: reqwest::Client) -> Result<Self> {
+        Ok(Self {
+            http_client,
             state: Arc::new(Mutex::new(RemoteSessionState::default())),
             initialize_lock: Arc::new(Mutex::new(())),
             tools_inflight: Arc::new(Mutex::new(None)),
@@ -65,18 +82,23 @@ impl RemoteMcpClient {
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
     ) -> Result<Vec<Value>> {
-        self.load_tools(session, dpop_keys, false).await
+        self.load_tools(session, dpop_keys, resource_url, false)
+            .await
     }
 
     pub async fn call_tool(
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
         tool_name: &str,
         args: Option<Value>,
     ) -> Result<Value> {
-        let tools = self.load_tools(session, dpop_keys, false).await?;
+        let tools = self
+            .load_tools(session, dpop_keys, resource_url, false)
+            .await?;
         let tool_exists = tools.iter().any(|tool| {
             tool.get("name")
                 .and_then(Value::as_str)
@@ -84,7 +106,9 @@ impl RemoteMcpClient {
                 .unwrap_or(false)
         });
         if !tool_exists {
-            let refreshed = self.load_tools(session, dpop_keys, true).await?;
+            let refreshed = self
+                .load_tools(session, dpop_keys, resource_url, true)
+                .await?;
             if !refreshed.iter().any(|tool| {
                 tool.get("name")
                     .and_then(Value::as_str)
@@ -119,7 +143,7 @@ impl RemoteMcpClient {
                 "id": request_id
             }),
         };
-        self.post_with_session_retry(session, dpop_keys, payload)
+        self.post_with_session_retry(session, dpop_keys, resource_url, payload)
             .await
     }
 
@@ -127,9 +151,10 @@ impl RemoteMcpClient {
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
         refresh: bool,
     ) -> Result<Vec<Value>> {
-        let session_key = remote_session_key(session, dpop_keys)?;
+        let session_key = remote_session_key(session, dpop_keys, resource_url)?;
         if !refresh && let Some(cached) = self.cached_tools_for_session(&session_key).await {
             return Ok(cached);
         }
@@ -153,7 +178,7 @@ impl RemoteMcpClient {
                 continue;
             }
 
-            let result = self.fetch_tools(session, dpop_keys).await;
+            let result = self.fetch_tools(session, dpop_keys, resource_url).await;
             if let Ok(tools) = &result {
                 let mut state = self.state.lock().await;
                 if state.session_key.as_deref() == Some(session_key.as_str()) {
@@ -180,6 +205,7 @@ impl RemoteMcpClient {
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
     ) -> Result<Vec<Value>> {
         let _permit = self.concurrency_limit.acquire().await?;
         let request_id = self.next_request_id().await;
@@ -190,7 +216,7 @@ impl RemoteMcpClient {
             "id": request_id
         });
         let result = self
-            .post_with_session_retry(session, dpop_keys, payload)
+            .post_with_session_retry(session, dpop_keys, resource_url, payload)
             .await?;
         Ok(result
             .get("tools")
@@ -203,21 +229,32 @@ impl RemoteMcpClient {
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
         payload: Value,
     ) -> Result<Value> {
-        let session_key = remote_session_key(session, dpop_keys)?;
-        let session_id = self.ensure_initialized(session, dpop_keys).await?;
+        let session_key = remote_session_key(session, dpop_keys, resource_url)?;
+        let session_id = self
+            .ensure_initialized(session, dpop_keys, resource_url)
+            .await?;
         match self
-            .post_json_internal(session, dpop_keys, payload.clone(), session_id.clone())
+            .post_json_internal(
+                session,
+                dpop_keys,
+                resource_url,
+                payload.clone(),
+                session_id.clone(),
+            )
             .await
         {
             Ok((result, _)) => Ok(result),
             Err(error) if error.to_string().contains("session expired") => {
                 self.clear_session_if_current(&session_key, session_id.as_deref())
                     .await;
-                let session_id = self.ensure_initialized(session, dpop_keys).await?;
+                let session_id = self
+                    .ensure_initialized(session, dpop_keys, resource_url)
+                    .await?;
                 let (result, _) = self
-                    .post_json_internal(session, dpop_keys, payload, session_id)
+                    .post_json_internal(session, dpop_keys, resource_url, payload, session_id)
                     .await?;
                 Ok(result)
             }
@@ -229,8 +266,9 @@ impl RemoteMcpClient {
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
     ) -> Result<Option<String>> {
-        let session_key = remote_session_key(session, dpop_keys)?;
+        let session_key = remote_session_key(session, dpop_keys, resource_url)?;
         {
             let state = self.state.lock().await;
             if state.initialized && state.session_key.as_deref() == Some(session_key.as_str()) {
@@ -266,7 +304,7 @@ impl RemoteMcpClient {
             "id": request_id
         });
         let (result, session_id) = self
-            .post_json_internal(session, dpop_keys, initialize_payload, None)
+            .post_json_internal(session, dpop_keys, resource_url, initialize_payload, None)
             .await?;
         let _ = result;
         {
@@ -279,7 +317,13 @@ impl RemoteMcpClient {
             "method": "notifications/initialized"
         });
         let _ = self
-            .post_json_internal(session, dpop_keys, initialized_payload, session_id.clone())
+            .post_json_internal(
+                session,
+                dpop_keys,
+                resource_url,
+                initialized_payload,
+                session_id.clone(),
+            )
             .await?;
         {
             let mut state = self.state.lock().await;
@@ -292,14 +336,16 @@ impl RemoteMcpClient {
         &self,
         session: &BrokerRemoteSession,
         dpop_keys: &BrokerDpopKeyPair,
+        resource_url: &str,
         payload: Value,
         session_id: Option<String>,
     ) -> Result<(Value, Option<String>)> {
+        let resource_url = parse_broker_remote_url(resource_url, "The Driggsby MCP resource URL")?;
         let dpop_proof = create_dpop_proof(
             &dpop_keys.private_jwk,
             &dpop_keys.public_jwk,
             "POST",
-            &session.resource,
+            resource_url.as_str(),
             Some(&session.access_token),
         )?;
         let mut headers = HeaderMap::new();
@@ -323,7 +369,7 @@ impl RemoteMcpClient {
 
         let response = self
             .http_client
-            .post(&session.resource)
+            .post(resource_url)
             .headers(headers)
             .json(&payload)
             .send()
@@ -342,7 +388,7 @@ impl RemoteMcpClient {
             || response.status() == reqwest::StatusCode::FORBIDDEN
         {
             return Err(PublicBrokerError::new(
-                "Authentication has expired or the saved CLI session is no longer valid. Reconnect Driggsby by running npx driggsby@latest login.",
+                "Authentication has expired or Driggsby sign-in is no longer valid. Reconnect Driggsby by running npx driggsby@latest login.",
             )
             .into());
         }
@@ -386,12 +432,13 @@ impl RemoteMcpClient {
 fn remote_session_key(
     session: &BrokerRemoteSession,
     dpop_keys: &BrokerDpopKeyPair,
+    resource_url: &str,
 ) -> Result<String> {
     let mut hasher = Sha256::new();
     for part in [
         session.schema_version.to_string(),
         session.issuer.clone(),
-        session.resource.clone(),
+        resource_url.to_string(),
         session.client_id.clone(),
         session.redirect_uri.clone(),
         session.scope.clone(),

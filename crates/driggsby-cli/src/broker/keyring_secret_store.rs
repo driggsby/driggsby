@@ -33,7 +33,12 @@ impl KeyringSecretStore {
             KeyringAvailability::Available
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            KeyringAvailability::Available
+        }
+
+        #[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
         {
             if self.probe_available() {
                 KeyringAvailability::Available
@@ -169,36 +174,26 @@ mod tests {
         }));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    #[serial]
-    fn keyring_round_trips_probe_style_account_names() -> Result<()> {
-        let store = KeyringSecretStore::default();
-        if !store.is_available() {
-            return Ok(());
-        }
-
-        let account = "driggsby-probe-test-account";
-        let secret = "probe-secret";
-
-        store.set_secret(account, secret)?;
-        let loaded = store.get_secret(account)?;
-        let removed = store.delete_secret(account)?;
-
-        assert_eq!(loaded.as_deref(), Some(secret));
-        assert!(removed);
-        Ok(())
+    fn macos_keyring_availability_does_not_probe() {
+        assert_eq!(
+            KeyringSecretStore::default().availability(),
+            super::KeyringAvailability::Available
+        );
     }
 
     #[test]
+    #[ignore = "touches the real platform keyring"]
     #[serial]
-    fn keyring_round_trips_broker_style_account_names() -> Result<()> {
+    fn keyring_round_trips_stable_broker_secret_account_name() -> Result<()> {
         let store = KeyringSecretStore::default();
         if !store.is_available() {
             return Ok(());
         }
 
-        let account = "driggsby__019d754f-2ca2-73b0-bf51-3c689d49c469__dpop-private-jwk";
-        let secret = "{\"kty\":\"EC\"}";
+        let account = "driggsby__019d754f-2ca2-73b0-bf51-3c689d49c469__broker-secrets";
+        let secret = r#"{"schema_version":1,"local_auth_token":"token"}"#;
 
         store.set_secret(account, secret)?;
         let loaded = store.get_secret(account)?;
