@@ -1,3 +1,4 @@
+pub const DRIGGSBY_CONNECT_COMMAND: &str = "npx driggsby@latest connect";
 pub const DRIGGSBY_LOGIN_COMMAND: &str = "npx driggsby@latest login";
 pub const DRIGGSBY_STATUS_COMMAND: &str = "npx driggsby@latest status";
 pub const DRIGGSBY_LOGOUT_COMMAND: &str = "npx driggsby@latest logout";

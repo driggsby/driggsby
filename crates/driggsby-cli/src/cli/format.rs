@@ -1,6 +1,6 @@
 use crate::{
     broker::types::{BrokerRemoteAccessState, BrokerStatus},
-    user_guidance::{DRIGGSBY_LOGIN_COMMAND, DRIGGSBY_MCP_SERVER_COMMAND},
+    user_guidance::{DRIGGSBY_CONNECT_COMMAND, DRIGGSBY_LOGIN_COMMAND},
 };
 
 pub fn format_status_text(status: &BrokerStatus) -> String {
@@ -32,7 +32,7 @@ pub fn format_status_text(status: &BrokerStatus) -> String {
         if has_body || !details.is_empty() {
             lines.push(String::new());
         }
-        lines.push("Configure your MCP client with:".to_string());
+        lines.push("Connect an MCP client with:".to_string());
         lines.push(format!("  {command}"));
         has_body = true;
     }
@@ -131,9 +131,9 @@ fn resolve_configuration_command(
     remote_access_state: &BrokerRemoteAccessState,
 ) -> Option<String> {
     match remote_access_state {
-        BrokerRemoteAccessState::Ready => Some(DRIGGSBY_MCP_SERVER_COMMAND.to_string()),
+        BrokerRemoteAccessState::Ready => Some(DRIGGSBY_CONNECT_COMMAND.to_string()),
         BrokerRemoteAccessState::TemporarilyUnavailable if status.remote_session.is_some() => {
-            Some(DRIGGSBY_MCP_SERVER_COMMAND.to_string())
+            Some(DRIGGSBY_CONNECT_COMMAND.to_string())
         }
         BrokerRemoteAccessState::NotConnected
         | BrokerRemoteAccessState::ReauthRequired
@@ -202,9 +202,7 @@ mod tests {
         assert!(text.starts_with("Ready\n"));
         assert!(text.contains("Session: connected"));
         assert!(text.contains("Local auth broker: waiting for client launch"));
-        assert!(
-            text.contains("Configure your MCP client with:\n  npx -y driggsby@latest mcp-server")
-        );
+        assert!(text.contains("Connect an MCP client with:\n  npx driggsby@latest connect"));
         assert!(!text.contains("Driggsby CLI"));
         assert!(!text.contains("Access token expires"));
         assert!(!text.contains("This is normal."));

@@ -1,6 +1,7 @@
 pub mod client;
 pub mod daemon;
 pub mod file_secret_store;
+pub mod grants;
 pub mod installation;
 pub mod keyring_secret_store;
 pub mod launch;

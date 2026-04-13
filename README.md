@@ -5,16 +5,17 @@ Driggsby over MCP.
 
 ## Quick Start
 
-Sign in:
+Connect Driggsby to an MCP client:
 
 ```bash
-npx driggsby@latest login
+npx driggsby@latest connect
 ```
 
-Add Driggsby as an MCP server in Codex:
+You can also choose a supported client directly:
 
 ```bash
-codex mcp add driggsby -- npx -y driggsby@latest mcp-server
+npx driggsby@latest connect claude-code
+npx driggsby@latest connect codex
 ```
 
 Check readiness:

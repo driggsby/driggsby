@@ -12,7 +12,7 @@ use crate::{
     },
     cli::format::format_status_text,
     runtime_paths::{RuntimePaths, ensure_runtime_directories},
-    user_guidance::DRIGGSBY_MCP_SERVER_COMMAND,
+    user_guidance::DRIGGSBY_CONNECT_COMMAND,
 };
 
 pub async fn run_login_command(runtime_paths: &RuntimePaths) -> Result<()> {
@@ -31,8 +31,8 @@ pub async fn run_login_command(runtime_paths: &RuntimePaths) -> Result<()> {
 
     println!("Connected successfully.");
     println!();
-    println!("Configure your MCP client with:");
-    println!("  {DRIGGSBY_MCP_SERVER_COMMAND}");
+    println!("Connect an MCP client with:");
+    println!("  {DRIGGSBY_CONNECT_COMMAND}");
     Ok(())
 }
 

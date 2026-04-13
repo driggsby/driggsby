@@ -252,7 +252,7 @@ fn build_display_status_from_local_state(
                 false,
                 BrokerRemoteAccessState::TemporarilyUnavailable,
                 "The CLI has a saved session. The next MCP launch will refresh it automatically before forwarding runs.".to_string(),
-                Some("npx -y driggsby@latest mcp-server".to_string()),
+                Some("npx driggsby@latest connect".to_string()),
             ),
         };
 

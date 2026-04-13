@@ -5,15 +5,16 @@
 ## Quick Start
 
 ```bash
-npx driggsby@latest login
+npx driggsby@latest connect
 npx driggsby@latest status
-npx -y driggsby@latest mcp-server
+npx driggsby@latest clients list
 ```
 
-For non-interactive MCP launcher flows, use:
+For supported clients, you can connect directly:
 
 ```bash
-npx -y driggsby@latest mcp-server
+npx driggsby@latest connect claude-code
+npx driggsby@latest connect codex
 ```
 
 Supported native artifacts currently cover macOS arm64, macOS x64, Linux arm64
