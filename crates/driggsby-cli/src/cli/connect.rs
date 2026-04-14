@@ -1,9 +1,11 @@
 use std::{
     io::{self, IsTerminal, Write as _},
-    process::Command,
+    process::Command as StdCommand,
+    time::Duration,
 };
 
 use anyhow::{Result, bail};
+use tokio::process::Command as TokioCommand;
 
 use crate::{
     broker::{
@@ -27,7 +29,7 @@ use crate::{
 };
 
 type BrokerClientGrant = crate::broker::grants::BrokerClientGrant;
-
+const CLIENT_CONFIG_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ConnectTarget {
     Known(KnownClient),
@@ -72,7 +74,10 @@ pub async fn run_connect_command(
     flush_stdout()?;
 
     let resolved_store = crate::broker::resolve_secret_store::resolve_secret_store(runtime_paths)?;
-    let (broker_id, created) = {
+
+    if let ConnectTarget::Known(client) = &target
+        && !no_auto_add_mcp_config
+    {
         let _connect_lock = LocalStateLock::acquire(runtime_paths)?;
         let broker_id =
             ensure_recent_cli_session(runtime_paths, resolved_store.store.as_ref()).await?;
@@ -82,33 +87,34 @@ pub async fn run_connect_command(
             &display_name,
             target.integration_id(),
         )?;
-        (broker_id, created)
+        println!();
+        if install_known_client(*client, &created, mcp_scope).await?
+            && let Some(integration_id) = target.integration_id()
+        {
+            disconnect_other_grants_for_integration(
+                resolved_store.store.as_ref(),
+                &broker_id,
+                integration_id,
+                &created.grant.grant_id,
+            )?;
+        }
+        return Ok(());
+    }
+
+    let created = {
+        let _connect_lock = LocalStateLock::acquire(runtime_paths)?;
+        let broker_id =
+            ensure_recent_cli_session(runtime_paths, resolved_store.store.as_ref()).await?;
+        create_client_grant(
+            resolved_store.store.as_ref(),
+            &broker_id,
+            &display_name,
+            target.integration_id(),
+        )?
     };
 
     println!();
-    let should_replace_previous = match &target {
-        ConnectTarget::Known(client) => {
-            if no_auto_add_mcp_config {
-                print_one_time_mcp_config_with_secret(&created);
-                false
-            } else {
-                install_known_client(*client, &created, mcp_scope)?
-            }
-        }
-        ConnectTarget::Other(_) => {
-            print_one_time_mcp_config_with_secret(&created);
-            false
-        }
-    };
-    if should_replace_previous && let Some(integration_id) = target.integration_id() {
-        let _connect_lock = LocalStateLock::acquire(runtime_paths)?;
-        disconnect_other_grants_for_integration(
-            resolved_store.store.as_ref(),
-            &broker_id,
-            integration_id,
-            &created.grant.grant_id,
-        )?;
-    }
+    print_one_time_mcp_config_with_secret(&created);
     Ok(())
 }
 
@@ -268,7 +274,7 @@ fn read_trimmed_line() -> Result<String> {
     Ok(line.trim().to_string())
 }
 
-fn install_known_client(
+async fn install_known_client(
     client: KnownClient,
     created: &CreatedClientGrant,
     mcp_scope: Option<McpScope>,
@@ -280,18 +286,22 @@ fn install_known_client(
     println!("Adding Driggsby to {}...", client.display_name());
     flush_stdout()?;
 
-    let output = Command::new(&installer.program)
-        .args(&installer.args)
-        .output();
+    let output = tokio::time::timeout(
+        CLIENT_CONFIG_COMMAND_TIMEOUT,
+        TokioCommand::new(&installer.program)
+            .args(&installer.args)
+            .output(),
+    )
+    .await;
     match output {
-        Ok(output) if output.status.success() => {
+        Ok(Ok(output)) if output.status.success() => {
             println!("{} is connected.", client.display_name());
             println!();
             println!("Connected MCP client:");
             println!("  {}", client.display_name());
             Ok(true)
         }
-        Ok(_) => {
+        Ok(Ok(_)) => {
             print_auto_setup_failure(
                 client,
                 &format!("{} mcp add returned an error.", installer.program),
@@ -299,13 +309,18 @@ fn install_known_client(
             print_one_time_mcp_config_with_secret(created);
             Ok(false)
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
             print_auto_setup_failure(client, &format!("{} was not found.", installer.program));
             print_one_time_mcp_config_with_secret(created);
             Ok(false)
         }
-        Err(_) => {
+        Ok(Err(_)) => {
             print_auto_setup_failure(client, &format!("Could not run {}.", installer.program));
+            print_one_time_mcp_config_with_secret(created);
+            Ok(false)
+        }
+        Err(_) => {
+            print_auto_setup_failure(client, &format!("{} mcp add timed out.", installer.program));
             print_one_time_mcp_config_with_secret(created);
             Ok(false)
         }
@@ -414,7 +429,9 @@ fn remove_known_client_config(client: KnownClient) {
         return;
     };
     let remover = build_remover_command(cli_client);
-    let output = Command::new(&remover.program).args(&remover.args).output();
+    let output = StdCommand::new(&remover.program)
+        .args(&remover.args)
+        .output();
     match output {
         Ok(output) if output.status.success() => {
             println!("Removed Driggsby from {}.", client.display_name());
@@ -431,7 +448,6 @@ fn remove_known_client_config(client: KnownClient) {
 }
 
 fn print_one_time_mcp_config_with_secret(created: &CreatedClientGrant) {
-    // Intentional one-time API-key style credential display for manual MCP setup.
     println!("Add this MCP server to your client:");
     println!();
     println!("Command:");
@@ -439,7 +455,9 @@ fn print_one_time_mcp_config_with_secret(created: &CreatedClientGrant) {
     println!();
     println!("Environment:");
     println!("  {}={}", CLIENT_KEY_ENV, created.client_key);
-    print_secret_notice();
+    println!();
+    println!("Treat DRIGGSBY_CLIENT_KEY like an API key.");
+    println!("It is shown once and cannot be viewed again.");
     println!("This client key is active until you disconnect it.");
     println!();
     println!("Disconnect this client with:");
@@ -447,12 +465,6 @@ fn print_one_time_mcp_config_with_secret(created: &CreatedClientGrant) {
         "  npx driggsby@latest mcp clients disconnect {}",
         client_id_for_grant(&created.grant)
     );
-}
-
-fn print_secret_notice() {
-    println!();
-    println!("Treat DRIGGSBY_CLIENT_KEY like an API key.");
-    println!("It is shown once and cannot be viewed again.");
 }
 
 fn print_client_grants(secret_store: &dyn SecretStore, broker_id: &str) -> Result<()> {
