@@ -77,7 +77,7 @@ pub enum McpCommand {
     List,
     #[command(
         about = "Disconnect a client.",
-        long_about = "Disconnect a client.\n\nRun `npx driggsby@latest mcp list` to see connected client IDs.\n\nSupported client IDs: claude-code, claude-desktop, codex\nCustom IDs are the names shown by `mcp list`."
+        long_about = "Disconnect a client.\n\nRun this command to see connected client IDs:\n  npx driggsby@latest mcp list\n\nSupported client IDs: claude-code, claude-desktop, codex\nCustom IDs are the names shown by mcp list."
     )]
     Disconnect {
         #[arg(help = "Client ID: claude-code, claude-desktop, codex, or custom.")]

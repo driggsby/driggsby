@@ -5,8 +5,10 @@ use anyhow::Result;
 use crate::{
     auth::login::login_broker,
     broker::{
-        installation::read_broker_metadata, remote_session::ensure_fresh_remote_session,
-        secret_store::SecretStore, secrets::read_broker_remote_session,
+        installation::read_broker_metadata,
+        remote_session::{ensure_fresh_remote_session, session_needs_refresh},
+        secret_store::SecretStore,
+        secrets::read_broker_remote_session,
     },
     runtime_paths::RuntimePaths,
     user_guidance::DRIGGSBY_CONNECT_COMMAND,
@@ -36,6 +38,12 @@ async fn try_recent_cli_session(
         return Ok(None);
     };
     match read_broker_remote_session(runtime_paths, secret_store, &metadata.broker_id) {
+        Ok(Some(session))
+            if session_is_recent(&session.authenticated_at) && !session_needs_refresh(&session) =>
+        {
+            println!("Using saved Driggsby session.");
+            return Ok(Some(metadata.broker_id));
+        }
         Ok(Some(session)) if session_is_recent(&session.authenticated_at) => {}
         Ok(_) | Err(_) => return Ok(None),
     }

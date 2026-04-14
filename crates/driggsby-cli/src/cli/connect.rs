@@ -430,7 +430,7 @@ fn print_one_time_mcp_config_with_secret(created: &CreatedClientGrant) {
     println!("Environment:");
     println!("  {}={}", CLIENT_KEY_ENV, created.client_key);
     println!();
-    println!("This key is shown once — treat it like an API key.");
+    println!("This key is shown once - treat it like an API key.");
     println!();
     println!("Disconnect:");
     println!(

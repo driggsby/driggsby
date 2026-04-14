@@ -36,6 +36,10 @@ pub(super) fn remove_all_known_client_configs() {
 }
 
 fn remove_known_client_config(client: KnownClient) {
+    if client == KnownClient::ClaudeCode {
+        remove_claude_code_configs();
+        return;
+    }
     if let Some(desktop_client) = client.desktop_mcp_client() {
         match remove_desktop_mcp_config(desktop_client) {
             Ok(true) => print_config_cleanup_row(client, "removed"),
@@ -58,6 +62,30 @@ fn remove_known_client_config(client: KnownClient) {
             print_config_cleanup_row(client, "remove manually");
             println!("    {}", render_shell_command(&remover));
         }
+    }
+}
+
+fn remove_claude_code_configs() {
+    let mut removed_any = false;
+    let mut failed_any = false;
+    for scope in ["local", "user"] {
+        match Command::new("claude")
+            .args(["mcp", "remove", "driggsby", "-s", scope])
+            .output()
+        {
+            Ok(output) if output.status.success() => removed_any = true,
+            Ok(output) if command_reports_missing_config(&output) => {}
+            Ok(_) | Err(_) => failed_any = true,
+        }
+    }
+    match (removed_any, failed_any) {
+        (_, true) => {
+            print_config_cleanup_row(KnownClient::ClaudeCode, "remove manually");
+            println!("    claude mcp remove driggsby -s local");
+            println!("    claude mcp remove driggsby -s user");
+        }
+        (true, false) => print_config_cleanup_row(KnownClient::ClaudeCode, "removed"),
+        (false, false) => print_config_cleanup_row(KnownClient::ClaudeCode, "already clear"),
     }
 }
 
