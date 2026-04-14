@@ -286,13 +286,9 @@ async fn install_known_client(
     println!("Adding Driggsby to {}...", client.display_name());
     flush_stdout()?;
 
-    let output = tokio::time::timeout(
-        CLIENT_CONFIG_COMMAND_TIMEOUT,
-        TokioCommand::new(&installer.program)
-            .args(&installer.args)
-            .output(),
-    )
-    .await;
+    let mut command = TokioCommand::new(&installer.program);
+    command.args(&installer.args).kill_on_drop(true);
+    let output = tokio::time::timeout(CLIENT_CONFIG_COMMAND_TIMEOUT, command.output()).await;
     match output {
         Ok(Ok(output)) if output.status.success() => {
             println!("{} is connected.", client.display_name());
