@@ -9,6 +9,7 @@ use crate::{
         secret_store::SecretStore, secrets::read_broker_remote_session,
     },
     runtime_paths::RuntimePaths,
+    user_guidance::DRIGGSBY_CONNECT_COMMAND,
 };
 
 const CLI_SESSION_FRESH_SECONDS: i64 = 8 * 60 * 60;
@@ -17,20 +18,35 @@ pub(super) async fn ensure_recent_cli_session(
     runtime_paths: &RuntimePaths,
     secret_store: &dyn SecretStore,
 ) -> Result<String> {
-    if let Some(metadata) = read_broker_metadata(runtime_paths)?
-        && let Some(session) =
-            read_broker_remote_session(runtime_paths, secret_store, &metadata.broker_id)?
-        && session_is_recent(&session.authenticated_at)
-    {
-        ensure_fresh_remote_session(runtime_paths, secret_store, &metadata.broker_id).await?;
-        println!("Using your saved Driggsby CLI session.");
-        return Ok(metadata.broker_id);
+    if let Some(broker_id) = try_recent_cli_session(runtime_paths, secret_store).await? {
+        return Ok(broker_id);
     }
 
     println!("Opening Driggsby sign-in for this CLI session...");
     flush_stdout()?;
     let login = login_broker(runtime_paths, secret_store, print_manual_sign_in_url).await?;
     Ok(login.broker_id)
+}
+
+async fn try_recent_cli_session(
+    runtime_paths: &RuntimePaths,
+    secret_store: &dyn SecretStore,
+) -> Result<Option<String>> {
+    let Some(metadata) = read_broker_metadata(runtime_paths)? else {
+        return Ok(None);
+    };
+    match read_broker_remote_session(runtime_paths, secret_store, &metadata.broker_id) {
+        Ok(Some(session)) if session_is_recent(&session.authenticated_at) => {}
+        Ok(_) | Err(_) => return Ok(None),
+    }
+    match ensure_fresh_remote_session(runtime_paths, secret_store, &metadata.broker_id).await {
+        Ok(_) => {
+            println!("Using your saved Driggsby CLI session.");
+            Ok(Some(metadata.broker_id))
+        }
+        Err(error) if error.to_string().contains(DRIGGSBY_CONNECT_COMMAND) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn session_is_recent(authenticated_at: &str) -> bool {

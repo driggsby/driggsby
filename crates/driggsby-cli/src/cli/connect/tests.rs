@@ -32,6 +32,10 @@ fn rejects_invalid_client_ids() {
 fn parses_disconnect_client_selector_like_connect_client_id() -> anyhow::Result<()> {
     assert_eq!(super::parse_client_selector("Raycast")?, "raycast");
     assert_eq!(super::parse_client_selector("codex")?, "codex");
+    assert_eq!(
+        super::parse_client_selector("claude-desktop")?,
+        "claude-desktop"
+    );
     assert!(super::parse_client_selector("raycast client").is_err());
     Ok(())
 }

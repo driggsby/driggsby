@@ -120,11 +120,11 @@ pub async fn run_clients_command(
         None
     };
 
-    let resolved_store = crate::broker::resolve_secret_store::resolve_secret_store(runtime_paths)?;
     let Some(metadata) = read_broker_metadata(runtime_paths)? else {
         println!("No connected MCP clients.");
         return Ok(());
     };
+    let resolved_store = crate::broker::resolve_secret_store::resolve_secret_store(runtime_paths)?;
 
     match command {
         super::ClientCommand::Disconnect { .. } => {
@@ -207,9 +207,16 @@ fn parse_connect_target(value: &str) -> ConnectTarget {
 }
 
 fn parse_client_selector(value: &str) -> Result<String> {
-    let target = parse_connect_target(value);
-    validate_connect_target(&target)?;
-    Ok(target.client_id().to_string())
+    let canonical = client_id::canonicalize(value);
+    if canonical.trim().is_empty() {
+        bail!("Client ID is required.");
+    }
+    if !client_id::is_valid(&canonical) {
+        bail!(
+            "Client ID may use only letters, numbers, and hyphens.\n\nExamples:\n  raycast\n  my-mcp-client"
+        );
+    }
+    Ok(canonical)
 }
 
 fn prompt_for_connect_target() -> Result<ConnectTarget> {
