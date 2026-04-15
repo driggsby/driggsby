@@ -33,6 +33,13 @@ https://app.driggsby.com/mcp
 - This is a public repo. Do not add private Driggsby service code, private
   infrastructure details, customer data, credentials, internal repo names,
   non-public runbooks, or private operational debugging instructions.
+- Assume every committed file is public and may be shared broadly. Take utmost
+  care before publishing operational, security, infrastructure, release, or
+  credential-adjacent details.
+- The root `README.md`, `npm/driggsby/README.md`, and crate README are public
+  launch-facing docs. Keep them user-facing and concise; do not include internal
+  release runbooks, environment variable names, cache policies, signing details,
+  or other maintainer-only operational notes.
 
 ## Security
 
@@ -73,7 +80,7 @@ When asked to prepare a plan:
 2. Write a tactical implementation plan.
    - Prefer a checklist with concrete files, checks, and expected behavior.
    - Prioritize ease of use, security, small scope, and first-shot agent success.
-   - Call out release, npm, signing, or platform-support consequences explicitly.
+   - Call out release, npm, or platform-support consequences explicitly.
 
 3. Keep scope tight.
    - If the plan crosses multiple systems, split it.
@@ -282,8 +289,8 @@ Current release artifact targets are:
 - `x86_64-unknown-linux-gnu`
 
 Windows is not currently part of the release artifact matrix. Do not claim Windows
-release support until the workflow, installer metadata, signing story, and tests
-actually support it.
+release support until the workflow, installer metadata, and tests actually
+support it.
 
 The tag-triggered release workflow:
 
@@ -318,8 +325,6 @@ If a release fails after a tag push:
 - Not supported today:
   - Windows release artifacts,
   - Linux musl/static binaries.
-- Do not imply signing/notarization exists until the workflows and credentials are
-  actually implemented.
 
 ## Public Documentation
 

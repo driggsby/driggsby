@@ -41,11 +41,6 @@ npx driggsby@latest mcp setup codex --print
 - Claude Code
 - Codex
 
-## Supported Platforms
-
-Published npm installs currently include native artifacts for macOS arm64,
-macOS x64, Linux arm64 glibc, and Linux x64 glibc.
-
 ## License
 
 Licensed under the Apache License, Version 2.0. See the repository root
