@@ -36,9 +36,6 @@ Print the native client command without running it:
 npx driggsby@latest mcp setup codex --print
 ```
 
-Supported native artifacts currently cover macOS arm64, macOS x64, Linux arm64
-glibc, and Linux x64 glibc.
-
 ## License
 
 Apache-2.0
