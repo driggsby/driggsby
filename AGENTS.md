@@ -1,8 +1,8 @@
 # AGENTS.md
 
 This repository contains the public, open-source Driggsby CLI. The CLI is the
-local MCP bridge that lets users connect AI clients such as Codex, Claude, and
-other MCP clients to Driggsby.
+local setup helper that configures supported AI clients to connect directly to
+the remote Driggsby MCP endpoint.
 
 Driggsby is a personal financial MCP server that provides secure access to users'
 financial data (such as balances, transactions, and investments) to their AI client
@@ -13,9 +13,20 @@ or agent of choice. As such, security is non-negotiable and is your top priority
 - This repo owns the Rust CLI, npm wrapper package, GitHub Release artifacts, and
   npm publishing workflow for the public `driggsby` package.
 - Main install path:
-  - Interactive commands: `npx driggsby@latest login`, `npx driggsby@latest status`,
-    and `npx driggsby@latest logout`.
-  - Non-interactive MCP launchers: `npx -y driggsby@latest mcp-server`.
+  - `npx driggsby@latest mcp setup`
+  - `npx driggsby@latest mcp setup claude-code`
+  - `npx driggsby@latest mcp setup codex`
+- The CLI configures native client OAuth MCP settings for:
+  - Claude Code, using `claude mcp add --transport http`.
+  - Codex, using `codex mcp add --url`.
+- The fixed public MCP URL is:
+
+```text
+https://app.driggsby.com/mcp
+```
+
+- The CLI does not run a local MCP server, daemon, local OAuth flow, DPoP flow,
+  client-grant system, or Driggsby token store.
 - The npm package must not include platform binaries. It should contain only the
   JavaScript installer/shim, package metadata, license/readme files, and checksum
   metadata. Platform binaries are hosted as GitHub Release artifacts.
@@ -25,14 +36,13 @@ or agent of choice. As such, security is non-negotiable and is your top priority
 
 ## Security
 
-- Treat this as consumer financial software. The CLI stores local auth/session
-  material and forwards user financial MCP requests, so security is non-negotiable.
-- Never expose secrets, token values, local key material, private paths, or internal
-  service diagnostics in public CLI output or public MCP responses.
+- Treat this as consumer financial software. The CLI should stay small and should
+  not handle user financial data or Driggsby OAuth tokens.
+- Never expose secrets, token values, private paths, or internal service
+  diagnostics in public CLI output.
 - Public remote MCP/OAuth validation errors may be surfaced when they are already
-  part of the public remote contract. Local filesystem, keychain, socket, JSON
-  parse, serde, HTTP implementation, or process errors must be mapped to
-  consumer-safe messages.
+  part of the public remote contract. Local process/config command failures must
+  be mapped to consumer-safe messages with clear next steps.
 - Suggested terminal commands in CLI output must be copy-paste safe. Do not wrap
   terminal command suggestions in shell backticks. Markdown docs may use backticks.
 - GitHub Actions must stay pinned to immutable SHAs unless there is a deliberate
@@ -107,8 +117,8 @@ When implementing a feature, fix, or release change:
    - Add or update focused tests for real regressions.
    - Avoid test bloat and near-duplicates.
    - For CLI-output changes, run live output smokes.
-   - For broker/MCP changes, include concurrency or invalid-input coverage when
-     relevant.
+   - For client setup changes, include focused command-building, invalid-input,
+     and live `--print` output coverage.
 
 5. Review after tests pass.
    - For non-trivial Rust, release, installer, npm, security, or MCP changes, run:
@@ -177,7 +187,6 @@ Use the repo's `Justfile` recipes:
 
 Useful targeted checks:
 
-- `cargo test -p driggsby broker:: -- --nocapture`
 - `cargo test --all-features`
 - `npm run check`
 - `npm run build`
@@ -189,7 +198,8 @@ For CLI-output changes, smoke test the actual terminal output:
 
 ```bash
 cargo run -p driggsby -- --help
-cargo run -p driggsby -- status
+cargo run -p driggsby -- mcp setup claude-code --print
+cargo run -p driggsby -- mcp setup codex --print
 ```
 
 For release workflow changes, also run or inspect:
@@ -206,16 +216,16 @@ For release workflow changes, also run or inspect:
 
 ```text
 Next:
-  npx driggsby@latest login
+  Open Claude Code and authenticate Driggsby when prompted.
 ```
 
 - Terminal command suggestions must be raw, copy-pasteable commands. Do not use
   shell backticks in terminal output.
 - Markdown docs, PR bodies, and comments should still use Markdown backticks around
   commands.
-- Do not expose local paths, keychain internals, socket paths, raw serde errors, or
-  private implementation details in consumer-facing output unless explicitly needed
-  for a local diagnostic command.
+- Do not expose local paths, raw process errors, or private implementation details
+  in consumer-facing output unless explicitly needed for a local diagnostic
+  command.
 
 ## Public MCP Rules
 
@@ -224,27 +234,9 @@ Next:
   the remote public contract. This lets CLI MCP users see the same useful errors an
   OAuth MCP client would see for bad dates, invalid page tokens, unsupported SQL,
   and other input issues.
-- Sanitize local CLI implementation failures before they reach MCP clients.
-- If a local broker request fails internally, return a consumer-safe error with a
-  clear next step rather than raw implementation detail.
+- Sanitize local CLI implementation failures before they reach users.
 - Optimize for first-shot success by a zero-context agent. Tool descriptions,
   schemas, errors, and next steps should be plain English and hard to misread.
-
-## Local Broker And Daemon Behavior
-
-- `mcp-server` is a stdio shim. It ensures the local `cli-daemon` is running, then
-  forwards MCP tool discovery and tool calls through local IPC.
-- `status` is read-only and should not restart or upgrade the daemon.
-- `mcp-server` may start or replace the daemon when needed.
-- A running daemon must not be reused blindly across CLI upgrades. Versioned ping
-  should ensure the daemon version matches the current binary.
-- Concurrent `npx -y driggsby@latest mcp-server` launches must serialize daemon
-  start/restart through the startup lock to avoid stampedes.
-- Local IPC timeout layers should remain distinct:
-  - short timeout for connect,
-  - short timeout for write,
-  - short timeout for control requests,
-  - longer timeout for real MCP tool responses.
 
 ## Release Process
 
@@ -286,6 +278,7 @@ Current release artifact targets are:
 
 - `aarch64-apple-darwin`
 - `x86_64-apple-darwin`
+- `aarch64-unknown-linux-gnu`
 - `x86_64-unknown-linux-gnu`
 
 Windows is not currently part of the release artifact matrix. Do not claim Windows
@@ -320,11 +313,11 @@ If a release fails after a tag push:
 - Supported today:
   - macOS Apple Silicon: `aarch64-apple-darwin`
   - macOS Intel: `x86_64-apple-darwin`
+  - Linux arm64 glibc: `aarch64-unknown-linux-gnu`
   - Linux x64 glibc: `x86_64-unknown-linux-gnu`
 - Not supported today:
   - Windows release artifacts,
-  - Linux musl/static binaries,
-  - Linux arm64 release artifacts.
+  - Linux musl/static binaries.
 - Do not imply signing/notarization exists until the workflows and credentials are
   actually implemented.
 
