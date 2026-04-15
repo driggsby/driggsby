@@ -223,7 +223,7 @@ notarize_binary() {
     --key-id "$APPLE_NOTARY_KEY_ID" \
     --issuer "$APPLE_NOTARY_ISSUER_ID" \
     --wait \
-    --timeout 30m \
+    --timeout 4h \
     --output-format json \
     > "$notary_result_path"
 
