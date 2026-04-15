@@ -1,7 +1,7 @@
 {
   "name": "driggsby",
   "version": "0.1.30",
-  "description": "Local MCP broker and CLI for connecting AI clients to Driggsby",
+  "description": "CLI helper for configuring Driggsby MCP clients",
   "license": "Apache-2.0",
   "repository": "https://github.com/thegoodsoftwareco/driggsby-cli",
   "type": "module",

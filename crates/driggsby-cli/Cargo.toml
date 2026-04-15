@@ -1,6 +1,6 @@
 [package]
 name = "driggsby"
-description = "Local MCP broker and CLI for connecting AI clients to Driggsby"
+description = "CLI helper for configuring Driggsby MCP clients"
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
@@ -18,27 +18,5 @@ dist = true
 
 [dependencies]
 anyhow.workspace = true
-axum.workspace = true
-base64.workspace = true
 clap.workspace = true
-fs2.workspace = true
-jsonwebtoken.workspace = true
-keyring.workspace = true
-open.workspace = true
-p256.workspace = true
-rand.workspace = true
-reqwest.workspace = true
-rmcp.workspace = true
-ring.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-time.workspace = true
 tokio.workspace = true
-tracing.workspace = true
-url.workspace = true
-uuid.workspace = true
-
-[dev-dependencies]
-serial_test.workspace = true
-tempfile.workspace = true
