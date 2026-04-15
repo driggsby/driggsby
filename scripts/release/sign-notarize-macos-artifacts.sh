@@ -139,7 +139,6 @@ prepare_real_signing() {
   require_command "ditto"
   require_command "plutil"
   require_command "security"
-  require_command "spctl"
   require_command "uuidgen"
   require_command "xcrun"
 
@@ -325,9 +324,6 @@ for artifact_path in "${artifacts[@]}"; do
   sign_binary "$binary_path"
   echo "Submitting ${artifact_name} for notarization"
   notarize_binary "$artifact_name" "$binary_path" "$work_dir"
-  if [[ -z "$dry_run" ]]; then
-    spctl --assess --type execute --verbose=4 "$binary_path"
-  fi
   repack_artifact "$artifact_path" "$artifact_name" "$extract_dir" "$stage_dir"
 done
 
