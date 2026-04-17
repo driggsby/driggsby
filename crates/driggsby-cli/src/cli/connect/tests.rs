@@ -31,11 +31,11 @@ fn mcp_scope_is_only_supported_for_claude_code() {
 #[test]
 fn next_steps_are_client_specific() {
     assert_eq!(
-        super::next_step_lines(KnownClient::ClaudeCode),
+        super::next_step_lines(KnownClient::ClaudeCode, false),
         ["  Open Claude Code, run /mcp, and authenticate Driggsby to get started."]
     );
     assert_eq!(
-        super::next_step_lines(KnownClient::Codex),
+        super::next_step_lines(KnownClient::Codex, false),
         [
             "  Complete the Driggsby sign-in in the browser window opened by Codex.",
             "  If no browser window opened, run:",
@@ -43,7 +43,11 @@ fn next_steps_are_client_specific() {
         ]
     );
     assert_eq!(
-        super::next_step_lines(KnownClient::Other),
+        super::next_step_lines(KnownClient::Codex, true),
+        ["  Open Codex and ask it to use Driggsby."]
+    );
+    assert_eq!(
+        super::next_step_lines(KnownClient::Other, false),
         [
             "  Add a remote MCP server named driggsby.",
             "  Set its URL to https://app.driggsby.com/mcp.",
@@ -115,6 +119,24 @@ async fn streaming_config_command_still_captures_output() -> anyhow::Result<()> 
 }
 
 #[cfg(unix)]
+#[test]
+fn detects_codex_completed_login_output() {
+    let output = std::process::Output {
+        status: success_status(),
+        stdout: b"Successfully logged in.".to_vec(),
+        stderr: Vec::new(),
+    };
+
+    assert!(super::codex_completed_login(&output));
+}
+
+#[cfg(unix)]
+fn success_status() -> std::process::ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    std::process::ExitStatus::from_raw(0)
+}
+
+#[cfg(unix)]
 #[tokio::test]
 async fn config_command_does_not_wait_for_output_inherited_by_grandchildren() -> anyhow::Result<()>
 {
@@ -127,7 +149,7 @@ async fn config_command_does_not_wait_for_output_inherited_by_grandchildren() ->
     };
 
     let start = std::time::Instant::now();
-    let output = super::run_config_command_inner(&command, false).await?;
+    let output = super::run_config_command_inner(&command, true).await?;
 
     assert!(start.elapsed() < std::time::Duration::from_secs(2));
     assert!(output.status.success());

@@ -26,6 +26,7 @@ const CLIENT_CONFIG_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const LOOPBACK_REDIRECT_NEEDLE: &str = "redirect_uri=http%3A%2F%2F127.0.0.1%3A";
 const BROWSER_LAUNCH_FAILED_NEEDLE: &str = "Browser launch failed";
 const REMOTE_SIGN_IN_HINT_RECENT_CHARS: usize = 512;
+type StepLines = &'static [&'static str];
 const REMOTE_SIGN_IN_HINT: &str = "
 Remote sign-in note:
   The URL above redirects to 127.0.0.1 on this machine.
@@ -60,7 +61,7 @@ pub async fn run_setup_command(
 
     match run_config_command(&installer, stream_config_output(client)).await {
         Ok(Ok(output)) if output.status.success() => {
-            print_success(client);
+            print_success(client, codex_completed_login(&output));
             Ok(())
         }
         Ok(Ok(output)) if command_reports_existing_config(&output) => {
@@ -161,7 +162,7 @@ async fn reinstall_existing_client(
         Ok(Ok(output)) if output.status.success() || command_reports_missing_config(&output) => {
             match run_config_command(&installer, stream_output).await {
                 Ok(Ok(output)) if output.status.success() => {
-                    print_success(client);
+                    print_success(client, codex_completed_login(&output));
                     Ok(())
                 }
                 _ => {
@@ -400,27 +401,20 @@ fn stream_config_output(client: KnownClient) -> bool {
     matches!(client, KnownClient::Codex)
 }
 
-fn print_success(client: KnownClient) {
-    println!("{} is set up.", client.display_name());
-    println!();
-    println!("Driggsby MCP URL:");
-    println!("  {DRIGGSBY_MCP_URL}");
-    println!();
-    println!("Next:");
-    print_next_step(client);
-}
-
-fn print_next_step(client: KnownClient) {
-    for line in next_step_lines(client) {
+fn print_success(client: KnownClient, completed_login: bool) {
+    let client_name = client.display_name();
+    println!("{client_name} is set up.\n\nDriggsby MCP URL:\n  {DRIGGSBY_MCP_URL}\n\nNext:");
+    for line in next_step_lines(client, completed_login) {
         println!("{line}");
     }
 }
 
-pub(super) fn next_step_lines(client: KnownClient) -> &'static [&'static str] {
+pub(super) fn next_step_lines(client: KnownClient, completed_login: bool) -> StepLines {
     match client {
         KnownClient::ClaudeCode => {
             &["  Open Claude Code, run /mcp, and authenticate Driggsby to get started."]
         }
+        KnownClient::Codex if completed_login => &["  Open Codex and ask it to use Driggsby."],
         KnownClient::Codex => &[
             "  Complete the Driggsby sign-in in the browser window opened by Codex.",
             "  If no browser window opened, run:",
@@ -472,11 +466,17 @@ fn print_manual_command(client: KnownClient, installer: &McpConfigCommand) {
     println!("  {}", render_shell_command(installer));
     println!();
     println!("After adding it:");
-    print_next_step(client);
+    for line in next_step_lines(client, false) {
+        println!("{line}");
+    }
 }
 
 fn command_reports_existing_config(output: &std::process::Output) -> bool {
     command_output_contains(output, "already exists")
+}
+
+fn codex_completed_login(output: &std::process::Output) -> bool {
+    command_output_contains(output, "Successfully logged in.")
 }
 
 fn command_reports_missing_config(output: &std::process::Output) -> bool {
