@@ -210,26 +210,26 @@ async fn run_config_command_inner(
     let remote_sign_in_hint =
         stream_output.then(|| Arc::new(Mutex::new(RemoteSignInHintState::default())));
 
-    let stdout_task = child.stdout.take().map(|stdout| {
-        tokio::spawn(read_child_output(
+    let stdout_reader = child.stdout.take().map(|stdout| {
+        spawn_output_reader(
             stdout,
             OutputStream::Stdout,
             stream_output,
             remote_sign_in_hint.clone(),
-        ))
+        )
     });
-    let stderr_task = child.stderr.take().map(|stderr| {
-        tokio::spawn(read_child_output(
+    let stderr_reader = child.stderr.take().map(|stderr| {
+        spawn_output_reader(
             stderr,
             OutputStream::Stderr,
             stream_output,
             remote_sign_in_hint.clone(),
-        ))
+        )
     });
 
     let status = child.wait().await?;
-    let stdout = collect_child_output(stdout_task).await?;
-    let stderr = collect_child_output(stderr_task).await?;
+    let stdout = finish_child_output(stdout_reader).await?;
+    let stderr = finish_child_output(stderr_reader).await?;
 
     Ok(std::process::Output {
         status,
@@ -244,23 +244,48 @@ enum OutputStream {
     Stderr,
 }
 
+struct OutputReader {
+    output: Arc<Mutex<Vec<u8>>>,
+    task: JoinHandle<std::io::Result<()>>,
+}
+
+fn spawn_output_reader(
+    reader: impl AsyncRead + Unpin + Send + 'static,
+    stream: OutputStream,
+    stream_output: bool,
+    remote_sign_in_hint: Option<Arc<Mutex<RemoteSignInHintState>>>,
+) -> OutputReader {
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let task = tokio::spawn(read_child_output(
+        reader,
+        stream,
+        stream_output,
+        remote_sign_in_hint,
+        Arc::clone(&output),
+    ));
+    OutputReader { output, task }
+}
+
 async fn read_child_output(
     mut reader: impl AsyncRead + Unpin,
     stream: OutputStream,
     stream_output: bool,
     remote_sign_in_hint: Option<Arc<Mutex<RemoteSignInHintState>>>,
-) -> std::io::Result<Vec<u8>> {
-    let mut output = Vec::new();
+    output: Arc<Mutex<Vec<u8>>>,
+) -> std::io::Result<()> {
     let mut buffer = [0; 8192];
 
     loop {
         let bytes_read = reader.read(&mut buffer).await?;
         if bytes_read == 0 {
-            return Ok(output);
+            return Ok(());
         }
 
         let chunk = &buffer[..bytes_read];
-        output.extend_from_slice(chunk);
+        output
+            .lock()
+            .map_err(|_| std::io::Error::other("Could not capture client output."))?
+            .extend_from_slice(chunk);
         if stream_output {
             write_child_output(stream, chunk)?;
             maybe_print_remote_sign_in_hint(&remote_sign_in_hint, chunk)?;
@@ -268,14 +293,28 @@ async fn read_child_output(
     }
 }
 
-async fn collect_child_output(
-    task: Option<JoinHandle<std::io::Result<Vec<u8>>>>,
-) -> std::io::Result<Vec<u8>> {
-    let Some(task) = task else {
+async fn finish_child_output(reader: Option<OutputReader>) -> std::io::Result<Vec<u8>> {
+    let Some(mut reader) = reader else {
         return Ok(Vec::new());
     };
-    task.await
-        .map_err(|error| std::io::Error::other(format!("Could not read client output: {error}")))?
+
+    tokio::select! {
+        result = &mut reader.task => {
+            result.map_err(|error| {
+                std::io::Error::other(format!("Could not read client output: {error}"))
+            })??;
+        }
+        () = tokio::time::sleep(Duration::from_millis(250)) => {
+            reader.task.abort();
+            let _ = reader.task.await;
+        }
+    }
+
+    reader
+        .output
+        .lock()
+        .map_err(|_| std::io::Error::other("Could not capture client output."))
+        .map(|output| output.clone())
 }
 
 fn write_child_output(stream: OutputStream, bytes: &[u8]) -> std::io::Result<()> {

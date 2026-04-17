@@ -113,3 +113,24 @@ async fn streaming_config_command_still_captures_output() -> anyhow::Result<()> 
     assert!(super::command_reports_missing_config(&output));
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn config_command_does_not_wait_for_output_inherited_by_grandchildren() -> anyhow::Result<()>
+{
+    let command = super::McpConfigCommand {
+        program: "sh".to_string(),
+        args: vec![
+            "-c".to_string(),
+            "printf 'already exists'; (sleep 3) &".to_string(),
+        ],
+    };
+
+    let start = std::time::Instant::now();
+    let output = super::run_config_command_inner(&command, false).await?;
+
+    assert!(start.elapsed() < std::time::Duration::from_secs(2));
+    assert!(output.status.success());
+    assert!(super::command_reports_existing_config(&output));
+    Ok(())
+}
