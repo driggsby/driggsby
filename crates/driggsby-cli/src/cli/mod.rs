@@ -1,5 +1,6 @@
 mod client_id;
 pub mod connect;
+mod existing_mcp_config;
 mod known_client;
 mod supported_mcp_config;
 
