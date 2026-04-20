@@ -15,10 +15,10 @@ use tokio::{
 use crate::{
     cli::McpScope,
     cli::client_id,
+    cli::existing_mcp_config::{handle_existing_config, print_existing_config_differs},
     cli::known_client::KnownClient,
     cli::supported_mcp_config::{
-        CliMcpClient, DRIGGSBY_MCP_URL, McpConfigCommand, build_installer_command,
-        build_scoped_remover_command, render_shell_command,
+        DRIGGSBY_MCP_URL, McpConfigCommand, build_installer_command, render_shell_command,
     },
 };
 
@@ -56,6 +56,16 @@ pub async fn run_setup_command(
         return Ok(());
     }
 
+    println!(
+        "Checking for Driggsby in {} MCP config...",
+        client.display_name()
+    );
+    flush_stdout()?;
+
+    if handle_existing_config(client, cli_client, mcp_scope, &installer).await? {
+        return Ok(());
+    }
+
     println!("Adding Driggsby to {} MCP config...", client.display_name());
     flush_stdout()?;
 
@@ -65,7 +75,8 @@ pub async fn run_setup_command(
             Ok(())
         }
         Ok(Ok(output)) if command_reports_existing_config(&output) => {
-            reinstall_existing_client(client, cli_client, mcp_scope).await
+            print_existing_config_differs(client, cli_client, mcp_scope, &installer);
+            Ok(())
         }
         Ok(Ok(_)) => {
             print_auto_setup_failure(client, "The client command returned an error.", &installer);
@@ -148,45 +159,7 @@ fn read_trimmed_line() -> Result<String> {
     Ok(line.trim().to_string())
 }
 
-async fn reinstall_existing_client(
-    client: KnownClient,
-    cli_client: CliMcpClient,
-    mcp_scope: Option<McpScope>,
-) -> Result<()> {
-    let remover = build_scoped_remover_command(cli_client, mcp_scope);
-    let installer = build_installer_command(cli_client, mcp_scope);
-
-    let stream_output = stream_config_output(client);
-
-    match run_config_command(&remover, stream_output).await {
-        Ok(Ok(output)) if output.status.success() || command_reports_missing_config(&output) => {
-            match run_config_command(&installer, stream_output).await {
-                Ok(Ok(output)) if output.status.success() => {
-                    print_success(client, codex_completed_login(&output));
-                    Ok(())
-                }
-                _ => {
-                    print_auto_setup_failure(
-                        client,
-                        "Could not replace the existing Driggsby MCP config.",
-                        &installer,
-                    );
-                    Ok(())
-                }
-            }
-        }
-        _ => {
-            print_auto_setup_failure(
-                client,
-                "Could not remove the existing Driggsby MCP config.",
-                &installer,
-            );
-            Ok(())
-        }
-    }
-}
-
-async fn run_config_command(
+pub(super) async fn run_config_command(
     command: &McpConfigCommand,
     stream_output: bool,
 ) -> Result<std::io::Result<std::process::Output>, tokio::time::error::Elapsed> {
@@ -477,13 +450,6 @@ fn command_reports_existing_config(output: &std::process::Output) -> bool {
 
 fn codex_completed_login(output: &std::process::Output) -> bool {
     command_output_contains(output, "Successfully logged in.")
-}
-
-fn command_reports_missing_config(output: &std::process::Output) -> bool {
-    command_output_contains(output, "No MCP server found")
-        || command_output_contains(output, "No project-local MCP server found")
-        || command_output_contains(output, "No user-scoped MCP server found")
-        || command_output_contains(output, "No MCP server named 'driggsby' found")
 }
 
 fn command_output_contains(output: &std::process::Output, needle: &str) -> bool {

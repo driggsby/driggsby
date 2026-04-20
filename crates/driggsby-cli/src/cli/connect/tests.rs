@@ -114,7 +114,6 @@ async fn streaming_config_command_still_captures_output() -> anyhow::Result<()> 
 
     assert!(output.status.success());
     assert!(super::command_reports_existing_config(&output));
-    assert!(super::command_reports_missing_config(&output));
     Ok(())
 }
 

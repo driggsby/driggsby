@@ -51,6 +51,24 @@ pub(super) fn build_installer_command(
     }
 }
 
+pub(super) fn build_inspector_command(client: CliMcpClient) -> McpConfigCommand {
+    match client {
+        CliMcpClient::ClaudeCode => McpConfigCommand {
+            program: "claude".to_string(),
+            args: vec!["mcp".to_string(), "get".to_string(), "driggsby".to_string()],
+        },
+        CliMcpClient::Codex => McpConfigCommand {
+            program: "codex".to_string(),
+            args: vec![
+                "mcp".to_string(),
+                "get".to_string(),
+                "driggsby".to_string(),
+                "--json".to_string(),
+            ],
+        },
+    }
+}
+
 pub(super) fn build_scoped_remover_command(
     client: CliMcpClient,
     scope: Option<McpScope>,
@@ -100,7 +118,8 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CliMcpClient, DRIGGSBY_MCP_URL, build_installer_command, build_scoped_remover_command,
+        CliMcpClient, DRIGGSBY_MCP_URL, build_inspector_command, build_installer_command,
+        build_scoped_remover_command,
     };
 
     #[test]
@@ -136,6 +155,18 @@ mod tests {
                 .args
                 .windows(2)
                 .any(|values| values == ["-s", "user"])
+        );
+    }
+
+    #[test]
+    fn inspector_commands_read_named_driggsby_config() {
+        assert_eq!(
+            build_inspector_command(CliMcpClient::ClaudeCode).args,
+            ["mcp", "get", "driggsby"]
+        );
+        assert_eq!(
+            build_inspector_command(CliMcpClient::Codex).args,
+            ["mcp", "get", "driggsby", "--json"]
         );
     }
 }
