@@ -1,0 +1,6 @@
+Run this command to add Driggsby to Claude Code:
+
+  claude mcp add --transport http -s user driggsby 'https://app.driggsby.com/mcp'
+
+After adding it:
+  Open Claude Code, run /mcp, and authenticate Driggsby to get started.

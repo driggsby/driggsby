@@ -2,37 +2,27 @@ name: PR Security
 
 env:
   ACTIONLINT_VERSION: "1.7.12"
-  CARGO_AUDIT_VERSION: "0.22.1"
-  CARGO_DIST_VERSION: "0.31.0"
 
 on:
   pull_request:
     paths:
-      - ".cargo/audit.toml"
-      - ".github/workflows/pr-security.yml"
-      - ".github/workflows/security-background.yml"
-      - ".github/workflows/release.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
+      - ".github/workflows/**"
       - "Justfile"
       - "LICENSE"
       - "README.md"
-      - "crates/driggsby-cli/**"
-      - "dist-workspace.toml"
       - "eslint.config.mjs"
-      - "**/Cargo.toml"
-      - "scripts/check_github_action_pins.sh"
-      - "scripts/release/**"
       - "package-lock.json"
       - "package.json"
-      - "npm/driggsby/**"
+      - "packages/**"
+      - "scripts/**"
+      - "tsconfig.base.json"
       - "tsconfig.json"
 
 permissions:
   contents: read
 
 jobs:
-  verify:
+  npm-audit:
     runs-on: ubuntu-latest
 
     steps:
@@ -45,109 +35,11 @@ jobs:
           node-version: "24"
           cache: npm
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck npm package tooling
-        run: npm run check
-
-      - name: Build npm package tooling
-        run: npm run build
-
-      - name: Install Linux native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev pkg-config
-
-      - name: Restore Rust verify target cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: target
-          key: rust-verify-target-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/driggsby-cli/Cargo.toml') }}
-          restore-keys: |
-            rust-verify-target-${{ runner.os }}-
-
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
-
-      - name: Lint Rust libraries and binaries
-        run: |
-          cargo clippy --workspace --lib --bins --examples --all-features -- \
-            -D warnings -D clippy::unwrap_used -D clippy::expect_used \
-            -D clippy::panic -D clippy::todo -D clippy::unimplemented \
-            -D clippy::undocumented_unsafe_blocks
-
-      - name: Lint Rust tests
-        run: |
-          cargo clippy --workspace --tests --all-features -- \
-            -D warnings -D clippy::unwrap_used -D clippy::expect_used \
-            -D clippy::todo -D clippy::unimplemented \
-            -D clippy::undocumented_unsafe_blocks
-
-      - name: Test Rust CLI
-        run: cargo test --all-features --locked
-
-      - name: Build Rust CLI
-        run: cargo build --locked
-
-  cargo-audit:
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-
-      - name: Compute cargo-audit cache ABI
-        id: cargo-audit-cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          glibc_hash="$(ldd --version | head -n 1 | sha256sum | cut -d ' ' -f 1)"
-          rustc_version="$(rustc -Vv | awk '/^host:/ { print $2 }')"
-          echo "abi=${{ runner.os }}-${{ runner.arch }}-${rustc_version}-${glibc_hash}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore cargo-audit binary cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-bin-${{ steps.cargo-audit-cache.outputs.abi }}-${{ env.CARGO_AUDIT_VERSION }}
-
-      - name: Restore Rust audit data caches
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-        with:
-          path: |
-            ~/.cargo/advisory-db
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-audit-data-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}-${{ hashFiles('Cargo.lock', '.cargo/audit.toml') }}
-          restore-keys: |
-            cargo-audit-data-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}-
-            cargo-audit-data-${{ runner.os }}-
-
-      - name: Install cargo-audit
-        shell: bash
-        run: |
-          set -euo pipefail
-          audit_bin="$HOME/.cargo/bin/cargo-audit"
-          needs_install=false
-          if [ ! -x "$audit_bin" ]; then
-            needs_install=true
-          elif ! "$audit_bin" --version | grep -Fx "cargo-audit $CARGO_AUDIT_VERSION" >/dev/null; then
-            needs_install=true
-          fi
-          if [ "$needs_install" = true ]; then
-            rm -f "$audit_bin"
-            cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked --debug
-          fi
-
-      - name: Audit Rust dependencies
-        run: |
-          "$HOME/.cargo/bin/cargo-audit" audit --deny warnings
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
 
   release-surface-smoke:
     runs-on: ubuntu-latest
@@ -194,86 +86,3 @@ jobs:
 
       - name: Verify pinned GitHub Actions
         run: bash scripts/check_github_action_pins.sh
-
-      - name: Check release shell scripts
-        run: |
-          bash -n scripts/release/*.sh
-          bash scripts/release/test-sign-notarize-macos-artifacts.sh
-
-      - name: Install cargo-dist
-        shell: bash
-        run: bash scripts/release/install-cargo-dist.sh
-
-      - name: Install Node dependencies
-        run: npm ci
-
-      - name: Typecheck npm package validator
-        run: npm run check
-
-      - name: Build npm package validator
-        run: npm run build
-
-      - name: Plan hyphen-tagged release
-        shell: bash
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          release_tag="driggsby-v${version}"
-          dist plan --tag="$release_tag" --output-format=json > plan-dist-manifest.json
-          node - "$release_tag" <<'NODE'
-          const fs = require("node:fs");
-
-          const expectedTag = process.argv[2];
-          const manifest = JSON.parse(fs.readFileSync("plan-dist-manifest.json", "utf8"));
-          const release = manifest.releases?.find((entry) => entry.app_name === "driggsby");
-
-          if (manifest.announcement_tag !== expectedTag) {
-            throw new Error(`expected announcement_tag ${expectedTag}, got ${manifest.announcement_tag}`);
-          }
-          if (!release) {
-            throw new Error("missing driggsby release in dist plan");
-          }
-          if (release.app_version !== expectedTag.replace("driggsby-v", "")) {
-            throw new Error(`unexpected release version ${release.app_version}`);
-          }
-          const manifestText = JSON.stringify(manifest);
-          if (manifestText.includes("driggsby-npm-package.tar.gz")) {
-            throw new Error("dist plan should not include cargo-dist's generated npm package");
-          }
-          if (JSON.stringify(manifest).includes("driggsby/v")) {
-            throw new Error("dist plan still contains slash-style driggsby/v release path");
-          }
-          NODE
-
-      - name: Pack and scan owned npm package
-        shell: bash
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          dist build --tag="driggsby-v${version}" --artifacts=global --output-format=json > global-dist-manifest.json
-          mkdir -p target/distrib
-          for artifact in \
-            driggsby-aarch64-apple-darwin.tar.xz \
-            driggsby-aarch64-unknown-linux-gnu.tar.xz \
-            driggsby-x86_64-apple-darwin.tar.xz \
-            driggsby-x86_64-unknown-linux-gnu.tar.xz; do
-            printf '%064d  %s\n' 1 "$artifact" > "target/distrib/${artifact}.sha256"
-          done
-          npm run pack:npm
-          node dist/scripts/release/check-npm-publish-surface.js "target/distrib/driggsby-${version}.tgz"
-          tar -xOf "target/distrib/driggsby-${version}.tgz" package/package.json > generated-package.json
-          node - "$version" <<'NODE'
-          const fs = require("node:fs");
-
-          const version = process.argv[2];
-          const pkg = JSON.parse(fs.readFileSync("generated-package.json", "utf8"));
-          const expectedUrl = `https://github.com/driggsby/driggsby/releases/download/driggsby-v${version}`;
-
-          if (pkg.name !== "driggsby") {
-            throw new Error(`expected npm package name driggsby, got ${pkg.name}`);
-          }
-          if (pkg.version !== version) {
-            throw new Error(`expected npm package version ${version}, got ${pkg.version}`);
-          }
-          if (pkg.driggsbyArtifacts?.baseUrl !== expectedUrl) {
-            throw new Error(`expected artifact URL ${expectedUrl}, got ${pkg.driggsbyArtifacts?.baseUrl}`);
-          }
-          NODE

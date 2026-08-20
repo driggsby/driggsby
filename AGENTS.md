@@ -1,8 +1,8 @@
 # AGENTS.md
 
-This repository contains the public, open-source Driggsby CLI. The CLI is the
-local setup helper that configures supported AI clients to connect directly to
-the remote Driggsby MCP endpoint.
+This repository contains the public, open-source Driggsby CLI: a pure
+TypeScript npm package (`driggsby`) that sets up supported AI clients to
+connect to the remote Driggsby MCP endpoint.
 
 Driggsby is a personal financial MCP server that provides secure access to users'
 financial data (such as balances, transactions, and investments) to their AI client
@@ -10,8 +10,15 @@ or agent of choice. As such, security is non-negotiable and is your top priority
 
 ## Project Scope
 
-- This repo owns the Rust CLI, npm wrapper package, GitHub Release artifacts, and
-  npm publishing workflow for the public `driggsby` package.
+- This repo owns the `driggsby` npm package and its publishing workflow. It is
+  an npm-workspaces monorepo under `packages/`.
+- The CLI is pure TypeScript compiled to JavaScript. It installs from the npm
+  registry alone: no platform binaries, no postinstall scripts, no binary
+  downloads. It must keep working in sandboxes whose network egress is limited
+  to the npm registry, and in WebContainer-style environments that cannot run
+  native binaries.
+- The published package must have **zero runtime dependencies**. Development
+  tooling (typescript, eslint, the test runner) stays in devDependencies.
 - Main install path:
   - `npx driggsby@latest mcp setup`
   - `npx driggsby@latest mcp setup claude-code`
@@ -25,36 +32,37 @@ or agent of choice. As such, security is non-negotiable and is your top priority
 https://app.driggsby.com/mcp
 ```
 
-- The CLI does not run a local MCP server, daemon, local OAuth flow, DPoP flow,
-  client-grant system, or Driggsby token store.
-- The npm package must not include platform binaries. It should contain only the
-  JavaScript installer/shim, package metadata, license/readme files, and checksum
-  metadata. Platform binaries are hosted as GitHub Release artifacts.
+- For `mcp setup`, the CLI does not run a local MCP server, daemon, local
+  OAuth flow, or Driggsby token store; client OAuth stays client-managed.
 - This is a public repo. Do not add private Driggsby service code, private
   infrastructure details, customer data, credentials, internal repo names,
   non-public runbooks, or private operational debugging instructions.
 - Assume every committed file is public and may be shared broadly. Take utmost
   care before publishing operational, security, infrastructure, release, or
   credential-adjacent details.
-- The root `README.md`, `npm/driggsby/README.md`, and crate README are public
-  launch-facing docs. Keep them user-facing and concise; do not include internal
-  release runbooks, environment variable names, cache policies, signing details,
-  or other maintainer-only operational notes.
+- The root `README.md` and `packages/driggsby/README.md` are public
+  launch-facing docs. Keep them user-facing and concise; do not include
+  internal release runbooks, environment variable names, or other
+  maintainer-only operational notes.
 
 ## Security
 
-- Treat this as consumer financial software. The CLI should stay small and should
-  not handle user financial data or Driggsby OAuth tokens.
+- Treat this as consumer financial software.
 - Never expose secrets, token values, private paths, or internal service
-  diagnostics in public CLI output.
+  diagnostics in public CLI output. Credential checks are presence-only.
 - Public remote MCP/OAuth validation errors may be surfaced when they are already
   part of the public remote contract. Local process/config command failures must
   be mapped to consumer-safe messages with clear next steps.
 - Suggested terminal commands in CLI output must be copy-paste safe. Do not wrap
   terminal command suggestions in shell backticks. Markdown docs may use backticks.
+- Never spawn a child process with user-controlled program names or arguments;
+  commands the CLI runs are fixed constants. If a value must flow into a
+  command, allowlist-validate it first and never use a shell to interpret it
+  (the Windows `shell: true` spawn path is acceptable only because every
+  argument is a fixed constant).
 - GitHub Actions must stay pinned to immutable SHAs unless there is a deliberate
   reviewed reason to update them.
-- Never publish binaries, npm packages, or release artifacts from an unreviewed
+- Never publish npm packages or release artifacts from an unreviewed
   branch or from a tag that is not current `origin/main`.
 
 ## Conversation And Autonomy
@@ -105,54 +113,59 @@ When implementing a feature, fix, or release change:
      `git config core.hooksPath .githooks`.
 
 2. Research before editing.
-   - Inspect relevant source, tests, workflows, npm tooling, and release metadata.
+   - Inspect relevant source, tests, workflows, and release metadata.
    - Check edited source file lengths before changes; keep source files under 500
      lines. The 500-line source gate is enforced by
      `scripts/check_source_line_lengths.sh`.
    - For release behavior, inspect `.github/workflows/release.yml`,
-     `.github/workflows/pr-security.yml`, `dist-workspace.toml`,
-     `npm/driggsby/package.json`, and `scripts/release/*`.
+     `.github/workflows/pr-security.yml`, `packages/driggsby/package.json`, and
+     `scripts/release/*`.
 
 3. Implement carefully.
-   - Use `apply_patch` for manual edits.
-   - Keep Rust boring and explicit.
-   - Preserve public CLI/MCP output quality.
-   - Avoid new dependencies unless they are clearly justified.
-   - If adding a dependency, verify the current crate/package version before pinning.
+   - Keep TypeScript strict and boring: explicit types, straightforward control
+     flow, no cleverness.
+   - Preserve public CLI/MCP output quality; changed output means updated
+     fixtures with a reviewed reason.
+   - Avoid new dependencies. The published packages must keep zero runtime
+     dependencies; adding a devDependency needs clear justification and a
+     current-version check.
+   - Keep behavior identical across macOS, Linux, and Windows: use `node:path`
+     for paths, never shell out to POSIX-only tools, and never assume POSIX
+     file permissions on Windows.
 
 4. Test the behavior, not just compilation.
    - Add or update focused tests for real regressions.
    - Avoid test bloat and near-duplicates.
-   - For CLI-output changes, run live output smokes.
-   - For client setup changes, include focused command-building, invalid-input,
-     and live `--print` output coverage.
+   - For CLI-output changes, update the fixture parity tests and run live
+     output smokes.
+   - Tests must not depend on a real `claude`/`codex` install; use the fake
+     client shims in `src/test-support/`.
 
 5. Review after tests pass.
-   - For non-trivial Rust, release, installer, npm, security, or MCP changes, run:
-     - one simplification/scope review,
-     - two standard code reviews,
-     - two security/privacy reviews.
+   - For non-trivial changes, run exactly 2 review rounds: a primary round and
+     a fresh adversarial round. Each round runs 2 focused read-only reviewer
+     subagents: one security/privacy reviewer and one correctness/quality/
+     simplification reviewer. Fix valid `medium+` findings, then repeat the
+     round until both reviewers pass.
    - Reviewer prompts must start with:
 
 ```text
 You are a READ-ONLY reviewer. Do NOT edit files, do NOT create pull requests, do NOT perform the work of a developer. You are a CODE REVIEWER only.
 ```
 
-   - Reviewer subagents must be spawned with `fork_context=false`, must be read-only, and must not create branches, commits, pushes,
-     pull requests, PR comments, issue comments, labels, or reactions.
-   - Fix valid `medium+` findings.
+   - Reviewer subagents must be spawned with `fork_context=false`, must be
+     read-only, and must not create branches, commits, pushes, pull requests,
+     PR comments, issue comments, labels, or reactions.
    - Documentation-only edits may skip the full reviewer pass when they do not
      change product behavior, release behavior, security posture, or public
      contracts.
 
 6. Verify and commit.
-   - Run the repo's required checks before committing.
+   - Run the repo's required checks before committing (`just verify`, or
+     `npm run check && npm run build && npm test` plus the line-length gate).
    - Smoke test real CLI output when public behavior changed.
-   - Commit messages must be descriptive and end with this footer as the final line:
-
-```text
-Authored by: Codex
-```
+   - Commit messages must be descriptive and end with an `Authored by:` footer
+     naming the authoring agent as the final line.
 
 7. Sync and open the PR.
    - Sync the feature branch with `origin/main`.
@@ -160,66 +173,44 @@ Authored by: Codex
    - Push the branch.
    - Open a PR with a clear title and body covering summary, why, testing, and risks.
 
-## Rust Rules
+## TypeScript Rules
 
-- No `unsafe` in normal development.
-- No `unwrap()` or `expect()` in non-test code.
-- No `panic!`, `todo!`, `unimplemented!`, or `unreachable!` in non-test code.
-- Use `Result` and `?` for recoverable errors.
-- If `unsafe` is truly required, stop and get explicit maintainer approval first.
-- Keep modules and functions small enough that the next agent can understand them
-  quickly.
-- Prefer explicit types and straightforward control flow over cleverness.
-
-## TypeScript And Npm Tooling
-
-- New Node-side release, installer, or validation tooling should be TypeScript, not
-  plain JavaScript, unless editing an existing runtime JavaScript file.
-- Keep TypeScript strict and type-clean. Do not use `any` or unsafe shortcuts.
-- The npm package is generated from `npm/driggsby` and validated by the release
-  surface checks. Do not hand-edit generated tarball contents.
-- Do not add platform binaries to npm package `files`.
-- The npm installer should download GitHub Release artifacts, verify checksums, and
-  install only the selected platform binary.
+- Strict mode everywhere, type-clean with zero errors and zero eslint warnings.
+- No `any`, no unsafe casts, no `@ts-ignore`/`@ts-expect-error` in non-test code.
+- No `eval`, no dynamic `Function`, no dynamic `import()` of computed paths.
+- Use explicit domain result types (discriminated unions) over thrown strings;
+  `CliError` carries the exit code for user-facing failures.
+- Keep modules and functions small enough that the next agent can understand
+  them quickly; source files stay under 500 lines.
+- Source imports use `.ts` specifiers; `rewriteRelativeImportExtensions`
+  rewrites them at build time and Node runs the `.ts` files directly in tests.
 
 ## Checks
 
 Use the repo's `Justfile` recipes:
 
-- `just required-check`: runs npm install/check/build, Rust formatting, and strict
-  clippy gates for libraries, binaries, examples, and tests. It also runs the
-  500-line source file gate.
-- `just verify`: runs `just required-check`, `cargo test --all-features --locked`,
-  and `cargo build --locked`.
-
-Useful targeted checks:
-
-- `cargo test --all-features`
-- `npm run check`
-- `npm run build`
-- `bash scripts/check_source_line_lengths.sh`
-- `npm run pack:npm`
-- `node dist/scripts/release/check-npm-publish-surface.js target/distrib/driggsby-X.Y.Z.tgz`
+- `just required-check`: npm ci, lint + typecheck, build, and the 500-line
+  source file gate.
+- `just verify`: `just required-check` plus the full test suite.
+- `just check-npm-package`: packs the npm package and validates its publish
+  surface, including installing the real tarball and running the bin.
 
 For CLI-output changes, smoke test the actual terminal output:
 
 ```bash
-cargo run -p driggsby -- --help
-cargo run -p driggsby -- mcp setup claude-code --print
-cargo run -p driggsby -- mcp setup codex --print
+node packages/driggsby/bin/driggsby.js --help
+node packages/driggsby/bin/driggsby.js mcp setup claude-code --print
+node packages/driggsby/bin/driggsby.js mcp setup codex --print
 ```
 
-For release workflow changes, also run or inspect:
-
-- `bash scripts/check_github_action_pins.sh`
-- `bash scripts/release/install-cargo-dist.sh`
-- `dist plan --tag=driggsby-vX.Y.Z --output-format=json`
-- `actionlint .github/workflows/*.yml` when available
+For workflow changes, run `actionlint .github/workflows/*.yml` when available
+and `bash scripts/check_github_action_pins.sh`.
 
 ## CLI Output Rules
 
 - CLI output should be calm, explicit, and easy for humans and agents to act on.
-- Prefer consistent sections such as:
+- Every command's output should end by telling the user the exact next step,
+  preferring a consistent `Next:` section:
 
 ```text
 Next:
@@ -233,21 +224,13 @@ Next:
 - Do not expose local paths, raw process errors, or private implementation details
   in consumer-facing output unless explicitly needed for a local diagnostic
   command.
-
-## Public MCP Rules
-
-- The public MCP surface must never expose private Driggsby internals.
-- Preserve public remote MCP/OAuth validation errors when they are already part of
-  the remote public contract. This lets CLI MCP users see the same useful errors an
-  OAuth MCP client would see for bad dates, invalid page tokens, unsupported SQL,
-  and other input issues.
-- Sanitize local CLI implementation failures before they reach users.
-- Optimize for first-shot success by a zero-context agent. Tool descriptions,
-  schemas, errors, and next steps should be plain English and hard to misread.
+- Optimize for first-shot success by a zero-context agent. Help text, errors,
+  and next steps should be plain English and hard to misread.
 
 ## Release Process
 
-Releases are tag-triggered. The release workflow runs only for tags matching:
+Releases are tag-triggered and publish through npm trusted publishing (OIDC);
+no npm tokens exist anywhere. The release workflow runs only for tags matching:
 
 ```text
 driggsby-vX.Y.Z
@@ -255,53 +238,23 @@ driggsby-vX.Y.Z
 
 Before creating a release tag:
 
-1. Update all versioned metadata to `X.Y.Z`.
-2. Confirm these files agree:
-   - `Cargo.toml`
-   - `Cargo.lock`
-   - `package.json`
-   - `package-lock.json`
-   - `npm/driggsby/package.json`
-3. Confirm `npm/driggsby/package.json` points at:
-
-```text
-https://github.com/driggsby/driggsby/releases/download/driggsby-vX.Y.Z
-```
-
-4. Run `just verify`.
-5. Run npm package surface validation for the generated package.
-6. Merge the PR to `main`.
-7. Sync local `main` with `origin/main`.
-8. Create and push the tag from the current `origin/main` commit:
+1. Update the version in `packages/driggsby/package.json` and the workspace
+   root `package.json`, and refresh `package-lock.json` (`npm install`).
+2. Run `just verify` and `just check-npm-package`.
+3. Merge the PR to `main`.
+4. Sync local `main` with `origin/main`.
+5. Create and push the tag from the current `origin/main` commit:
 
 ```bash
 git tag driggsby-vX.Y.Z origin/main
 git push origin driggsby-vX.Y.Z
 ```
 
-The release workflow rejects tags that are not on current `origin/main`.
-
-Current release artifact targets are:
-
-- `aarch64-apple-darwin`
-- `x86_64-apple-darwin`
-- `aarch64-unknown-linux-gnu`
-- `x86_64-unknown-linux-gnu`
-
-Windows is not currently part of the release artifact matrix. Do not claim Windows
-release support until the workflow, installer metadata, and tests actually
-support it.
-
-The tag-triggered release workflow:
-
-- validates the tag format and tagged commit,
-- runs Rust and npm verification,
-- runs `cargo audit`,
-- plans the release with `cargo-dist`,
-- builds platform artifacts,
-- creates the GitHub Release,
-- scans the generated npm package,
-- publishes `driggsby` to npm through trusted publishing.
+The release workflow rejects tags that are not on current `origin/main`, and
+rejects tags whose version does not match the package version. It then
+verifies on all three OSes, validates the packed npm package surface, and
+publishes `driggsby` with `--provenance` through the `npm-publish`
+environment.
 
 The npm trusted publisher must match the public repository, release workflow file,
 and `npm-publish` environment. If npm publish fails, inspect trusted publishing and
@@ -309,22 +262,18 @@ environment protection before changing package code.
 
 If a release fails after a tag push:
 
-- Do not overwrite public release artifacts.
 - Fix the workflow or code in a new PR.
-- Bump to a new version if npm or GitHub already observed the failed version in a
-  way that cannot be safely retried.
+- Bump to a new version if npm already observed the failed version in a way
+  that cannot be safely retried.
 - Merge to `main`, then create a new tag from current `origin/main`.
 
 ## Platform Support
 
-- Supported today:
-  - macOS Apple Silicon: `aarch64-apple-darwin`
-  - macOS Intel: `x86_64-apple-darwin`
-  - Linux arm64 glibc: `aarch64-unknown-linux-gnu`
-  - Linux x64 glibc: `x86_64-unknown-linux-gnu`
-- Not supported today:
-  - Windows release artifacts,
-  - Linux musl/static binaries.
+- Supported: macOS, Linux, and Windows, on Node.js 18 or newer (the package's
+  `engines` floor). CI runs the full suite on all three OSes and smokes the
+  built CLI on Node 18.
+- There are no platform binaries and no per-platform artifacts; the npm
+  package is the entire release surface.
 
 ## Public Documentation
 
