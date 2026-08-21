@@ -13,6 +13,32 @@ export function sanitizeForTerminal(value: string): string {
   return value.replace(/[\u0000-\u001F\u007F-\u009F\u061C\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "");
 }
 
+// Hard-wraps one paragraph of prose at the given width so sentences built
+// from dynamic parts (storage locations, joined source lists) never overflow
+// an 80-column terminal. Static help text stays hand-wrapped as written;
+// this is only for lines whose length cannot be known when the code is
+// written. A single word longer than the width gets its own line. The input
+// must be a single paragraph with no embedded newlines — only U+0020 spaces
+// are treated as break points, so pre-broken text is not re-flowed.
+export function wrapProse(text: string, width = 76): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line === "") {
+      line = word;
+    } else if (line.length + 1 + word.length <= width) {
+      line = `${line} ${word}`;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line !== "") {
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
 // Rust's str::trim() trims the Unicode White_Space set, which differs from
 // JavaScript's String.prototype.trim at exactly two code points: Rust trims
 // U+0085 (NEL) and does NOT trim U+FEFF (ZWNBSP/BOM); JS does the opposite.

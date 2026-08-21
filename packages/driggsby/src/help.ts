@@ -1,12 +1,16 @@
-// Help text is contract: every block below is byte-identical to the Rust
-// CLI's output, asserted against fixtures captured from driggsby 0.1.42 —
-// including the clap quirks (the trailing spaces on the blank line before
-// [possible values] in the long setup help, and the distinct short/long
-// setup variants).
+// Help text is contract, asserted byte-for-byte against the fixtures in
+// __fixtures__/. The mcp and mcp setup blocks are still byte-identical to
+// the Rust CLI's output (captured from driggsby 0.1.42), including the clap
+// quirks (the trailing spaces on the blank line before [possible values] in
+// the long setup help, and the distinct short/long setup variants). The root
+// help grew past the Rust CLI when login/logout landed; its fixture pins the
+// current text.
 export const ROOT_HELP = `Usage: npx driggsby@latest <COMMAND>
 
 Commands:
-  mcp  Set up Driggsby MCP clients.
+  mcp     Set up Driggsby MCP clients.
+  login   Sign in to Driggsby and save an app token on this machine.
+  logout  Remove the saved Driggsby app token.
 
 Options:
   -h, --help     Print help
@@ -17,6 +21,32 @@ Examples:
   npx driggsby@latest mcp setup claude-code
   npx driggsby@latest mcp setup codex
   npx driggsby@latest mcp setup other
+  npx driggsby@latest login
+`;
+
+export const LOGIN_HELP = `Sign in to Driggsby and save an app token on this machine.
+
+This opens a Driggsby approval page in your browser. Approving it issues an
+app token that lets this machine read your Driggsby data and deploy Driggsby
+apps. The token is saved locally for other driggsby commands and is never
+printed.
+
+Usage: npx driggsby@latest login
+
+Options:
+  -h, --help  Print help
+`;
+
+export const LOGOUT_HELP = `Remove the saved Driggsby app token.
+
+This removes the app token that npx driggsby@latest login saved on this
+machine. It does not sign you out of Driggsby in your browser or in your AI
+clients.
+
+Usage: npx driggsby@latest logout
+
+Options:
+  -h, --help  Print help
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.

@@ -2,6 +2,8 @@
 // never imported as a library.
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
+import { runLogin } from "./login/login.ts";
+import { runLogout } from "./login/logout.ts";
 import { runMcpSetup } from "./mcp-setup/setup.ts";
 import { VERSION } from "./version.ts";
 
@@ -19,6 +21,11 @@ async function run(argv: string[]): Promise<number> {
     case "mcp-setup":
       await runMcpSetup({ client: command.client, print: command.print, scope: command.scope });
       return 0;
+    case "login":
+      await runLogin();
+      return 0;
+    case "logout":
+      return await runLogout();
   }
 }
 

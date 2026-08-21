@@ -64,6 +64,18 @@ https://app.driggsby.com/mcp
   `cmd.exe` with its own quoting.
 - GitHub Actions must stay pinned to immutable SHAs unless there is a deliberate
   reviewed reason to update them.
+- Credential storage (`src/credentials/`) has fixed invariants: token values
+  never appear in output, errors, or logs; macOS uses an absolute
+  `/usr/bin/security` (never PATH); Linux `secret-tool` receives the token on
+  stdin, never argv; the file fallback is `~/.driggsby/credentials.json` with
+  `0600`/`0700` modes written via temp-file-plus-rename. `ClearOutcome` is a
+  tri-state (`cleared`/`absent`/`failed`) and a failed removal must never be
+  reported as "nothing to remove". A keyring write failure never falls back to
+  the file silently while an older keyring token could shadow the file copy on
+  read — `saveToken`'s shadow guard fails loudly or warns, by design.
+- Both claim-flow fetches in `src/login/` pin `redirect: "error"` and treat all
+  server-controlled strings as hostile: origin-pin and sanitize the claim URL,
+  cap and sanitize `error_description`. Keep it that way.
 - Never publish npm packages or release artifacts from an unreviewed
   branch or from a tag that is not current `origin/main`.
 
