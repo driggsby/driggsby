@@ -5,9 +5,12 @@
 // pasting untrusted text into an argument is a realistic path for such bytes
 // to reach a terminal. (Deliberate hardening drift from the Rust CLI, which
 // echoed argv raw.)
+// The strip set covers C0/DEL/C1 controls, U+061C ARABIC LETTER MARK (the
+// remaining Bidi_Control code point), zero-width joiners/marks, the
+// deprecated bidi embeddings/overrides, and the bidi isolates.
 export function sanitizeForTerminal(value: string): string {
   // eslint-disable-next-line no-control-regex
-  return value.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+  return value.replace(/[\u0000-\u001F\u007F-\u009F\u061C\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "");
 }
 
 // Rust's str::trim() trims the Unicode White_Space set, which differs from

@@ -276,6 +276,46 @@ test("slot-form -s value errors defer to clap's resolution point", () => {
   );
 });
 
+test("-- after a bare -s parks the missing value like clap's trailing mode", () => {
+  // While the [CLIENT] slot is free (or argv ends), the parked -s propagates
+  // its missing-value error at the next resolution point — even when it is a
+  // duplicate occurrence.
+  for (const argv of [
+    ["mcp", "setup", "-s", "--"],
+    ["mcp", "setup", "-s", "--", "x"],
+    ["mcp", "setup", "-s", "user", "-s", "--", "x"],
+  ]) {
+    try {
+      parseArgv(argv);
+      assert.fail(`expected a CliError for ${argv.join(" ")}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.ok(
+        error.message.includes("a value is required for '-s <MCP_SCOPE>'"),
+        `${argv.join(" ")}\n${error.message}`,
+      );
+    }
+  }
+  // Once the positional slot is taken, the extra-positional error wins and
+  // the parked -s error is discarded: static usage, no tip.
+  for (const tail of ["x", "--pront"]) {
+    try {
+      parseArgv(["mcp", "setup", "codex", "-s", "--", tail]);
+      assert.fail(`expected a CliError for tail ${tail}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.equal(
+        error.message,
+        `error: unexpected argument '${tail}' found\n\n` +
+          "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]\n\n" +
+          "For more information, try '--help'.",
+      );
+    }
+  }
+});
+
 test("a second slot-form -s drops the first from the rebuilt usage line", () => {
   const cases: [string[], string][] = [
     // One pending occurrence still renders its matcher entry…

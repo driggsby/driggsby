@@ -164,7 +164,11 @@ const SETUP_LONG_FLAGS = ["print", "help"] as const;
 // next token starts a new argument parse, or when argv ends.
 type PendingArg =
   | { kind: "client" }
-  | { kind: "scope"; value: string; isDuplicate: boolean };
+  | { kind: "scope"; value: string; isDuplicate: boolean }
+  // A bare -s whose value slot was cut off by "--": clap leaves it pending
+  // with NO value, and it resolves to "a value is required" even when it is
+  // a duplicate.
+  | { kind: "scope-missing-value" };
 
 function parseMcpSetup(argv: string[]): ParsedCommand {
   let client: string | undefined;
@@ -198,6 +202,12 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
     if (resolved.kind === "client") {
       clientInMatcher = true;
       committedArgs += 1;
+      return;
+    }
+    if (resolved.kind === "scope-missing-value") {
+      if (propagateErrors) {
+        throw scopeValueRequired();
+      }
       return;
     }
     if (resolved.isDuplicate) {
@@ -279,6 +289,14 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
         if (next === undefined) {
           throw scopeValueRequired();
         }
+        if (next === "--") {
+          // clap's escape does not feed -s: it flips trailing-values mode
+          // and leaves the -s pending with no value. That error surfaces at
+          // the next token — propagated while the [CLIENT] slot is free,
+          // discarded in favor of the extra-positional error once taken.
+          pending = { kind: "scope-missing-value" };
+          continue;
+        }
         if (next !== "-" && next.startsWith("-")) {
           if (isRecognizedSetupFlagToken(next)) {
             throw scopeValueRequired();
@@ -349,11 +367,12 @@ function invalidScopeValue(value: string): CliError {
 }
 
 // A dash-leading token clap would recognize as one of mcp setup's own flags:
-// end-of-options, an exact long flag, or a short cluster led by a known short
-// ('h' or 's'). Long forms with an attached =value are NOT recognized here —
-// clap reports those through their own unexpected-value error instead.
+// an exact long flag, or a short cluster led by a known short ('h' or 's').
+// Long forms with an attached =value are NOT recognized here — clap reports
+// those through their own unexpected-value error instead — and "--" is
+// handled separately (it parks the -s as pending-with-no-value).
 function isRecognizedSetupFlagToken(token: string): boolean {
-  if (token === "--" || token === "--help" || token === "--print") {
+  if (token === "--help" || token === "--print") {
     return true;
   }
   if (token.startsWith("--")) {
@@ -417,8 +436,10 @@ function unexpectedFlagValue(flag: string, rawValue: string, usage: string): Cli
 }
 
 function usedMultipleTimes(argumentName: string): CliError {
+  // Callers pass literals only; sanitizing anyway keeps the module-wide
+  // no-control-bytes guarantee independent of each call site.
   return new CliError(
-    `error: the argument '${argumentName}' cannot be used multiple times\n\n${SETUP_USAGE}\n\nFor more information, try '--help'.`,
+    `error: the argument '${sanitizeForTerminal(argumentName)}' cannot be used multiple times\n\n${SETUP_USAGE}\n\nFor more information, try '--help'.`,
     2,
   );
 }

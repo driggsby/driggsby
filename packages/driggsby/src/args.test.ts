@@ -224,7 +224,7 @@ test("short clusters split on code points, never mid-surrogate", () => {
   } catch (error) {
     assert.ok(error instanceof CliError);
     assert.ok(error.message.includes("'-\u{1f600}'"));
-    assert.ok(!error.message.includes("�"));
+    assert.ok(!error.message.includes("\ufffd"));
   }
 });
 
