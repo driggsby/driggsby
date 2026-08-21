@@ -292,3 +292,67 @@ test("control bytes in echoed argv are stripped before reaching the terminal", (
     assert.ok(!error.message.includes("\u0007"));
   }
 });
+
+test("clap's cross-level tip points a mistyped mcp flag at setup", () => {
+  for (const argv of [
+    ["mcp", "--print", "setup"],
+    ["mcp", "--prnt", "setup"],
+    ["mcp", "--print", "--", "setup"],
+  ]) {
+    try {
+      parseArgv(argv);
+      assert.fail("expected a CliError");
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.ok(error.message.includes("  tip: 'setup --print' exists"), argv.join(" "));
+    }
+  }
+  // Without "setup" later in argv there is no cross-level tip.
+  try {
+    parseArgv(["mcp", "--print"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.ok(!error.message.includes("tip:"));
+  }
+});
+
+test("a value attached to --help or --version errors at every level", () => {
+  const cases: [string[], string, string][] = [
+    [["--help=x"], "'x' for '--help'", "Usage: npx driggsby@latest --help <COMMAND>"],
+    [["--version="], "'' for '--version'", "Usage: npx driggsby@latest --version <COMMAND>"],
+    [["mcp", "--help=x"], "'x' for '--help'", "Usage: npx driggsby@latest mcp --help <COMMAND>"],
+  ];
+  for (const [argv, valuePart, usage] of cases) {
+    try {
+      parseArgv(argv);
+      assert.fail("expected a CliError");
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.ok(error.message.includes(`unexpected value ${valuePart} found; no more were expected`));
+      assert.ok(error.message.includes(usage));
+    }
+  }
+});
+
+test("short clusters split on code points, never mid-surrogate", () => {
+  try {
+    parseArgv(["mcp", "setup", "-\u{1f600}x"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.ok(error.message.includes("'-\u{1f600}'"));
+    assert.ok(!error.message.includes("\ufffd"));
+  }
+});
+
+test("control bytes cannot reach the terminal through a tip line", () => {
+  try {
+    parseArgv(["mcp", "setup", "-\u001bx"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.ok(!error.message.includes("\u001b"));
+  }
+});

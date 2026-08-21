@@ -25,6 +25,9 @@ interface CommandLevel {
   subcommands: readonly string[];
   // Long flags without their leading dashes, in clap's iteration order.
   longFlags: readonly string[];
+  // Each direct subcommand's own long flags, for clap's cross-level
+  // "tip: 'setup --print' exists" fallback.
+  subcommandFlags: readonly { name: string; longFlags: readonly string[] }[];
   // Rendered as: Usage: <prefix> --<flag> <COMMAND>
   usagePrefix: string;
   hasVersion: boolean;
@@ -35,6 +38,7 @@ const ROOT_LEVEL: CommandLevel = {
   usage: ROOT_USAGE,
   subcommands: ["mcp"],
   longFlags: ["help", "version"],
+  subcommandFlags: [{ name: "mcp", longFlags: ["help"] }],
   usagePrefix: "npx driggsby@latest",
   hasVersion: true,
 };
@@ -44,6 +48,7 @@ const MCP_LEVEL: CommandLevel = {
   usage: MCP_USAGE,
   subcommands: ["setup"],
   longFlags: ["help"],
+  subcommandFlags: [{ name: "setup", longFlags: ["print", "help"] }],
   usagePrefix: "npx driggsby@latest mcp",
   hasVersion: false,
 };
@@ -70,13 +75,27 @@ function parseLevel(level: CommandLevel, argv: string[]): ParsedCommand {
   if (first === "--") {
     return parseLevelAfterEndOfOptions(level, argv[1]);
   }
+  if (first.startsWith("--help=")) {
+    throw unexpectedFlagValue("--help", first.slice("--help=".length), levelFlagUsage(level, "help"));
+  }
+  if (level.hasVersion && first.startsWith("--version=")) {
+    throw unexpectedFlagValue(
+      "--version",
+      first.slice("--version=".length),
+      levelFlagUsage(level, "version"),
+    );
+  }
   if (first.startsWith("--")) {
-    throw unknownLongFlagAtLevel(level, first);
+    throw unknownLongFlagAtLevel(level, first, argv.slice(1));
   }
   if (first.startsWith("-") && first.length > 1) {
     return dispatchShortCluster(level, first);
   }
   throw unrecognizedSubcommand(level, first);
+}
+
+function levelFlagUsage(level: CommandLevel, flagName: string): string {
+  return `Usage: ${level.usagePrefix} --${flagName} <COMMAND>`;
 }
 
 // After "--", everything is positional — and these levels take no
@@ -94,9 +113,10 @@ function parseLevelAfterEndOfOptions(level: CommandLevel, next: string | undefin
 
 // clap dispatches a short-flag cluster on its first character: -hx prints
 // help, -Vx prints the version, and anything else errors naming just the
-// first short (-xy → '-x').
+// first short (-xy → '-x'). "Character" means one code point, like Rust's
+// char — never half of a surrogate pair.
 function dispatchShortCluster(level: CommandLevel, token: string): ParsedCommand {
-  const firstShort = token.slice(1, 2);
+  const firstShort = Array.from(token.slice(1))[0] ?? "";
   if (firstShort === "h") {
     return { kind: "print-help", text: level.helpText, stream: "stdout", exitCode: 0 };
   }
@@ -106,13 +126,33 @@ function dispatchShortCluster(level: CommandLevel, token: string): ParsedCommand
   throw unexpectedArgument(`-${firstShort}`, level.usage);
 }
 
-function unknownLongFlagAtLevel(level: CommandLevel, token: string): CliError {
+function unknownLongFlagAtLevel(
+  level: CommandLevel,
+  token: string,
+  remainingArgs: readonly string[],
+): CliError {
   const flagName = token.slice(2).split("=", 1)[0] ?? "";
   const shown = sanitizeForTerminal(`--${flagName}`);
   const similar = didYouMean(flagName, level.longFlags);
   if (similar !== undefined) {
     const usage = `Usage: ${level.usagePrefix} --${similar} <COMMAND>`;
     return unexpectedArgument(shown, usage, similarArgumentTip(similar));
+  }
+  // clap's cross-level fallback: when a LATER argv token names one of this
+  // level's subcommands and that subcommand has a similar flag, point the
+  // user at the flag's real home ("tip: 'setup --print' exists").
+  for (const subcommand of level.subcommandFlags) {
+    if (!remainingArgs.includes(subcommand.name)) {
+      continue;
+    }
+    const subcommandSimilar = didYouMean(flagName, subcommand.longFlags);
+    if (subcommandSimilar !== undefined) {
+      return unexpectedArgument(
+        shown,
+        level.usage,
+        `  tip: '${subcommand.name} --${subcommandSimilar}' exists`,
+      );
+    }
   }
   return unexpectedArgument(shown, level.usage);
 }
@@ -156,7 +196,13 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       continue;
     }
     if (token.startsWith("--help=") || token.startsWith("--print=")) {
-      throw unexpectedFlagValue(token);
+      const equalsAt = token.indexOf("=");
+      const flag = token.slice(0, equalsAt);
+      throw unexpectedFlagValue(
+        flag,
+        token.slice(equalsAt + 1),
+        `Usage: npx driggsby@latest mcp setup ${flag} [CLIENT]`,
+      );
     }
     if (token.startsWith("-s")) {
       // clap's error precedence, byte-verified against the Rust binary: a
@@ -189,8 +235,9 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
     }
     if (token.startsWith("-") && token.length > 1) {
       // Short cluster: -h... prints the short help; anything else errors
-      // naming the first short with the pass-as-value tip (-py → '-p').
-      const firstShort = token.slice(1, 2);
+      // naming the first short (one code point, like Rust's char) with the
+      // pass-as-value tip (-py → '-p').
+      const firstShort = Array.from(token.slice(1))[0] ?? "";
       if (firstShort === "h") {
         return { kind: "print-help", text: MCP_SETUP_HELP_SHORT, stream: "stdout", exitCode: 0 };
       }
@@ -226,12 +273,9 @@ function unknownSetupLongFlag(token: string): CliError {
   return unexpectedArgument(shown, SETUP_USAGE, passAsValueTip(shown));
 }
 
-// "--print=true" / "--help=x": these flags take no value.
-function unexpectedFlagValue(token: string): CliError {
-  const equalsAt = token.indexOf("=");
-  const flag = token.slice(0, equalsAt);
-  const value = sanitizeForTerminal(token.slice(equalsAt + 1));
-  const usage = `Usage: npx driggsby@latest mcp setup ${flag} [CLIENT]`;
+// "--print=true" / "--help=x" / "--version=x": these flags take no value.
+function unexpectedFlagValue(flag: string, rawValue: string, usage: string): CliError {
+  const value = sanitizeForTerminal(rawValue);
   return new CliError(
     `error: unexpected value '${value}' for '${flag}' found; no more were expected\n\n${usage}\n\nFor more information, try '--help'.`,
     2,
@@ -266,7 +310,9 @@ function removeDashesTip(subcommand: string): string {
 
 function unexpectedArgument(argument: string, usage: string, tipLine?: string): CliError {
   const shown = sanitizeForTerminal(argument);
-  const tip = tipLine === undefined ? "" : `${tipLine}\n\n`;
+  // The tip is sanitized too: some tips embed argv (the pass-as-value tip),
+  // and sanitizing here closes the class for every current and future caller.
+  const tip = tipLine === undefined ? "" : `${sanitizeForTerminal(tipLine)}\n\n`;
   return new CliError(
     `error: unexpected argument '${shown}' found\n\n${tip}${usage}\n\nFor more information, try '--help'.`,
     2,
