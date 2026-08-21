@@ -21,7 +21,7 @@ test("no arguments prints root help to stderr with exit 2", () => {
   });
 });
 
-test("root help is byte-identical to the Rust CLI", () => {
+test("root help matches the pinned fixture (grew past the Rust CLI with login/logout)", () => {
   assert.equal(ROOT_HELP, fixture("help.txt"));
 });
 
@@ -119,7 +119,7 @@ test("mcp setup parses client, --print, and -s in any order", () => {
   assert.equal(parseArgv(["mcp", "setup", "-s=user", "claude-code"]).kind, "mcp-setup");
 });
 
-test("an unrecognized subcommand matches the Rust CLI error byte-for-byte", () => {
+test("an unrecognized subcommand matches the pinned clap-style error byte-for-byte", () => {
   try {
     parseArgv(["bogus"]);
     assert.fail("expected a CliError");
