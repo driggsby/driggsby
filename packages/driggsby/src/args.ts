@@ -159,37 +159,79 @@ function unknownLongFlagAtLevel(
 
 const SETUP_LONG_FLAGS = ["print", "help"] as const;
 
+// clap holds the most recent slot-form "-s <value>" or positional as a single
+// PENDING argument; it enters the matcher (and gets validated) only when the
+// next token starts a new argument parse, or when argv ends.
+type PendingArg =
+  | { kind: "client" }
+  | { kind: "scope"; value: string; isDuplicate: boolean };
+
 function parseMcpSetup(argv: string[]): ParsedCommand {
   let client: string | undefined;
   let print = false;
   let scope: McpScope | undefined;
   let optionsEnded = false;
-  // Flags that fully parsed (a completed -s keeps its value placeholder), in
-  // argv order — clap re-renders the usage line from these on unknown-long-
-  // flag errors (only there; shorts, positionals, and duplicates stay static).
+  // The matcher state clap re-renders error usage lines from: flags that have
+  // RESOLVED into the matcher, in argv order. Unknown-long-flag errors render
+  // these (plus <CLIENT> once the positional resolved); "--print=x"/"--help=x"
+  // render the derive group form once anything resolved. Shorts, positionals,
+  // and duplicate errors keep the static usage. A second slot-form -s removes
+  // the earlier "-s <MCP_SCOPE>" entry while its own value is still pending
+  // (clap's Set action self-override), and a duplicate never re-adds it.
   const seenFlags: string[] = [];
-  // clap's matcher state for the "--print=x"/"--help=x" error usage: --print
-  // and attached-value -s commit as soon as they parse, while a slot-form
-  // "-s <value>" or the positional stays pending until the NEXT token starts
-  // a new argument. Once anything is committed, that error renders the derive
-  // group form "<CLIENT|--print|-s <MCP_SCOPE>>" instead of "[CLIENT]".
   let committedArgs = 0;
-  let pendingCommit = false;
+  let clientInMatcher = false;
+  let pending: PendingArg | null = null;
 
-  const startArgParse = (): void => {
-    if (pendingCommit) {
-      committedArgs += 1;
-      pendingCommit = false;
+  // Resolution, byte-verified against the Rust binary: recognized argument
+  // starts (--print, -s, --help/-h, an accepted positional, end of argv)
+  // PROPAGATE the pending arg's errors — duplication first, then emptiness,
+  // then value validity — while error paths (unknown long flag) resolve in
+  // DISCARD mode: the token's own error wins, but a non-duplicate entry still
+  // lands in the matcher and shows up in the rebuilt usage line.
+  const resolvePending = (propagateErrors: boolean): void => {
+    if (pending === null) {
+      return;
     }
+    const resolved = pending;
+    pending = null;
+    if (resolved.kind === "client") {
+      clientInMatcher = true;
+      committedArgs += 1;
+      return;
+    }
+    if (resolved.isDuplicate) {
+      if (propagateErrors) {
+        throw usedMultipleTimes("-s <MCP_SCOPE>");
+      }
+      return;
+    }
+    seenFlags.push("-s <MCP_SCOPE>");
+    committedArgs += 1;
+    if (resolved.value === "") {
+      if (propagateErrors) {
+        throw scopeValueRequired();
+      }
+      return;
+    }
+    if (resolved.value !== "local" && resolved.value !== "user") {
+      if (propagateErrors) {
+        throw invalidScopeValue(resolved.value);
+      }
+      return;
+    }
+    scope = resolved.value;
   };
 
   const acceptPositional = (token: string): void => {
-    startArgParse();
+    // clap flags the extra positional eagerly, before resolving the pending
+    // arg (codex -s bogus -- y reports 'y', not the invalid scope).
     if (client !== undefined) {
       throw unexpectedArgument(token, SETUP_USAGE);
     }
+    resolvePending(true);
     client = token;
-    pendingCommit = true;
+    pending = { kind: "client" };
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -206,10 +248,11 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       continue;
     }
     if (token === "--help") {
+      resolvePending(true);
       return { kind: "print-help", text: MCP_SETUP_HELP_LONG, stream: "stdout", exitCode: 0 };
     }
     if (token === "--print") {
-      startArgParse();
+      resolvePending(true);
       if (print) {
         throw usedMultipleTimes("--print");
       }
@@ -219,23 +262,19 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       continue;
     }
     if (token.startsWith("--help=") || token.startsWith("--print=")) {
+      // clap computes this error's usage BEFORE resolving the pending arg,
+      // so a pending -s or positional never influences the group form.
       const equalsAt = token.indexOf("=");
       const flag = token.slice(0, equalsAt);
       throw unexpectedFlagValue(flag, token.slice(equalsAt + 1), setupEqualsErrorUsage(flag, committedArgs > 0));
     }
     if (token.startsWith("-s")) {
-      // clap's error precedence, byte-verified against the Rust binary: a
-      // MISSING value (nothing next, or a RECOGNIZED flag token next — "--",
-      // exact --help/--print, or a short cluster starting with 'h' or 's')
-      // reports "a value is required" even when -s was already used; an
-      // UNRECOGNIZED dash-leading token abandons the pending -s and is
-      // reported through its own normal error path instead; a SUPPLIED value
-      // (attached, bare "-", or a real next token, even "") reports
-      // duplication first, then emptiness, then validity.
-      startArgParse();
-      let value: string;
-      let valueWasAttached: boolean;
+      resolvePending(true);
       if (token === "-s") {
+        // A MISSING value (nothing next, or a RECOGNIZED flag token next —
+        // "--", exact --help/--print, or a short cluster starting with 'h' or
+        // 's') reports "a value is required"; an UNRECOGNIZED dash-leading
+        // token abandons this -s and is reported through its own error path.
         const next = argv[index + 1];
         if (next === undefined) {
           throw scopeValueRequired();
@@ -246,37 +285,48 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
           }
           continue;
         }
-        value = next;
-        valueWasAttached = false;
+        // Slot-form value (bare "-" included): validation is DEFERRED to
+        // resolution. A repeat occurrence also evicts the earlier matcher
+        // entry now, while its own value is still pending.
+        if (scope !== undefined) {
+          const at = seenFlags.indexOf("-s <MCP_SCOPE>");
+          if (at !== -1) {
+            seenFlags.splice(at, 1);
+          }
+        }
+        pending = { kind: "scope", value: next, isDuplicate: scope !== undefined };
         index += 1;
-      } else {
-        value = token.startsWith("-s=") ? token.slice(3) : token.slice(2);
-        valueWasAttached = true;
+        continue;
       }
+      // Attached form (-s=x / -sx): duplication, emptiness, and validity all
+      // report eagerly, in that order.
+      const value = token.startsWith("-s=") ? token.slice(3) : token.slice(2);
       if (scope !== undefined) {
         throw usedMultipleTimes("-s <MCP_SCOPE>");
       }
       if (value === "") {
         throw scopeValueRequired();
       }
-      scope = parseScopeValue(value);
-      seenFlags.push("-s <MCP_SCOPE>");
-      if (valueWasAttached) {
-        committedArgs += 1;
-      } else {
-        pendingCommit = true;
+      if (value !== "local" && value !== "user") {
+        throw invalidScopeValue(value);
       }
+      scope = value;
+      seenFlags.push("-s <MCP_SCOPE>");
+      committedArgs += 1;
       continue;
     }
     if (token.startsWith("--")) {
-      throw unknownSetupLongFlag(token, seenFlags, client !== undefined);
+      resolvePending(false);
+      throw unknownSetupLongFlag(token, seenFlags, clientInMatcher);
     }
     if (token.startsWith("-") && token.length > 1) {
-      // Short cluster: -h... prints the short help; anything else errors
-      // naming the first short (one code point, like Rust's char) with the
-      // pass-as-value tip (-py → '-p').
+      // Short cluster: -h... prints the short help (after resolving the
+      // pending arg, so -s bogus -h reports the invalid scope); anything else
+      // errors naming the first short (one code point, like Rust's char) with
+      // the pass-as-value tip (-py → '-p'), discarding any pending error.
       const firstShort = Array.from(token.slice(1))[0] ?? "";
       if (firstShort === "h") {
+        resolvePending(true);
         return { kind: "print-help", text: MCP_SETUP_HELP_SHORT, stream: "stdout", exitCode: 0 };
       }
       throw unexpectedArgument(`-${firstShort}`, SETUP_USAGE, passAsValueTip(`-${firstShort}`));
@@ -284,17 +334,15 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
     acceptPositional(token);
   }
 
+  resolvePending(true);
   return { kind: "mcp-setup", client, print, scope };
 }
 
-function parseScopeValue(value: string): McpScope {
-  if (value === "local" || value === "user") {
-    return value;
-  }
+function invalidScopeValue(value: string): CliError {
   const shown = sanitizeForTerminal(value);
   const similar = didYouMean(value, ["local", "user"]);
   const tip = similar === undefined ? "" : `\n\n  tip: a similar value exists: '${similar}'`;
-  throw new CliError(
+  return new CliError(
     `error: invalid value '${shown}' for '-s <MCP_SCOPE>'\n  [possible values: local, user]${tip}\n\nFor more information, try '--help'.`,
     2,
   );
@@ -358,10 +406,12 @@ function setupEqualsErrorUsage(flag: string, anyArgCommitted: boolean): string {
 }
 
 // "--print=true" / "--help=x" / "--version=x": these flags take no value.
+// The flag and usage are literal-derived today; sanitizing them anyway keeps
+// the no-control-bytes guarantee closed for every future caller.
 function unexpectedFlagValue(flag: string, rawValue: string, usage: string): CliError {
   const value = sanitizeForTerminal(rawValue);
   return new CliError(
-    `error: unexpected value '${value}' for '${flag}' found; no more were expected\n\n${usage}\n\nFor more information, try '--help'.`,
+    `error: unexpected value '${value}' for '${sanitizeForTerminal(flag)}' found; no more were expected\n\n${sanitizeForTerminal(usage)}\n\nFor more information, try '--help'.`,
     2,
   );
 }
@@ -394,11 +444,12 @@ function removeDashesTip(subcommand: string): string {
 
 function unexpectedArgument(argument: string, usage: string, tipLine?: string): CliError {
   const shown = sanitizeForTerminal(argument);
-  // The tip is sanitized too: some tips embed argv (the pass-as-value tip),
-  // and sanitizing here closes the class for every current and future caller.
+  // The tip and usage are sanitized too: some tips embed argv (the
+  // pass-as-value tip), usage lines are now computed rather than literal, and
+  // sanitizing here closes the class for every current and future caller.
   const tip = tipLine === undefined ? "" : `${sanitizeForTerminal(tipLine)}\n\n`;
   return new CliError(
-    `error: unexpected argument '${shown}' found\n\n${tip}${usage}\n\nFor more information, try '--help'.`,
+    `error: unexpected argument '${shown}' found\n\n${tip}${sanitizeForTerminal(usage)}\n\nFor more information, try '--help'.`,
     2,
   );
 }
