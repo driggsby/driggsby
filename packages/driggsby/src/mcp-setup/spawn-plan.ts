@@ -3,12 +3,12 @@
 // client CLIs are usually npm-installed .cmd shims, which Node (rightly)
 // refuses to spawn directly — so we resolve the program ourselves against
 // PATH + PATHEXT (never the current directory, which Windows shells would
-// search first) and run shims through an explicit cmd.exe invocation with
-// our own quoting. Real commands only ever carry fixed constant arguments
-// (see commands.ts); the quoting below still handles arbitrary strings so
-// tests and future callers are safe too.
+// search first) and run shims through an explicit, absolute cmd.exe
+// invocation with our own quoting. Real commands only ever carry fixed
+// constant arguments (see commands.ts); nothing user-controlled may ever
+// flow into a spawn plan.
 import { existsSync } from "node:fs";
-import { delimiter, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { type McpConfigCommand } from "./commands.ts";
 
@@ -34,7 +34,9 @@ export function planSpawn(command: McpConfigCommand): SpawnPlan | null {
   }
   const commandLine = [resolved.path, ...command.args].map(quoteForCmd).join(" ");
   return {
-    program: "cmd.exe",
+    // Absolute path: a bare "cmd.exe" would let Windows' legacy CreateProcess
+    // lookup find a planted cmd.exe in the current directory first.
+    program: join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe"),
     args: ["/d", "/s", "/c", `"${commandLine}"`],
     windowsVerbatimArguments: true,
   };
@@ -45,32 +47,56 @@ interface ResolvedProgram {
   path: string;
 }
 
+// The filesystem/environment surface resolveWindowsProgram reads, injectable
+// so the pure resolution logic is unit-testable on every platform.
+export interface WindowsLookup {
+  path: string;
+  pathext: string;
+  exists: (candidate: string) => boolean;
+}
+
+function defaultLookup(): WindowsLookup {
+  return {
+    path: process.env.PATH ?? "",
+    pathext: process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+    exists: existsSync,
+  };
+}
+
 function kindForPath(candidate: string): "direct" | "shim" {
   return /\.(cmd|bat)$/i.test(candidate) ? "shim" : "direct";
 }
 
-function resolveWindowsProgram(program: string): ResolvedProgram | null {
+export function resolveWindowsProgram(
+  program: string,
+  lookup: WindowsLookup = defaultLookup(),
+): ResolvedProgram | null {
   // An explicit path (absolute, or containing a separator) is used as given.
   if (isAbsolute(program) || program.includes("\\") || program.includes("/")) {
-    return existsSync(program) ? { kind: kindForPath(program), path: program } : null;
+    return lookup.exists(program) ? { kind: kindForPath(program), path: program } : null;
   }
 
-  const pathDirectories = (process.env.PATH ?? "").split(delimiter).filter((dir) => dir !== "");
-  const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+  // Windows PATH semantics regardless of the host running the tests: split
+  // on ";" (a POSIX-style ":" would cut drive letters like C: in half).
+  const pathDirectories = lookup.path
     .split(";")
-    .filter((ext) => ext !== "");
+    // Real Windows PATHs sometimes carry quoted segments; strip the quotes so
+    // the directory still resolves.
+    .map((directory) => directory.replaceAll('"', ""))
+    .filter((directory) => directory !== "");
+  const extensions = lookup.pathext.split(";").filter((extension) => extension !== "");
   const hasExtension = /\.[^\\/.]+$/.test(program);
 
   for (const directory of pathDirectories) {
     if (hasExtension) {
       const exact = join(directory, program);
-      if (existsSync(exact)) {
+      if (lookup.exists(exact)) {
         return { kind: kindForPath(exact), path: exact };
       }
     }
     for (const extension of extensions) {
       const candidate = join(directory, program + extension);
-      if (existsSync(candidate)) {
+      if (lookup.exists(candidate)) {
         return { kind: kindForPath(candidate), path: candidate };
       }
     }
@@ -80,11 +106,15 @@ function resolveWindowsProgram(program: string): ResolvedProgram | null {
 
 // Quoting for the cmd.exe /s /c command line: plain tokens pass through,
 // anything else is wrapped in double quotes with embedded quotes doubled
-// (the cmd convention). The characters in the safe set cover every constant
-// argument the CLI actually runs, including the MCP URL.
-function quoteForCmd(value: string): string {
+// (the cmd convention) and trailing backslashes doubled (so a path ending
+// in \ cannot escape the closing quote for the child's own parser). The
+// safe set covers every constant argument the CLI actually runs, including
+// the MCP URL; only fixed constants and PATH-resolved program paths may
+// reach this function.
+export function quoteForCmd(value: string): string {
   if (/^[A-Za-z0-9_\-.:\\/=]+$/.test(value)) {
     return value;
   }
-  return `"${value.replaceAll('"', '""')}"`;
+  const escaped = value.replaceAll('"', '""').replace(/(\\+)$/, "$1$1");
+  return `"${escaped}"`;
 }

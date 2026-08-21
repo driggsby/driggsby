@@ -18,10 +18,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Plain X.Y.Z only: a prerelease suffix would still publish to npm's
+      # `latest` dist-tag, which every `npx driggsby@latest` user installs.
       - name: Validate release tag format
         shell: bash
         run: |
-          if [[ ! "${GITHUB_REF_NAME}" =~ ^driggsby-v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^driggsby-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag: ${GITHUB_REF_NAME}" >&2
             exit 1
           fi
@@ -109,11 +111,17 @@ jobs:
           node-version: "24"
           cache: npm
           registry-url: "https://registry.npmjs.org"
+      # This job holds the OIDC publish credential, so nothing in it may run
+      # package-defined hooks: dependencies install with --ignore-scripts, and
+      # the surface check re-validates THIS job's build — the exact bytes the
+      # publish step packs — rather than trusting a different runner's tarball.
       - name: Install dependencies and build
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run build
-      # --ignore-scripts backstops the surface check's no-lifecycle-scripts
-      # gate: nothing may execute package-defined hooks in this job.
+      - name: Validate the npm package this job will publish
+        shell: bash
+        run: |
+          node scripts/release/check-npm-publish-surface.ts "${GITHUB_REF_NAME#driggsby-v}"
       - name: Publish npm package
         run: npm publish --workspace driggsby --access public --provenance --ignore-scripts

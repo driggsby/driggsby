@@ -139,3 +139,86 @@ test("a second positional is a usage error", () => {
     (error: unknown) => error instanceof CliError && error.exitCode === 2,
   );
 });
+
+test("-- ends option parsing, like clap", () => {
+  assert.deepEqual(parseArgv(["mcp", "setup", "--", "other"]), {
+    kind: "mcp-setup",
+    client: "other",
+    print: false,
+    scope: undefined,
+  });
+  // The escape the CLI's own tip recommends: '--bogus' becomes the client
+  // value (rejected later with the normal unsupported-client error, exit 1).
+  assert.deepEqual(parseArgv(["mcp", "setup", "--", "--bogus"]), {
+    kind: "mcp-setup",
+    client: "--bogus",
+    print: false,
+    scope: undefined,
+  });
+  assert.deepEqual(parseArgv(["mcp", "setup", "--"]), {
+    kind: "mcp-setup",
+    client: undefined,
+    print: false,
+    scope: undefined,
+  });
+});
+
+test("a bare dash is a positional, like clap", () => {
+  assert.deepEqual(parseArgv(["mcp", "setup", "-"]), {
+    kind: "mcp-setup",
+    client: "-",
+    print: false,
+    scope: undefined,
+  });
+});
+
+test("a repeated -s matches the Rust CLI error byte-for-byte", () => {
+  for (const argv of [
+    ["mcp", "setup", "-s", "local", "-s", "user", "claude-code"],
+    // clap reports duplication even when the second value is empty/invalid.
+    ["mcp", "setup", "claude-code", "-s", "local", "-s="],
+  ]) {
+    try {
+      parseArgv(argv);
+      assert.fail("expected a CliError");
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.equal(
+        error.message,
+        "error: the argument '-s <MCP_SCOPE>' cannot be used multiple times\n\n" +
+          "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]\n\n" +
+          "For more information, try '--help'.",
+      );
+    }
+  }
+});
+
+test("an empty or dash-leading -s value is 'a value is required', like clap", () => {
+  for (const argv of [
+    ["mcp", "setup", "-s=", "claude-code"],
+    ["mcp", "setup", "claude-code", "-s", ""],
+    ["mcp", "setup", "claude-code", "-s", "-h"],
+  ]) {
+    try {
+      parseArgv(argv);
+      assert.fail("expected a CliError");
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.ok(error.message.includes("a value is required for '-s <MCP_SCOPE>'"));
+    }
+  }
+});
+
+test("control bytes in echoed argv are stripped before reaching the terminal", () => {
+  try {
+    parseArgv(["mcp", "setup", "--bo\u001b]0;pwned\u0007gus"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.ok(error.message.includes("'--bo]0;pwnedgus'"));
+    assert.ok(!error.message.includes("\u001b"));
+    assert.ok(!error.message.includes("\u0007"));
+  }
+});

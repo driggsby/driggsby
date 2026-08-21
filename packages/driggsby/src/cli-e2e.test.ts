@@ -113,6 +113,90 @@ test("setup installs through the client CLI and reports success", async () => {
   assert.ok(
     result.stdout.includes("Open Claude Code, run /mcp, and authenticate Driggsby to get started."),
   );
+  // Claude Code does not stream: the client command's own output is captured,
+  // never echoed.
+  assert.ok(!result.stdout.includes("Added HTTP MCP server driggsby"));
+});
+
+test("a failed probe still falls through to a normal install", async () => {
+  const fake = installFakeClientCli("claude");
+  const result = await cli(["mcp", "setup", "claude-code"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_GET_BEHAVIOR: "fail",
+    FAKE_ADD_BEHAVIOR: "ok",
+  });
+
+  assert.equal(result.code, 0);
+  assert.ok(result.stdout.includes("Adding Driggsby to Claude Code MCP config..."));
+  assert.ok(result.stdout.includes("Claude Code is set up."));
+});
+
+test("an install that reports an existing entry prints remove+add remediation", async () => {
+  const fake = installFakeClientCli("claude");
+  const result = await cli(["mcp", "setup", "claude-code"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_GET_BEHAVIOR: "missing",
+    FAKE_ADD_BEHAVIOR: "already-exists",
+  });
+
+  assert.equal(result.code, 0);
+  assert.ok(result.stdout.includes("does not match the expected Driggsby setup."));
+  assert.ok(result.stdout.includes("claude mcp remove driggsby -s user"));
+});
+
+test("a failed install hands the user the manual command and exits 0", async () => {
+  const fake = installFakeClientCli("claude");
+  const result = await cli(["mcp", "setup", "claude-code"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_GET_BEHAVIOR: "missing",
+    FAKE_ADD_BEHAVIOR: "fail",
+  });
+
+  assert.equal(result.code, 0);
+  assert.ok(
+    result.stdout.includes(
+      "Could not add Driggsby to Claude Code: The client command returned an error.",
+    ),
+  );
+  assert.ok(result.stdout.includes("Run this command to add Driggsby to Claude Code:"));
+});
+
+test("codex setup streams the client output and prints the remote sign-in hint", async () => {
+  const fake = installFakeClientCli("codex");
+  const result = await cli(["mcp", "setup", "codex"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_CLIENT: "codex",
+    FAKE_GET_BEHAVIOR: "missing",
+    FAKE_ADD_BEHAVIOR: "oauth-stream",
+  });
+
+  assert.equal(result.code, 0);
+  // Streamed live: the fake's own output appears verbatim.
+  assert.ok(result.stdout.includes("Starting sign-in"));
+  // Both hint needles were seen (split across stdout/stderr), so the hint
+  // printed exactly once.
+  assert.equal(result.stdout.split("Remote sign-in note:").length, 2);
+  assert.ok(result.stdout.includes("use SSH local port forwarding"));
+  // The completed login switches the success block's next step.
+  assert.ok(result.stdout.includes("Codex is set up."));
+  assert.ok(result.stdout.includes("Open Codex and ask it to use Driggsby."));
+});
+
+test("the CLI exits promptly even when a grandchild holds the output pipes", async () => {
+  const fake = installFakeClientCli("claude");
+  const startedAt = Date.now();
+  const result = await cli(["mcp", "setup", "claude-code"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_GET_BEHAVIOR: "missing",
+    FAKE_ADD_BEHAVIOR: "lingering-grandchild",
+  });
+  const elapsedMs = Date.now() - startedAt;
+
+  assert.equal(result.code, 0);
+  assert.ok(result.stdout.includes("Claude Code is set up."));
+  // The grandchild lives ~6s; a CLI that waits on the inherited pipes would
+  // blow well past this bound.
+  assert.ok(elapsedMs < 3000, `CLI took ${String(elapsedMs)}ms to exit`);
 });
 
 test("setup is idempotent when the config already matches", async () => {

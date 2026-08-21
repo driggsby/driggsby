@@ -84,6 +84,12 @@ export function runClientCommand(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // Tear down our ends of the pipes and drop the child from the event
+      // loop: a backgrounded grandchild that inherited the pipes must not be
+      // able to keep this process alive after the result is decided.
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
       resolve(result);
     };
 

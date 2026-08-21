@@ -92,29 +92,51 @@ async function resolveClient(requested: string | undefined): Promise<KnownClient
   return promptForClient();
 }
 
-async function promptForClient(): Promise<KnownClient> {
-  if (!process.stdin.isTTY) {
+// The stdin/stdout surface promptForClient talks to, injectable so the menu
+// (including its EOF handling) is unit-testable without a pty.
+export interface PromptStreams {
+  input: NodeJS.ReadableStream;
+  output: NodeJS.WritableStream;
+  isInteractive: boolean;
+}
+
+function defaultPromptStreams(): PromptStreams {
+  return {
+    input: process.stdin,
+    output: process.stdout,
+    isInteractive: process.stdin.isTTY,
+  };
+}
+
+export async function promptForClient(
+  streams: PromptStreams = defaultPromptStreams(),
+): Promise<KnownClient> {
+  if (!streams.isInteractive) {
     throw new CliError(
       "Pass a client name.\n\nExamples:\n  npx driggsby@latest mcp setup claude-code\n  npx driggsby@latest mcp setup codex\n  npx driggsby@latest mcp setup other",
       1,
     );
   }
 
-  write("Which client are you setting up?\n\n  1. Claude Code\n  2. Codex\n  3. Other\n\n");
+  streams.output.write("Which client are you setting up?\n\n  1. Claude Code\n  2. Codex\n  3. Other\n\n");
   // terminal: false keeps the prompt a plain write (no cursor-control
   // escapes); the TTY's own canonical mode handles echo, as in the original.
   const readline = createInterface({
-    input: process.stdin,
-    output: process.stdout,
+    input: streams.input,
+    output: streams.output,
     terminal: false,
+  });
+  // EOF (Ctrl+D) never settles readline's question(); it only closes the
+  // interface. Race the two so EOF becomes "no valid choice", exactly what
+  // the original did with a zero-byte read.
+  const closedAsEmptyChoice = new Promise<string>((resolve) => {
+    readline.once("close", () => {
+      resolve("");
+    });
   });
   let choice: string;
   try {
-    choice = (await readline.question("Choose 1-3: ")).trim();
-  } catch {
-    // EOF (Ctrl+D) rejects the question; treat it as no valid choice, which
-    // is exactly what the original did with a zero-byte read.
-    choice = "";
+    choice = (await Promise.race([readline.question("Choose 1-3: "), closedAsEmptyChoice])).trim();
   } finally {
     readline.close();
   }

@@ -1,7 +1,9 @@
 // Validates the packed `driggsby` npm package before publish. Fails closed on
 // anything that should never ship: install scripts, runtime dependencies,
 // test files, or a broken bin. Also behavior-checks the real tarball by
-// installing it into a temp prefix and running the linked bin.
+// installing it into a temp prefix and running the linked bin — and validates
+// the manifest and shebang from that installed copy, so the checks bind to
+// the packed bytes rather than the source tree.
 //
 // Usage: node scripts/release/check-npm-publish-surface.ts [expected-version]
 import { execFileSync } from "node:child_process";
@@ -48,9 +50,12 @@ interface PackReport {
   files: PackedFile[];
 }
 
+// Thrown instead of process.exit so the temp-directory cleanup in the finally
+// block below always runs, even on a failing check.
+class SurfaceCheckFailure extends Error {}
+
 function fail(message: string): never {
-  console.error(`error: ${message}`);
-  process.exit(1);
+  throw new SurfaceCheckFailure(message);
 }
 
 function note(message: string): void {
@@ -83,9 +88,41 @@ try {
     fail(`expected exactly one packed tarball for ${WORKSPACE}`);
   }
 
-  const manifest = JSON.parse(
-    readFileSync(new URL("../../packages/driggsby/package.json", import.meta.url), "utf8"),
-  ) as Record<string, unknown> & {
+  for (const file of report.files) {
+    if (!ALLOWED_FILE_PATTERN.test(file.path)) {
+      fail(`unexpected file in package: ${file.path}`);
+    }
+    if (
+      file.path.endsWith(".test.js") ||
+      file.path.includes("__fixtures__") ||
+      file.path.includes("test-support")
+    ) {
+      fail(`test artifact must not ship: ${file.path}`);
+    }
+  }
+
+  note("Installing the packed tarball into a temp prefix...");
+  const installPrefix = join(workDirectory, "install");
+  execFileSync(
+    "npm",
+    [
+      "install",
+      "--prefix",
+      installPrefix,
+      "--no-save",
+      "--no-audit",
+      "--no-fund",
+      "--ignore-scripts",
+      join(workDirectory, report.filename),
+    ],
+    { encoding: "utf8" },
+  );
+
+  const installedPackage = join(installPrefix, "node_modules", "driggsby");
+  const manifest = JSON.parse(readFileSync(join(installedPackage, "package.json"), "utf8")) as Record<
+    string,
+    unknown
+  > & {
     name: string;
     version: string;
     bin?: Record<string, string>;
@@ -109,7 +146,10 @@ try {
   }
   for (const field of FORBIDDEN_DEPENDENCY_FIELDS) {
     const value = manifest[field];
-    if (value !== undefined && (typeof value !== "object" || value === null || Object.keys(value).length > 0)) {
+    if (
+      value !== undefined &&
+      (typeof value !== "object" || value === null || Object.keys(value).length > 0)
+    ) {
       fail(`package must have zero runtime dependencies; ${field} is set`);
     }
   }
@@ -117,44 +157,12 @@ try {
     fail(`engines.node must stay at >=18, got ${manifest.engines?.node ?? "unset"}`);
   }
 
-  for (const file of report.files) {
-    if (!ALLOWED_FILE_PATTERN.test(file.path)) {
-      fail(`unexpected file in package: ${file.path}`);
-    }
-    if (
-      file.path.endsWith(".test.js") ||
-      file.path.includes("__fixtures__") ||
-      file.path.includes("test-support")
-    ) {
-      fail(`test artifact must not ship: ${file.path}`);
-    }
-  }
-
-  const binSource = readFileSync(
-    new URL("../../packages/driggsby/bin/driggsby.js", import.meta.url),
-    "utf8",
-  );
+  const binSource = readFileSync(join(installedPackage, "bin", "driggsby.js"), "utf8");
   if (!binSource.startsWith("#!/usr/bin/env node\n")) {
     fail("bin/driggsby.js must start with a node shebang");
   }
 
-  note("Installing the packed tarball into a temp prefix...");
-  const installPrefix = join(workDirectory, "install");
-  execFileSync(
-    "npm",
-    [
-      "install",
-      "--prefix",
-      installPrefix,
-      "--no-save",
-      "--no-audit",
-      "--no-fund",
-      join(workDirectory, report.filename),
-    ],
-    { encoding: "utf8" },
-  );
-
-  const installedCli = join(installPrefix, "node_modules", "driggsby", "bin", "driggsby.js");
+  const installedCli = join(installedPackage, "bin", "driggsby.js");
   const version = execFileSync(process.execPath, [installedCli, "--version"], {
     encoding: "utf8",
   });
@@ -171,6 +179,12 @@ try {
   }
 
   note(`npm publish surface OK: driggsby@${manifest.version} (${report.files.length} files)`);
+} catch (error) {
+  if (!(error instanceof SurfaceCheckFailure)) {
+    throw error;
+  }
+  console.error(`error: ${error.message}`);
+  process.exitCode = 1;
 } finally {
   rmSync(workDirectory, { recursive: true, force: true });
 }

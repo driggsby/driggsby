@@ -57,9 +57,11 @@ https://app.driggsby.com/mcp
   terminal command suggestions in shell backticks. Markdown docs may use backticks.
 - Never spawn a child process with user-controlled program names or arguments;
   commands the CLI runs are fixed constants. If a value must flow into a
-  command, allowlist-validate it first and never use a shell to interpret it
-  (the Windows `shell: true` spawn path is acceptable only because every
-  argument is a fixed constant).
+  command, allowlist-validate it first and never use a shell to interpret it.
+  `shell: true` is forbidden everywhere, including on Windows: `.cmd`/`.bat`
+  shims run only through `spawn-plan.ts`, which resolves programs against
+  PATH+PATHEXT (never the current directory) and invokes an absolute
+  `cmd.exe` with its own quoting.
 - GitHub Actions must stay pinned to immutable SHAs unless there is a deliberate
   reviewed reason to update them.
 - Never publish npm packages or release artifacts from an unreviewed

@@ -5,6 +5,7 @@
 import { CliError } from "./cli-error.ts";
 import { MCP_HELP, MCP_SETUP_HELP, ROOT_HELP } from "./help.ts";
 import { type McpScope } from "./mcp-setup/known-client.ts";
+import { sanitizeForTerminal } from "./terminal-text.ts";
 
 const ROOT_USAGE = "Usage: npx driggsby@latest <COMMAND>";
 const MCP_USAGE = "Usage: npx driggsby@latest mcp <COMMAND>";
@@ -56,11 +57,28 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
   let client: string | undefined;
   let print = false;
   let scope: McpScope | undefined;
+  let optionsEnded = false;
+
+  const acceptPositional = (token: string): void => {
+    if (client !== undefined) {
+      throw unexpectedArgument(token, SETUP_USAGE);
+    }
+    client = token;
+  };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === undefined) {
       break;
+    }
+    if (optionsEnded) {
+      acceptPositional(token);
+      continue;
+    }
+    if (token === "--") {
+      // clap's end-of-options marker: everything after is positional.
+      optionsEnded = true;
+      continue;
     }
     if (token === "-h" || token === "--help") {
       return { kind: "print-help", text: MCP_SETUP_HELP, stream: "stdout", exitCode: 0 };
@@ -74,27 +92,39 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       // and "-s=<value>" carry it attached.
       let value: string | undefined;
       if (token === "-s") {
+        // clap refuses a dash-leading next token as the value ("a value is
+        // required"), rather than swallowing another flag.
         value = argv[index + 1];
-        if (value === undefined) {
-          throw new CliError(
-            `error: a value is required for '-s <MCP_SCOPE>' but none was supplied\n  [possible values: local, user]\n\nFor more information, try '--help'.`,
-            2,
-          );
+        // clap refuses a dash-leading next token as the value ("a value is
+        // required") — except a bare "-", which it accepts as a value.
+        if (value !== undefined && value !== "-" && value.startsWith("-")) {
+          value = undefined;
+        } else {
+          index += 1;
         }
-        index += 1;
       } else {
         value = token.startsWith("-s=") ? token.slice(3) : token.slice(2);
+      }
+      if (scope !== undefined) {
+        // clap reports duplication before it even looks at the second value.
+        throw new CliError(
+          `error: the argument '-s <MCP_SCOPE>' cannot be used multiple times\n\n${SETUP_USAGE}\n\nFor more information, try '--help'.`,
+          2,
+        );
+      }
+      if (value === undefined || value === "") {
+        throw new CliError(
+          `error: a value is required for '-s <MCP_SCOPE>' but none was supplied\n  [possible values: local, user]\n\nFor more information, try '--help'.`,
+          2,
+        );
       }
       scope = parseScopeValue(value);
       continue;
     }
-    if (token.startsWith("-")) {
+    if (token !== "-" && token.startsWith("-")) {
       throw unexpectedArgument(token, SETUP_USAGE, { tip: true });
     }
-    if (client !== undefined) {
-      throw unexpectedArgument(token, SETUP_USAGE);
-    }
-    client = token;
+    acceptPositional(token);
   }
 
   return { kind: "mcp-setup", client, print, scope };
@@ -104,8 +134,9 @@ function parseScopeValue(value: string): McpScope {
   if (value === "local" || value === "user") {
     return value;
   }
+  const shown = sanitizeForTerminal(value);
   throw new CliError(
-    `error: invalid value '${value}' for '-s <MCP_SCOPE>'\n  [possible values: local, user]\n\nFor more information, try '--help'.`,
+    `error: invalid value '${shown}' for '-s <MCP_SCOPE>'\n  [possible values: local, user]\n\nFor more information, try '--help'.`,
     2,
   );
 }
@@ -115,19 +146,18 @@ function unexpectedArgument(
   usage: string,
   options: { tip?: boolean } = {},
 ): CliError {
+  const shown = sanitizeForTerminal(argument);
   const tip =
-    options.tip === true
-      ? `  tip: to pass '${argument}' as a value, use '-- ${argument}'\n\n`
-      : "";
+    options.tip === true ? `  tip: to pass '${shown}' as a value, use '-- ${shown}'\n\n` : "";
   return new CliError(
-    `error: unexpected argument '${argument}' found\n\n${tip}${usage}\n\nFor more information, try '--help'.`,
+    `error: unexpected argument '${shown}' found\n\n${tip}${usage}\n\nFor more information, try '--help'.`,
     2,
   );
 }
 
 function unrecognizedSubcommand(subcommand: string, usage: string): CliError {
   return new CliError(
-    `error: unrecognized subcommand '${subcommand}'\n\n${usage}\n\nFor more information, try '--help'.`,
+    `error: unrecognized subcommand '${sanitizeForTerminal(subcommand)}'\n\n${usage}\n\nFor more information, try '--help'.`,
     2,
   );
 }

@@ -4,7 +4,8 @@
 // The fake's behavior is driven by environment variables so one shim covers
 // every scenario:
 //   FAKE_GET_BEHAVIOR: missing | matches | differs | fail   (mcp get)
-//   FAKE_ADD_BEHAVIOR: ok | already-exists | fail           (mcp add)
+//   FAKE_ADD_BEHAVIOR: ok | already-exists | fail |
+//                      oauth-stream | lingering-grandchild  (mcp add)
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -41,6 +42,26 @@ if (args[0] === "mcp" && args[1] === "add") {
   if (behavior === "fail") {
     process.stderr.write("boom");
     process.exit(1);
+  }
+  if (behavior === "oauth-stream") {
+    // The shape of Codex's in-band OAuth: a loopback redirect URL, a failed
+    // browser launch (split across stdout/stderr), then a completed login.
+    process.stdout.write("Starting sign-in\\n");
+    process.stdout.write("Open: https://auth.test/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A45678\\n");
+    process.stderr.write("Browser launch failed: no display\\n");
+    process.stdout.write("Successfully logged in.\\n");
+    process.exit(0);
+  }
+  if (behavior === "lingering-grandchild") {
+    // A detached grandchild inherits our stdio pipes and outlives us — the
+    // CLI must still exit promptly after the add completes.
+    const { spawn } = require("node:child_process");
+    spawn(process.execPath, ["-e", "setTimeout(() => {}, 6000)"], {
+      detached: true,
+      stdio: "inherit",
+    }).unref();
+    process.stdout.write("Added HTTP MCP server driggsby");
+    process.exit(0);
   }
   process.stdout.write("Added HTTP MCP server driggsby");
   process.exit(0);

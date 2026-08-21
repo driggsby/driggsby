@@ -1,4 +1,5 @@
 import { CliError } from "../cli-error.ts";
+import { sanitizeForTerminal } from "../terminal-text.ts";
 
 export type KnownClient = "claude-code" | "codex" | "other";
 
@@ -34,7 +35,10 @@ export function parseClient(value: string): KnownClient {
   if (canonical === "claude-code" || canonical === "codex" || canonical === "other") {
     return canonical;
   }
-  throw new CliError(`Unsupported client: ${canonical}\n\n${SUPPORTED_CLIENTS_NOTE}`, 1);
+  throw new CliError(
+    `Unsupported client: ${sanitizeForTerminal(canonical)}\n\n${SUPPORTED_CLIENTS_NOTE}`,
+    1,
+  );
 }
 
 export function validateMcpScope(client: KnownClient, scope: McpScope | undefined): void {
