@@ -1,2 +1,4 @@
-# Release tooling is maintained in TypeScript, but the public CLI is Rust.
-scripts/release/*.ts linguist-detectable=false
+# Parity fixtures are byte-exact captures from the retired Rust binary; any
+# line-ending conversion (e.g. autocrlf on Windows runners) breaks the
+# byte-for-byte test comparisons. Treat them as binary for eol purposes.
+packages/driggsby/src/__fixtures__/** -text

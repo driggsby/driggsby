@@ -1,0 +1,30 @@
+{
+  "name": "driggsby",
+  "version": "0.2.0",
+  "description": "Set up and build on Driggsby, the MCP server for personal finance.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/driggsby/driggsby.git"
+  },
+  "homepage": "https://driggsby.com",
+  "type": "module",
+  "bin": {
+    "driggsby": "bin/driggsby.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

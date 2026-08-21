@@ -1,0 +1,8 @@
+Run this command to add Driggsby to Codex:
+
+  codex mcp add driggsby --url 'https://app.driggsby.com/mcp'
+
+After adding it:
+  Complete the Driggsby sign-in in the browser window opened by Codex.
+  If no browser window opened, run:
+    codex mcp login driggsby

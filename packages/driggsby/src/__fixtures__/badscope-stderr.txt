@@ -1,0 +1,4 @@
+error: invalid value 'bogus' for '-s <MCP_SCOPE>'
+  [possible values: local, user]
+
+For more information, try '--help'.

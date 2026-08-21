@@ -3,16 +3,21 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "target/**"],
+    ignores: ["**/dist/**", "**/node_modules/**"],
   },
   js.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
-  ...tseslint.configs.stylisticTypeChecked,
   {
-    files: ["npm/**/*.ts", "scripts/**/*.ts"],
+    files: ["**/*.ts"],
+    extends: [
+      ...tseslint.configs.strictTypeChecked,
+      ...tseslint.configs.stylisticTypeChecked,
+    ],
+  },
+  {
+    files: ["packages/**/*.ts", "scripts/**/*.ts"],
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.json",
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -33,7 +38,11 @@ export default tseslint.config(
     },
   },
   {
-    files: ["npm/**/*.test.ts", "scripts/**/*.test.ts"],
+    files: [
+      "packages/**/*.test.ts",
+      "packages/**/test-support/**/*.ts",
+      "scripts/**/*.test.ts",
+    ],
     rules: {
       "no-console": "off",
       "@typescript-eslint/no-floating-promises": "off",
