@@ -29,6 +29,24 @@ OAuth-based remote MCP at:
 https://app.driggsby.com/mcp
 ```
 
+## Sign in
+
+Some driggsby commands work with your Driggsby account directly and need
+an app token saved on your machine:
+
+```bash
+npx driggsby@latest login
+```
+
+This opens a Driggsby approval page in your browser. Approving it saves an
+app token in your platform keychain when one is available (the macOS
+keychain, or the Linux keyring via `secret-tool`), otherwise in
+`~/.driggsby/credentials.json` readable only by your account. The token is
+never printed. `npx driggsby@latest logout` removes it.
+
+`mcp setup` does not need this — client OAuth stays managed by your AI
+client.
+
 ## Tools
 
 Includes tools like:
@@ -65,6 +83,10 @@ npx driggsby@latest mcp setup codex --print
 
 Read-only via Plaid. Cannot move money, initiate transfers, or make trades.
 See [driggsby.com](https://driggsby.com) for details.
+
+The app token that `driggsby login` saves stays on your machine and is never
+printed; see [Sign in](#sign-in) above for exactly where it is stored and how
+to remove it.
 
 ## License
 

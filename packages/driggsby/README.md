@@ -29,6 +29,13 @@ OAuth-based remote MCP at:
 https://app.driggsby.com/mcp
 ```
 
+Some driggsby commands work with your Driggsby account directly and need
+an app token saved on your machine: run
+`npx driggsby@latest login` and approve the page it opens. The token is
+stored in your platform keychain when one is available, otherwise in
+`~/.driggsby/credentials.json`, and is never printed.
+`npx driggsby@latest logout` removes it.
+
 The CLI is pure TypeScript and installs from the npm registry alone — no
 binary downloads, no install scripts — and runs on macOS, Linux, and Windows
 with Node.js 18 or newer.
