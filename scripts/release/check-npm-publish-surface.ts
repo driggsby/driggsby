@@ -46,8 +46,28 @@ interface PackedFile {
 }
 
 interface PackReport {
+  name?: string;
   filename: string;
   files: PackedFile[];
+}
+
+// npm's `pack --workspace X --json` output shape differs by npm major: npm 11
+// (bundled with current LTS Node) reports the usual ARRAY of pack reports,
+// while npm 12 reports an OBJECT keyed by workspace name. Accept both,
+// requiring exactly one report and that it is for the requested workspace.
+function singlePackReport(packOutput: string, workspace: string): PackReport | undefined {
+  const parsed = JSON.parse(packOutput) as PackReport[] | Record<string, PackReport>;
+  if (Array.isArray(parsed)) {
+    const report = parsed[0];
+    if (parsed.length !== 1 || report?.name !== workspace) {
+      return undefined;
+    }
+    return report;
+  }
+  if (Object.keys(parsed).length !== 1) {
+    return undefined;
+  }
+  return parsed[workspace];
 }
 
 // Thrown instead of process.exit so the temp-directory cleanup in the finally
@@ -80,11 +100,8 @@ try {
     ],
     { encoding: "utf8" },
   );
-  // With --workspace, npm pack --json reports an object keyed by workspace
-  // name rather than the usual array.
-  const reports = JSON.parse(packOutput) as Record<string, PackReport>;
-  const report = reports[WORKSPACE];
-  if (report === undefined || Object.keys(reports).length !== 1) {
+  const report = singlePackReport(packOutput, WORKSPACE);
+  if (report === undefined) {
     fail(`expected exactly one packed tarball for ${WORKSPACE}`);
   }
 
