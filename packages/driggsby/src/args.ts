@@ -164,12 +164,32 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
   let print = false;
   let scope: McpScope | undefined;
   let optionsEnded = false;
+  // Flags that fully parsed (a completed -s keeps its value placeholder), in
+  // argv order — clap re-renders the usage line from these on unknown-long-
+  // flag errors (only there; shorts, positionals, and duplicates stay static).
+  const seenFlags: string[] = [];
+  // clap's matcher state for the "--print=x"/"--help=x" error usage: --print
+  // and attached-value -s commit as soon as they parse, while a slot-form
+  // "-s <value>" or the positional stays pending until the NEXT token starts
+  // a new argument. Once anything is committed, that error renders the derive
+  // group form "<CLIENT|--print|-s <MCP_SCOPE>>" instead of "[CLIENT]".
+  let committedArgs = 0;
+  let pendingCommit = false;
+
+  const startArgParse = (): void => {
+    if (pendingCommit) {
+      committedArgs += 1;
+      pendingCommit = false;
+    }
+  };
 
   const acceptPositional = (token: string): void => {
+    startArgParse();
     if (client !== undefined) {
       throw unexpectedArgument(token, SETUP_USAGE);
     }
     client = token;
+    pendingCommit = true;
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -189,37 +209,49 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       return { kind: "print-help", text: MCP_SETUP_HELP_LONG, stream: "stdout", exitCode: 0 };
     }
     if (token === "--print") {
+      startArgParse();
       if (print) {
         throw usedMultipleTimes("--print");
       }
       print = true;
+      seenFlags.push("--print");
+      committedArgs += 1;
       continue;
     }
     if (token.startsWith("--help=") || token.startsWith("--print=")) {
       const equalsAt = token.indexOf("=");
       const flag = token.slice(0, equalsAt);
-      throw unexpectedFlagValue(
-        flag,
-        token.slice(equalsAt + 1),
-        `Usage: npx driggsby@latest mcp setup ${flag} [CLIENT]`,
-      );
+      throw unexpectedFlagValue(flag, token.slice(equalsAt + 1), setupEqualsErrorUsage(flag, committedArgs > 0));
     }
     if (token.startsWith("-s")) {
       // clap's error precedence, byte-verified against the Rust binary: a
-      // MISSING value (nothing next, or a dash-leading token other than bare
-      // "-") reports "a value is required" even when -s was already used; a
-      // SUPPLIED value (attached, or a real next token, even "") reports
+      // MISSING value (nothing next, or a RECOGNIZED flag token next — "--",
+      // exact --help/--print, or a short cluster starting with 'h' or 's')
+      // reports "a value is required" even when -s was already used; an
+      // UNRECOGNIZED dash-leading token abandons the pending -s and is
+      // reported through its own normal error path instead; a SUPPLIED value
+      // (attached, bare "-", or a real next token, even "") reports
       // duplication first, then emptiness, then validity.
+      startArgParse();
       let value: string;
+      let valueWasAttached: boolean;
       if (token === "-s") {
         const next = argv[index + 1];
-        if (next === undefined || (next !== "-" && next.startsWith("-"))) {
+        if (next === undefined) {
           throw scopeValueRequired();
         }
+        if (next !== "-" && next.startsWith("-")) {
+          if (isRecognizedSetupFlagToken(next)) {
+            throw scopeValueRequired();
+          }
+          continue;
+        }
         value = next;
+        valueWasAttached = false;
         index += 1;
       } else {
         value = token.startsWith("-s=") ? token.slice(3) : token.slice(2);
+        valueWasAttached = true;
       }
       if (scope !== undefined) {
         throw usedMultipleTimes("-s <MCP_SCOPE>");
@@ -228,10 +260,16 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
         throw scopeValueRequired();
       }
       scope = parseScopeValue(value);
+      seenFlags.push("-s <MCP_SCOPE>");
+      if (valueWasAttached) {
+        committedArgs += 1;
+      } else {
+        pendingCommit = true;
+      }
       continue;
     }
     if (token.startsWith("--")) {
-      throw unknownSetupLongFlag(token);
+      throw unknownSetupLongFlag(token, seenFlags, client !== undefined);
     }
     if (token.startsWith("-") && token.length > 1) {
       // Short cluster: -h... prints the short help; anything else errors
@@ -262,15 +300,61 @@ function parseScopeValue(value: string): McpScope {
   );
 }
 
-function unknownSetupLongFlag(token: string): CliError {
+// A dash-leading token clap would recognize as one of mcp setup's own flags:
+// end-of-options, an exact long flag, or a short cluster led by a known short
+// ('h' or 's'). Long forms with an attached =value are NOT recognized here —
+// clap reports those through their own unexpected-value error instead.
+function isRecognizedSetupFlagToken(token: string): boolean {
+  if (token === "--" || token === "--help" || token === "--print") {
+    return true;
+  }
+  if (token.startsWith("--")) {
+    return false;
+  }
+  const firstShort = Array.from(token.slice(1))[0] ?? "";
+  return firstShort === "h" || firstShort === "s";
+}
+
+function unknownSetupLongFlag(
+  token: string,
+  seenFlags: readonly string[],
+  clientSeen: boolean,
+): CliError {
   const flagName = token.slice(2).split("=", 1)[0] ?? "";
   const shown = sanitizeForTerminal(`--${flagName}`);
   const similar = didYouMean(flagName, SETUP_LONG_FLAGS);
   if (similar !== undefined) {
-    const usage = `Usage: npx driggsby@latest mcp setup --${similar} [CLIENT]`;
-    return unexpectedArgument(shown, usage, similarArgumentTip(similar));
+    // clap appends the suggested flag to the seen list unless already there
+    // (--print --pront renders "--print [CLIENT]", not "--print --print ...").
+    const rendered = seenFlags.includes(`--${similar}`) ? seenFlags : [...seenFlags, `--${similar}`];
+    return unexpectedArgument(shown, setupUsageFromSeen(rendered, clientSeen), similarArgumentTip(similar));
   }
-  return unexpectedArgument(shown, SETUP_USAGE, passAsValueTip(shown));
+  return unexpectedArgument(shown, setupUsageFromSeen(seenFlags, clientSeen), passAsValueTip(shown));
+}
+
+// clap re-renders the usage line on unknown-long-flag errors from what it has
+// already parsed: the completed flags in argv order, then <CLIENT> once the
+// positional was consumed ([CLIENT] otherwise). With nothing consumed and no
+// suggestion it falls back to the generic "[OPTIONS] [CLIENT]" form.
+function setupUsageFromSeen(flags: readonly string[], clientSeen: boolean): string {
+  if (flags.length === 0 && !clientSeen) {
+    return SETUP_USAGE;
+  }
+  const parts = ["Usage: npx driggsby@latest mcp setup", ...flags, clientSeen ? "<CLIENT>" : "[CLIENT]"];
+  return parts.join(" ");
+}
+
+// The usage clap renders for "--print=x"/"--help=x" at the setup level: with
+// nothing committed, the errored flag plus "[CLIENT]"; once any setup arg is
+// committed, the derive-generated group "<CLIENT|--print|-s <MCP_SCOPE>>",
+// prefixed by "--help" only (--print is a group member and collapses into it).
+function setupEqualsErrorUsage(flag: string, anyArgCommitted: boolean): string {
+  if (!anyArgCommitted) {
+    return `Usage: npx driggsby@latest mcp setup ${flag} [CLIENT]`;
+  }
+  const group = "<CLIENT|--print|-s <MCP_SCOPE>>";
+  const prefix = flag === "--help" ? "--help " : "";
+  return `Usage: npx driggsby@latest mcp setup ${prefix}${group}`;
 }
 
 // "--print=true" / "--help=x" / "--version=x": these flags take no value.

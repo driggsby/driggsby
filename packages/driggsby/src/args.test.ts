@@ -281,6 +281,114 @@ test("an empty or dash-leading -s value is 'a value is required', like clap", ()
   }
 });
 
+test("-s followed by an unrecognized flag reports that flag, like clap", () => {
+  const cases: [string[], string][] = [
+    [
+      ["mcp", "setup", "claude-code", "-s", "--user"],
+      "error: unexpected argument '--user' found\n\n" +
+        "  tip: to pass '--user' as a value, use '-- --user'\n\n" +
+        "Usage: npx driggsby@latest mcp setup <CLIENT>\n\n" +
+        "For more information, try '--help'.",
+    ],
+    [
+      ["mcp", "setup", "-s", "-x"],
+      "error: unexpected argument '-x' found\n\n" +
+        "  tip: to pass '-x' as a value, use '-- -x'\n\n" +
+        "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]\n\n" +
+        "For more information, try '--help'.",
+    ],
+    [
+      ["mcp", "setup", "-s", "--print=1"],
+      "error: unexpected value '1' for '--print' found; no more were expected\n\n" +
+        "Usage: npx driggsby@latest mcp setup --print [CLIENT]\n\n" +
+        "For more information, try '--help'.",
+    ],
+  ];
+  for (const [argv, expected] of cases) {
+    try {
+      parseArgv(argv);
+      assert.fail(`expected a CliError for ${argv.join(" ")}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.equal(error.message, expected);
+    }
+  }
+  // Recognized flag tokens after -s still report the missing value first.
+  for (const next of ["--print", "--help", "-hx", "-suser", "--"]) {
+    try {
+      parseArgv(["mcp", "setup", "-s", next]);
+      assert.fail(`expected a CliError for -s ${next}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.ok(error.message.includes("a value is required for '-s <MCP_SCOPE>'"), next);
+    }
+  }
+});
+
+test("unknown long flags re-render usage from already-seen args, like clap", () => {
+  const cases: [string[], string][] = [
+    [["mcp", "setup", "claude-code", "--json"], "Usage: npx driggsby@latest mcp setup <CLIENT>"],
+    [
+      ["mcp", "setup", "--print", "-s", "user", "--bogus"],
+      "Usage: npx driggsby@latest mcp setup --print -s <MCP_SCOPE> [CLIENT]",
+    ],
+    [
+      ["mcp", "setup", "claude-code", "-s", "user", "--pront"],
+      "Usage: npx driggsby@latest mcp setup -s <MCP_SCOPE> --print <CLIENT>",
+    ],
+    // The suggestion dedupes against an already-seen --print.
+    [["mcp", "setup", "--print", "--pront"], "Usage: npx driggsby@latest mcp setup --print [CLIENT]"],
+    [
+      ["mcp", "setup", "--print", "--hepl"],
+      "Usage: npx driggsby@latest mcp setup --print --help [CLIENT]",
+    ],
+    [["mcp", "setup", "--json"], "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]"],
+    // Unknown shorts and extra positionals keep the generic usage line.
+    [["mcp", "setup", "--print", "-x"], "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]"],
+    [
+      ["mcp", "setup", "--print", "claude-code", "extra"],
+      "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]",
+    ],
+  ];
+  for (const [argv, usage] of cases) {
+    try {
+      parseArgv(argv);
+      assert.fail(`expected a CliError for ${argv.join(" ")}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.ok(error.message.includes(`\n${usage}\n`), `${argv.join(" ")}\n${error.message}`);
+    }
+  }
+});
+
+test("--print=x and --help=x render clap's group usage once an arg committed", () => {
+  const group = "<CLIENT|--print|-s <MCP_SCOPE>>";
+  const cases: [string[], string][] = [
+    // Nothing committed yet: the errored flag itself plus [CLIENT]. A pending
+    // slot-form -s value or positional has not committed either.
+    [["mcp", "setup", "--print=1"], "Usage: npx driggsby@latest mcp setup --print [CLIENT]"],
+    [["mcp", "setup", "-s", "user", "--print=1"], "Usage: npx driggsby@latest mcp setup --print [CLIENT]"],
+    [["mcp", "setup", "claude-code", "--help=x"], "Usage: npx driggsby@latest mcp setup --help [CLIENT]"],
+    // Committed: --print and attached -s=... react instantly, and a pending
+    // arg commits when the next token starts a new argument.
+    [["mcp", "setup", "--print", "--help=x"], `Usage: npx driggsby@latest mcp setup --help ${group}`],
+    [["mcp", "setup", "-s=user", "--print=1"], `Usage: npx driggsby@latest mcp setup ${group}`],
+    [["mcp", "setup", "claude-code", "-s", "--print=1"], `Usage: npx driggsby@latest mcp setup ${group}`],
+  ];
+  for (const [argv, usage] of cases) {
+    try {
+      parseArgv(argv);
+      assert.fail(`expected a CliError for ${argv.join(" ")}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.ok(error.message.includes(`\n${usage}\n`), `${argv.join(" ")}\n${error.message}`);
+    }
+  }
+});
+
 test("control bytes in echoed argv are stripped before reaching the terminal", () => {
   try {
     parseArgv(["mcp", "setup", "--bo\u001b]0;pwned\u0007gus"]);
