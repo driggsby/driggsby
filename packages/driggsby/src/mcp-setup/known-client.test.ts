@@ -44,3 +44,13 @@ test("mcp scope is only supported for Claude Code", () => {
     );
   }
 });
+
+test("client-id trimming matches Rust's str::trim, not JS trim", () => {
+  // U+0085 (NEL) is Rust whitespace: trimmed, so the client resolves.
+  assert.equal(parseClient("\u0085claude-code\u0085"), "claude-code");
+  // U+FEFF (ZWNBSP) is NOT Rust whitespace: it survives and the id fails.
+  assert.throws(
+    () => parseClient("\ufeffclaude-code"),
+    (error: unknown) => error instanceof CliError && error.exitCode === 1,
+  );
+});

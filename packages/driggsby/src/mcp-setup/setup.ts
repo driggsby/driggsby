@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 
 import { CliError } from "../cli-error.ts";
+import { trimLikeRust } from "../terminal-text.ts";
 import { runClientCommand } from "./client-command.ts";
 import { classifyExistingMcpConfig, type ClientCommandOutput } from "./classify.ts";
 import {
@@ -136,7 +137,9 @@ export async function promptForClient(
   });
   let choice: string;
   try {
-    choice = (await Promise.race([readline.question("Choose 1-3: "), closedAsEmptyChoice])).trim();
+    choice = trimLikeRust(
+      await Promise.race([readline.question("Choose 1-3: "), closedAsEmptyChoice]),
+    );
   } finally {
     readline.close();
   }

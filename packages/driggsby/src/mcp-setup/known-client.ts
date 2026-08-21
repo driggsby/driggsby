@@ -1,5 +1,5 @@
 import { CliError } from "../cli-error.ts";
-import { sanitizeForTerminal } from "../terminal-text.ts";
+import { sanitizeForTerminal, trimLikeRust } from "../terminal-text.ts";
 
 export type KnownClient = "claude-code" | "codex" | "other";
 
@@ -21,10 +21,11 @@ export function displayName(client: KnownClient): string {
   }
 }
 
-// ASCII-only lowercasing, matching the Rust CLI's to_ascii_lowercase: a
-// non-ASCII uppercase letter stays as-is and fails the lookup below.
+// Rust-set trimming plus ASCII-only lowercasing, matching the Rust CLI's
+// str::trim + to_ascii_lowercase: a non-ASCII uppercase letter stays as-is
+// and fails the lookup below.
 export function canonicalizeClientId(input: string): string {
-  return input.trim().replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  return trimLikeRust(input).replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 export function parseClient(value: string): KnownClient {
