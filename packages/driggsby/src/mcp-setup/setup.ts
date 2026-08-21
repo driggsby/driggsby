@@ -10,6 +10,7 @@ import {
   type McpConfigCommand,
 } from "./commands.ts";
 import {
+  type CliMcpClient,
   cliMcpClient,
   displayName,
   type KnownClient,
@@ -49,7 +50,7 @@ export async function runMcpSetup(options: McpSetupOptions): Promise<void> {
   }
 
   write(`Checking for Driggsby in ${displayName(client)} MCP config...\n`);
-  if (await handleExistingConfig(client, options.scope, installer)) {
+  if (await handleExistingConfig(client, installClient, options.scope, installer)) {
     return;
   }
 
@@ -100,10 +101,20 @@ async function promptForClient(): Promise<KnownClient> {
   }
 
   write("Which client are you setting up?\n\n  1. Claude Code\n  2. Codex\n  3. Other\n\n");
-  const readline = createInterface({ input: process.stdin, output: process.stdout });
+  // terminal: false keeps the prompt a plain write (no cursor-control
+  // escapes); the TTY's own canonical mode handles echo, as in the original.
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false,
+  });
   let choice: string;
   try {
     choice = (await readline.question("Choose 1-3: ")).trim();
+  } catch {
+    // EOF (Ctrl+D) rejects the question; treat it as no valid choice, which
+    // is exactly what the original did with a zero-byte read.
+    choice = "";
   } finally {
     readline.close();
   }
@@ -124,13 +135,10 @@ async function promptForClient(): Promise<KnownClient> {
 // to a normal install attempt.
 async function handleExistingConfig(
   client: KnownClient,
+  installClient: CliMcpClient,
   scope: McpScope | undefined,
   installer: McpConfigCommand,
 ): Promise<boolean> {
-  const installClient = cliMcpClient(client);
-  if (installClient === null) {
-    return false;
-  }
   const result = await runClientCommand(buildInspectorCommand(installClient), false);
   if (result.kind !== "output") {
     return false;

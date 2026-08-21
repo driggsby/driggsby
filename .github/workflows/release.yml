@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
       - name: Validate release tag format
         shell: bash
         run: |
@@ -113,5 +113,7 @@ jobs:
         run: |
           npm ci
           npm run build
+      # --ignore-scripts backstops the surface check's no-lifecycle-scripts
+      # gate: nothing may execute package-defined hooks in this job.
       - name: Publish npm package
-        run: npm publish --workspace driggsby --access public --provenance
+        run: npm publish --workspace driggsby --access public --provenance --ignore-scripts

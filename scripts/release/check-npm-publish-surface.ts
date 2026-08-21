@@ -12,7 +12,32 @@ import process from "node:process";
 
 const WORKSPACE = "driggsby";
 const ALLOWED_FILE_PATTERN = /^(package\.json|LICENSE|README\.md|bin\/driggsby\.js|dist\/.+\.js)$/;
-const FORBIDDEN_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "prepublish"];
+// Both the consumer-side install hooks AND the publish-side hooks: prepack/
+// prepublishOnly run inside the trusted-publishing job, the highest-trust
+// step in the repo, so they must not exist at all (publishing also passes
+// --ignore-scripts as a second layer).
+const FORBIDDEN_SCRIPTS = [
+  "preinstall",
+  "install",
+  "postinstall",
+  "prepare",
+  "prepublish",
+  "prepublishOnly",
+  "prepack",
+  "postpack",
+  "publish",
+  "postpublish",
+];
+// The npm fields that can pull third-party code onto a consumer's machine.
+// optionalDependencies is how the ecosystem ships per-platform native
+// binaries — exactly what this package must never reintroduce.
+const FORBIDDEN_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "bundledDependencies",
+  "bundleDependencies",
+];
 
 interface PackedFile {
   path: string;
@@ -39,7 +64,15 @@ try {
   note(`Packing workspace ${WORKSPACE}...`);
   const packOutput = execFileSync(
     "npm",
-    ["pack", "--workspace", WORKSPACE, "--pack-destination", workDirectory, "--json"],
+    [
+      "pack",
+      "--workspace",
+      WORKSPACE,
+      "--ignore-scripts",
+      "--pack-destination",
+      workDirectory,
+      "--json",
+    ],
     { encoding: "utf8" },
   );
   // With --workspace, npm pack --json reports an object keyed by workspace
@@ -52,12 +85,11 @@ try {
 
   const manifest = JSON.parse(
     readFileSync(new URL("../../packages/driggsby/package.json", import.meta.url), "utf8"),
-  ) as {
+  ) as Record<string, unknown> & {
     name: string;
     version: string;
     bin?: Record<string, string>;
     scripts?: Record<string, string>;
-    dependencies?: Record<string, string>;
     engines?: Record<string, string>;
   };
 
@@ -75,8 +107,11 @@ try {
       fail(`package must not have a ${script} script`);
     }
   }
-  if (manifest.dependencies !== undefined && Object.keys(manifest.dependencies).length > 0) {
-    fail("package must have zero runtime dependencies");
+  for (const field of FORBIDDEN_DEPENDENCY_FIELDS) {
+    const value = manifest[field];
+    if (value !== undefined && (typeof value !== "object" || value === null || Object.keys(value).length > 0)) {
+      fail(`package must have zero runtime dependencies; ${field} is set`);
+    }
   }
   if (manifest.engines?.node !== ">=18") {
     fail(`engines.node must stay at >=18, got ${manifest.engines?.node ?? "unset"}`);
@@ -86,7 +121,11 @@ try {
     if (!ALLOWED_FILE_PATTERN.test(file.path)) {
       fail(`unexpected file in package: ${file.path}`);
     }
-    if (file.path.endsWith(".test.js") || file.path.includes("__fixtures__")) {
+    if (
+      file.path.endsWith(".test.js") ||
+      file.path.includes("__fixtures__") ||
+      file.path.includes("test-support")
+    ) {
       fail(`test artifact must not ship: ${file.path}`);
     }
   }

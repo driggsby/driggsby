@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { setTimeout as sleep } from "node:timers/promises";
 
 import { type ClientCommandOutput } from "./classify.ts";
 import { type McpConfigCommand } from "./commands.ts";
+import { planSpawn } from "./spawn-plan.ts";
 
 const CLIENT_CONFIG_COMMAND_TIMEOUT_MS = 30_000;
 // After the child exits, wait at most this long for its output pipes to
@@ -66,14 +66,17 @@ export function runClientCommand(
   timeoutMs: number = CLIENT_CONFIG_COMMAND_TIMEOUT_MS,
 ): Promise<ClientCommandResult> {
   return new Promise((resolve) => {
-    // On Windows, client CLIs are .cmd shims that only a shell can start
-    // (Node refuses to spawn .cmd files directly). Every argument is a fixed
-    // constant from commands.ts, so shell interpretation adds no injection
-    // surface.
-    const useShell = process.platform === "win32";
-    const child = spawn(command.program, command.args, {
+    // No shell anywhere: spawn-plan.ts resolves Windows .cmd shims through an
+    // explicit cmd.exe invocation and reports a missing program itself
+    // (PATH-only lookup — the current directory is never searched).
+    const plan = planSpawn(command);
+    if (plan === null) {
+      resolve({ kind: "not-found" });
+      return;
+    }
+    const child = spawn(plan.program, plan.args, {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: useShell,
+      windowsVerbatimArguments: plan.windowsVerbatimArguments,
     });
 
     let settled = false;
@@ -102,15 +105,17 @@ export function runClientCommand(
 
     child.once("exit", (code) => {
       void (async () => {
-        await Promise.race([Promise.all([stdoutDone, stderrDone]), sleep(OUTPUT_DRAIN_GRACE_MS)]);
+        // Race the pipes closing against the drain grace, and cancel the
+        // grace timer as soon as the race settles so it can't hold the
+        // process (or add dead wait) after a fast, clean exit.
+        let drainTimer: NodeJS.Timeout | undefined;
+        const drainGrace = new Promise<void>((resolveGrace) => {
+          drainTimer = setTimeout(resolveGrace, OUTPUT_DRAIN_GRACE_MS);
+        });
+        await Promise.race([Promise.all([stdoutDone, stderrDone]), drainGrace]);
+        clearTimeout(drainTimer);
         const stdout = Buffer.concat(stdoutChunks).toString("utf8");
         const stderr = Buffer.concat(stderrChunks).toString("utf8");
-        // Under a Windows shell a missing program is a shell error, not an
-        // ENOENT: map it back to not-found so the message stays honest.
-        if (useShell && code !== 0 && `${stdout}${stderr}`.includes("is not recognized")) {
-          settle({ kind: "not-found" });
-          return;
-        }
         settle({ kind: "output", output: { succeeded: code === 0, stdout, stderr } });
       })();
     });
@@ -137,6 +142,11 @@ function collectStream(
       }
     });
     stream.once("close", () => {
+      resolve();
+    });
+    // A torn-down pipe (e.g. the SIGKILL timeout path on Windows) must end
+    // the collection quietly, never surface as an uncaught stream error.
+    stream.on("error", () => {
       resolve();
     });
   });

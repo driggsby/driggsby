@@ -1,0 +1,7 @@
+error: unexpected argument '--bogus' found
+
+  tip: to pass '--bogus' as a value, use '-- --bogus'
+
+Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]
+
+For more information, try '--help'.

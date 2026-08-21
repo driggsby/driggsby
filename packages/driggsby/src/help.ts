@@ -1,6 +1,9 @@
 // Help text is contract: the root and mcp help blocks are byte-identical to
 // the Rust CLI's output (asserted against fixtures), and the launch docs
-// quote these exact example commands.
+// quote these exact example commands. The mcp setup help is a deliberate
+// simplification: one clean text serves both -h and --help (the original
+// clap build rendered a short and a long variant), with all of the original
+// content preserved.
 export const ROOT_HELP = `Usage: npx driggsby@latest <COMMAND>
 
 Commands:

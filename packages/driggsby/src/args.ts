@@ -69,13 +69,15 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       print = true;
       continue;
     }
-    if (token === "-s" || token.startsWith("-s=") || (token.startsWith("-s") && token.length > 2)) {
+    if (token.startsWith("-s")) {
+      // Exactly "-s" takes its value from the next argv slot; "-s<value>"
+      // and "-s=<value>" carry it attached.
       let value: string | undefined;
       if (token === "-s") {
         value = argv[index + 1];
         if (value === undefined) {
           throw new CliError(
-            `error: a value is required for '-s <MCP_SCOPE>' but none was supplied\n\nFor more information, try '--help'.`,
+            `error: a value is required for '-s <MCP_SCOPE>' but none was supplied\n  [possible values: local, user]\n\nFor more information, try '--help'.`,
             2,
           );
         }
@@ -87,7 +89,7 @@ function parseMcpSetup(argv: string[]): ParsedCommand {
       continue;
     }
     if (token.startsWith("-")) {
-      throw unexpectedArgument(token, SETUP_USAGE);
+      throw unexpectedArgument(token, SETUP_USAGE, { tip: true });
     }
     if (client !== undefined) {
       throw unexpectedArgument(token, SETUP_USAGE);
@@ -108,9 +110,17 @@ function parseScopeValue(value: string): McpScope {
   );
 }
 
-function unexpectedArgument(argument: string, usage: string): CliError {
+function unexpectedArgument(
+  argument: string,
+  usage: string,
+  options: { tip?: boolean } = {},
+): CliError {
+  const tip =
+    options.tip === true
+      ? `  tip: to pass '${argument}' as a value, use '-- ${argument}'\n\n`
+      : "";
   return new CliError(
-    `error: unexpected argument '${argument}' found\n\n${usage}\n\nFor more information, try '--help'.`,
+    `error: unexpected argument '${argument}' found\n\n${tip}${usage}\n\nFor more information, try '--help'.`,
     2,
   );
 }

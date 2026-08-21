@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
-import { MCP_HELP, ROOT_HELP } from "./help.ts";
+import { MCP_HELP, MCP_SETUP_HELP, ROOT_HELP } from "./help.ts";
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), "utf8");
@@ -27,6 +27,29 @@ test("root help is byte-identical to the Rust CLI", () => {
 
 test("mcp help is byte-identical to the Rust CLI", () => {
   assert.equal(MCP_HELP, fixture("mcp-help.txt"));
+});
+
+test("mcp setup help keeps every line of the original content", () => {
+  // A deliberate simplification serves both -h and --help; this pins the
+  // content so it can't silently drift further.
+  for (const line of [
+    "Set up Driggsby for an AI client.",
+    "Run once per client.",
+    "Supported clients: claude-code, codex, other.",
+    "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]",
+    "Client ID: claude-code, codex, or other.",
+    "Print the native setup command instead of running it.",
+    "Claude Code only. Values: local, user (default).",
+    "[possible values: local, user]",
+  ]) {
+    assert.ok(MCP_SETUP_HELP.includes(line), `missing help line: ${line}`);
+  }
+  assert.deepEqual(parseArgv(["mcp", "setup", "--help"]), {
+    kind: "print-help",
+    text: MCP_SETUP_HELP,
+    stream: "stdout",
+    exitCode: 0,
+  });
 });
 
 test("bare mcp prints mcp help to stderr with exit 2", () => {
@@ -87,11 +110,32 @@ test("an invalid -s value matches the Rust CLI error byte-for-byte", () => {
   }
 });
 
-test("an unexpected flag and a second positional are usage errors", () => {
-  for (const argv of [["mcp", "setup", "--bogus"], ["mcp", "setup", "codex", "extra"]]) {
-    assert.throws(
-      () => parseArgv(argv),
-      (error: unknown) => error instanceof CliError && error.exitCode === 2,
-    );
+test("an unexpected setup flag matches the Rust CLI error byte-for-byte", () => {
+  try {
+    parseArgv(["mcp", "setup", "--bogus"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.equal(error.exitCode, 2);
+    assert.equal(`${error.message}\n`, fixture("badflag-stderr.txt"));
   }
+});
+
+test("a missing -s value names the possible values", () => {
+  try {
+    parseArgv(["mcp", "setup", "claude-code", "-s"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.equal(error.exitCode, 2);
+    assert.ok(error.message.includes("a value is required for '-s <MCP_SCOPE>'"));
+    assert.ok(error.message.includes("[possible values: local, user]"));
+  }
+});
+
+test("a second positional is a usage error", () => {
+  assert.throws(
+    () => parseArgv(["mcp", "setup", "codex", "extra"]),
+    (error: unknown) => error instanceof CliError && error.exitCode === 2,
+  );
 });
