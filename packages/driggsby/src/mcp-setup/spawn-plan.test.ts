@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { quoteForCmd, resolveWindowsProgram, type WindowsLookup } from "./spawn-plan.ts";
+import { planSpawn, quoteForCmd, resolveWindowsProgram, type WindowsLookup } from "./spawn-plan.ts";
 
 function lookupWith(directories: string[], existing: string[]): WindowsLookup {
   const files = new Set(existing);
@@ -59,6 +59,48 @@ test("resolveWindowsProgram strips quotes from quoted PATH segments", () => {
     kind: "shim",
     path: join(directory, "claude.CMD"),
   });
+});
+
+test("planSpawn runs a shim through an absolute cmd.exe with /d /s /c and quoting", () => {
+  const npmDirectory = "C:\\Users\\First Last\\AppData\\Roaming\\npm";
+  const shim = join(npmDirectory, "claude.CMD");
+  const lookup = lookupWith([npmDirectory], [shim]);
+
+  const plan = planSpawn(
+    { program: "claude", args: ["mcp", "get", "driggsby"] },
+    "win32",
+    lookup,
+  );
+
+  assert.ok(plan !== null);
+  // Absolute path (SystemRoot fallback): a planted cmd.exe in the current
+  // directory must never win.
+  assert.ok(/[\\/]System32[\\/]cmd\.exe$/i.test(plan.program));
+  assert.ok(plan.program !== "cmd.exe");
+  assert.equal(plan.windowsVerbatimArguments, true);
+  assert.equal(plan.args.length, 4);
+  assert.deepEqual(plan.args.slice(0, 3), ["/d", "/s", "/c"]);
+  // The command line is wrapped in one outer quote pair for /s, with the
+  // spaced shim path quoted and plain args passed through.
+  assert.equal(plan.args[3], `""${shim}" mcp get driggsby"`);
+});
+
+test("planSpawn passes POSIX and direct-executable commands through untouched", () => {
+  const command = { program: "claude", args: ["mcp", "get", "driggsby"] };
+  assert.deepEqual(planSpawn(command, "darwin"), {
+    program: "claude",
+    args: ["mcp", "get", "driggsby"],
+    windowsVerbatimArguments: false,
+  });
+
+  const directory = "C:\\Tools";
+  const lookup = lookupWith([directory], [join(directory, "claude.EXE")]);
+  assert.deepEqual(planSpawn(command, "win32", lookup), {
+    program: join(directory, "claude.EXE"),
+    args: ["mcp", "get", "driggsby"],
+    windowsVerbatimArguments: false,
+  });
+  assert.equal(planSpawn({ program: "missing", args: [] }, "win32", lookup), null);
 });
 
 test("resolveWindowsProgram uses an explicit path as given", () => {

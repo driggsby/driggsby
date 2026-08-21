@@ -19,13 +19,19 @@ export interface SpawnPlan {
 }
 
 // null means the program does not exist on PATH (Windows only — POSIX lets
-// spawn report ENOENT itself).
-export function planSpawn(command: McpConfigCommand): SpawnPlan | null {
-  if (process.platform !== "win32") {
+// spawn report ENOENT itself). platform and lookup are injectable so the
+// Windows branch — including the absolute cmd.exe composition — stays
+// unit-testable on every CI runner.
+export function planSpawn(
+  command: McpConfigCommand,
+  platform: NodeJS.Platform = process.platform,
+  lookup?: WindowsLookup,
+): SpawnPlan | null {
+  if (platform !== "win32") {
     return { program: command.program, args: command.args, windowsVerbatimArguments: false };
   }
 
-  const resolved = resolveWindowsProgram(command.program);
+  const resolved = resolveWindowsProgram(command.program, lookup ?? defaultLookup());
   if (resolved === null) {
     return null;
   }

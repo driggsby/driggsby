@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
-import { MCP_HELP, MCP_SETUP_HELP, ROOT_HELP } from "./help.ts";
+import { MCP_HELP, MCP_SETUP_HELP_LONG, MCP_SETUP_HELP_SHORT, ROOT_HELP } from "./help.ts";
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), "utf8");
@@ -29,27 +29,97 @@ test("mcp help is byte-identical to the Rust CLI", () => {
   assert.equal(MCP_HELP, fixture("mcp-help.txt"));
 });
 
-test("mcp setup help keeps every line of the original content", () => {
-  // A deliberate simplification serves both -h and --help; this pins the
-  // content so it can't silently drift further.
-  for (const line of [
-    "Set up Driggsby for an AI client.",
-    "Run once per client.",
-    "Supported clients: claude-code, codex, other.",
-    "Usage: npx driggsby@latest mcp setup [OPTIONS] [CLIENT]",
-    "Client ID: claude-code, codex, or other.",
-    "Print the native setup command instead of running it.",
-    "Claude Code only. Values: local, user (default).",
-    "[possible values: local, user]",
-  ]) {
-    assert.ok(MCP_SETUP_HELP.includes(line), `missing help line: ${line}`);
-  }
+test("both mcp setup help variants are byte-identical to the Rust CLI", () => {
+  assert.equal(MCP_SETUP_HELP_SHORT, fixture("setup-help-short.txt"));
+  assert.equal(MCP_SETUP_HELP_LONG, fixture("setup-help-long.txt"));
   assert.deepEqual(parseArgv(["mcp", "setup", "--help"]), {
     kind: "print-help",
-    text: MCP_SETUP_HELP,
+    text: MCP_SETUP_HELP_LONG,
     stream: "stdout",
     exitCode: 0,
   });
+  assert.deepEqual(parseArgv(["mcp", "setup", "-h"]), {
+    kind: "print-help",
+    text: MCP_SETUP_HELP_SHORT,
+    stream: "stdout",
+    exitCode: 0,
+  });
+  // Short-flag clusters dispatch on their first character, like clap.
+  assert.deepEqual(parseArgv(["mcp", "setup", "-hs"]), {
+    kind: "print-help",
+    text: MCP_SETUP_HELP_SHORT,
+    stream: "stdout",
+    exitCode: 0,
+  });
+});
+
+test("typo'd inputs get clap's did-you-mean tips", () => {
+  const cases: [string[], string][] = [
+    [["mcp", "setp"], "  tip: a similar subcommand exists: 'setup'"],
+    [["mcpp"], "  tip: a similar subcommand exists: 'mcp'"],
+    [["--versio"], "  tip: a similar argument exists: '--version'"],
+    [["mcp", "setup", "--pint"], "  tip: a similar argument exists: '--print'"],
+    [["mcp", "setup", "--hel"], "  tip: a similar argument exists: '--help'"],
+    [["mcp", "setup", "claude-code", "-s", "usr"], "  tip: a similar value exists: 'user'"],
+    [["--", "mcp"], "  tip: subcommand 'mcp' exists; to use it, remove the '--' before it"],
+  ];
+  for (const [argv, expectedTip] of cases) {
+    try {
+      parseArgv(argv);
+      assert.fail(`expected a CliError for ${argv.join(" ")}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2);
+      assert.ok(error.message.includes(expectedTip), `missing tip for ${argv.join(" ")}`);
+    }
+  }
+  // Below clap's 0.7 Jaro threshold: no tip.
+  try {
+    parseArgv(["mpc"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.ok(!error.message.includes("tip:"));
+  }
+});
+
+test("a repeated --print matches the Rust CLI error", () => {
+  try {
+    parseArgv(["mcp", "setup", "--print", "--print", "claude-code"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.equal(error.exitCode, 2);
+    assert.ok(error.message.includes("the argument '--print' cannot be used multiple times"));
+  }
+});
+
+test("a value attached to a valueless flag matches the Rust CLI error", () => {
+  try {
+    parseArgv(["mcp", "setup", "--print=true"]);
+    assert.fail("expected a CliError");
+  } catch (error) {
+    assert.ok(error instanceof CliError);
+    assert.equal(error.exitCode, 2);
+    assert.ok(
+      error.message.includes("unexpected value 'true' for '--print' found; no more were expected"),
+    );
+  }
+});
+
+test("a trailing valueless -s reports 'a value is required' even after a prior -s", () => {
+  for (const argv of [
+    ["mcp", "setup", "-s", "user", "-s"],
+    ["mcp", "setup", "-s", "local", "-s", "-h"],
+  ]) {
+    try {
+      parseArgv(argv);
+      assert.fail("expected a CliError");
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.ok(error.message.includes("a value is required for '-s <MCP_SCOPE>'"));
+    }
+  }
 });
 
 test("bare mcp prints mcp help to stderr with exit 2", () => {
