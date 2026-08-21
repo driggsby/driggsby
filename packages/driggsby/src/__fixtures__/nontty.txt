@@ -1,0 +1,6 @@
+Pass a client name.
+
+Examples:
+  npx driggsby@latest mcp setup claude-code
+  npx driggsby@latest mcp setup codex
+  npx driggsby@latest mcp setup other

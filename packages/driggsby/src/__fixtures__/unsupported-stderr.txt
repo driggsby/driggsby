@@ -1,0 +1,6 @@
+Unsupported client: raycast
+
+Supported clients:
+  claude-code
+  codex
+  other

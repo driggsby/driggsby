@@ -1,0 +1,13 @@
+Driggsby currently supports OAuth-based remote MCP only.
+
+Driggsby OAuth MCP URL:
+  https://app.driggsby.com/mcp
+
+For another MCP client or agent:
+  Add a remote MCP server named driggsby.
+  Set its URL to https://app.driggsby.com/mcp.
+  Choose OAuth authentication if the client asks.
+  Complete the Driggsby browser sign-in when prompted.
+
+Requirement:
+  The MCP client must support OAuth-based MCP authentication.

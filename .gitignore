@@ -1,7 +1,2 @@
-/target
-/dist
-/node_modules
-/dist-manifest.json
-/generated-package.json
-/plan-dist-manifest.json
-/global-dist-manifest.json
+dist/
+node_modules/

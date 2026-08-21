@@ -1,0 +1,14 @@
+Usage: npx driggsby@latest <COMMAND>
+
+Commands:
+  mcp  Set up Driggsby MCP clients.
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+
+Examples:
+  npx driggsby@latest mcp setup
+  npx driggsby@latest mcp setup claude-code
+  npx driggsby@latest mcp setup codex
+  npx driggsby@latest mcp setup other

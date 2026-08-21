@@ -1,0 +1,9 @@
+Set up Driggsby MCP clients.
+
+Usage: npx driggsby@latest mcp <COMMAND>
+
+Commands:
+  setup  Set up Driggsby for an AI client.
+
+Options:
+  -h, --help  Print help

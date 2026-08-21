@@ -1,15 +1,17 @@
 {
-  "name": "@driggsby/cli-release-tools",
-  "version": "0.1.42",
+  "name": "@driggsby/workspace",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build --workspaces --if-present",
     "check": "npm run lint && npm run typecheck",
-    "lint": "eslint npm scripts --max-warnings 0",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "pack:npm": "node dist/scripts/release/pack-npm-package.js",
-    "check:npm-package": "node dist/scripts/release/check-npm-publish-surface.js"
+    "lint": "eslint packages scripts --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
