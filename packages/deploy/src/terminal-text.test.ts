@@ -35,6 +35,9 @@ test("sanitizeForTerminal spaces out line separators and strips invisible code p
   // Mongolian vowel separator, and the interlinear annotation controls
   // vanish entirely.
   assert.equal(sanitizeForTerminal("try\u2028again\u2029now"), "try again now");
+  // C0 and C1 control bytes -- the raw ANSI-escape channel (ESC, CSI) --
+  // vanish entirely.
+  assert.equal(sanitizeForTerminal("b\u001B[2Joops\u009B31m.txt"), "b[2Joops31m.txt");
   assert.equal(sanitizeForTerminal("so\u00ADft\u180E\uFFF9x\uFFFAy\uFFFB"), "softxy");
   // ZWNBSP/BOM, the word joiner, and the Unicode Tags block — the standard
   // channel for smuggling invisible instructions into an agent's transcript.

@@ -22,6 +22,13 @@ function sha256Hex(contents: string): string {
   return createHash("sha256").update(contents).digest("hex");
 }
 
+// NTFS refuses file names holding control bytes or double quotes, so on
+// Windows the two hostile-name tests below can't set up to begin with —
+// each would fail at its own writeFile, before the code under test runs.
+// The rendering defense itself is platform-independent and separately
+// pinned by the terminal-text unit tests, which run on every platform.
+const windowsCannotHoldHostileNames = process.platform === "win32";
+
 test("walks nested directories into forward-slash manifest paths with hashes", async () => {
   const directory = await siteDirectory({
     "index.html": "<h1>hi</h1>",
@@ -108,13 +115,6 @@ test("a file name the deploy API would refuse fails locally, naming the file", a
     return true;
   });
 });
-
-// NTFS refuses file names holding control bytes or double quotes, so on
-// Windows the hostile names in the two tests below can't exist to begin
-// with — each would fail at its own writeFile, before the code under test
-// runs. The rendering defense itself is platform-independent and separately
-// pinned by the terminal-text unit tests.
-const windowsCannotHoldHostileNames = process.platform === "win32";
 
 test(
   "terminal control bytes in a refused file name never reach the message",
