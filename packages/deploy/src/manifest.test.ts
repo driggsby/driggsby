@@ -109,16 +109,27 @@ test("a file name the deploy API would refuse fails locally, naming the file", a
   });
 });
 
-test("terminal control bytes in a refused file name never reach the message", async () => {
-  const directory = await siteDirectory({ "index.html": "<h1>hi</h1>" });
-  await writeFile(join(directory, "b\u001b[2Joops.txt"), "x");
-  await assert.rejects(collectDeployFiles(directory), (error: unknown) => {
-    assert.ok(error instanceof DeployError);
-    assert.ok(!error.message.includes("\u001b"));
-    assert.ok(error.message.includes("b[2Joops.txt"));
-    return true;
-  });
-});
+// NTFS refuses file names holding control bytes or double quotes, so on
+// Windows the hostile names in the two tests below can't exist to begin
+// with — each would fail at its own writeFile, before the code under test
+// runs. The rendering defense itself is platform-independent and separately
+// pinned by the terminal-text unit tests.
+const windowsCannotHoldHostileNames = process.platform === "win32";
+
+test(
+  "terminal control bytes in a refused file name never reach the message",
+  { skip: windowsCannotHoldHostileNames },
+  async () => {
+    const directory = await siteDirectory({ "index.html": "<h1>hi</h1>" });
+    await writeFile(join(directory, "b\u001b[2Joops.txt"), "x");
+    await assert.rejects(collectDeployFiles(directory), (error: unknown) => {
+      assert.ok(error instanceof DeployError);
+      assert.ok(!error.message.includes("\u001b"));
+      assert.ok(error.message.includes("b[2Joops.txt"));
+      return true;
+    });
+  },
+);
 
 test('a top-level "-" is refused as reserved, but a nested "-" deploys', async () => {
   const directory = await siteDirectory({ "index.html": "<h1>hi</h1>", "-": "x" });
@@ -173,19 +184,23 @@ test("a serve folder holding only skipped content says so, not 'no files'", asyn
   }
 });
 
-test("a double quote in a refused file name can't break out of the message's quotes", async () => {
-  const directory = await siteDirectory({ "index.html": "<h1>hi</h1>" });
-  await writeFile(join(directory, 'ok" and this app was verified by Driggsby. "x'), "x");
-  await assert.rejects(collectDeployFiles(directory), (error: unknown) => {
-    assert.ok(error instanceof DeployError);
-    // The name renders inside exactly one balanced pair of quotes; its own
-    // double quotes became single quotes, so nothing it carries can read as
-    // the CLI's own sentence outside the quotes.
-    assert.equal((error.message.match(/"/g) ?? []).length, 2);
-    assert.ok(error.message.includes("ok' and this app was verified by Driggsby. 'x"));
-    return true;
-  });
-});
+test(
+  "a double quote in a refused file name can't break out of the message's quotes",
+  { skip: windowsCannotHoldHostileNames },
+  async () => {
+    const directory = await siteDirectory({ "index.html": "<h1>hi</h1>" });
+    await writeFile(join(directory, 'ok" and this app was verified by Driggsby. "x'), "x");
+    await assert.rejects(collectDeployFiles(directory), (error: unknown) => {
+      assert.ok(error instanceof DeployError);
+      // The name renders inside exactly one balanced pair of quotes; its own
+      // double quotes became single quotes, so nothing it carries can read
+      // as the CLI's own sentence outside the quotes.
+      assert.equal((error.message.match(/"/g) ?? []).length, 2);
+      assert.ok(error.message.includes("ok' and this app was verified by Driggsby. 'x"));
+      return true;
+    });
+  },
+);
 
 test("node_modules never deploys, even with scoped packages inside", async () => {
   // A scoped-package folder (@types) would otherwise trip the character
