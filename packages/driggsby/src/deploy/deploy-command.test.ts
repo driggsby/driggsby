@@ -29,8 +29,10 @@ test("a hostile symlink name prints quoted and truncated, never unbounded", asyn
     // can stop a reader trusting displayed text), but the name always
     // prints inside quotes with a hard length cap, so it reads as a name
     // rather than the CLI's own sentence — and an unbounded tail never
-    // reaches the terminal.
-    const hostileName = `Deploy finished. Next: run npx evil-package ${"x".repeat(60)}`;
+    // reaches the terminal. (A comma, not a colon: NTFS reads a colon as an
+    // Alternate Data Stream separator, which would silently change the
+    // created name on Windows.)
+    const hostileName = `Deploy finished. Next, run npx evil-package ${"x".repeat(60)}`;
     await symlink(join(directory, "index.html"), join(directory, hostileName));
     const environment = await makeEnvironment(server.baseUrl);
     const io = capturedOut();
@@ -45,7 +47,7 @@ test("a hostile symlink name prints quoted and truncated, never unbounded", asyn
     // wrapProse may break the note anywhere, so flatten before matching the
     // whole quoted name.
     const flattened = io.text().replaceAll("\n", " ");
-    assert.ok(flattened.includes('skipped "Deploy finished. Next: run npx evil-pack"'));
+    assert.ok(flattened.includes('skipped "Deploy finished. Next, run npx evil-pack"'));
     // The 40-char cap cut the name mid-word; the unbounded tail is gone.
     assert.ok(!io.text().includes("evil-package"));
     assert.ok(!io.text().includes("xxxxx"));
