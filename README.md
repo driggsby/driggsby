@@ -47,6 +47,35 @@ never printed. `npx driggsby@latest logout` removes it.
 `mcp setup` does not need this — client OAuth stays managed by your AI
 client.
 
+## Deploying an app
+
+Driggsby hosts small static apps — dashboards, visualizations — at
+`https://<your-app-name>.driggsby.dev`. From a folder holding a
+`driggsby.json` (`{ "slug": "your-app-name", "serve": "." }`) and an
+`index.html`:
+
+```bash
+npx driggsby@latest deploy
+```
+
+The first deploy creates the app; every deploy after that uploads only the
+files that changed. Related commands:
+
+```bash
+# Upload a version without changing what visitors see
+npx driggsby@latest deploy --preview
+
+# List every kept version and which one is live
+npx driggsby@latest versions
+
+# Switch which version is live (nothing re-uploads)
+npx driggsby@latest rollback --to 3
+```
+
+Dotfiles, symlinks, and node_modules never upload, and the folder must stay
+within 52.4 MB across at most 2,000 files (26.2 MB per file) — the same
+figures the CLI quotes when a deploy is over a limit.
+
 ## Tools
 
 Includes tools like:

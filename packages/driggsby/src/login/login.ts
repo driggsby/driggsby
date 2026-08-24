@@ -88,7 +88,7 @@ export async function runLogin(
     return;
   }
   io.out(
-    "\nNext:\n  You're all set — driggsby commands that need your account will use this\n  saved token automatically.\n",
+    "\nNext:\n  You're all set — driggsby commands will use this saved token\n  automatically. Deploy an app with npx driggsby@latest deploy.\n",
   );
 }
 

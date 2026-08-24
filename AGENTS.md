@@ -1,8 +1,11 @@
 # AGENTS.md
 
-This repository contains the public, open-source Driggsby CLI: a pure
-TypeScript npm package (`driggsby`) that sets up supported AI clients to
-connect to the remote Driggsby MCP endpoint.
+This repository contains the public, open-source Driggsby CLI: pure
+TypeScript npm packages that set up supported AI clients to connect to the
+remote Driggsby MCP endpoint and deploy static apps to Driggsby's app
+hosting. `driggsby` is the CLI; `@driggsby/deploy` is the deploy protocol
+library it depends on, which also ships a minimal standalone
+`driggsby-deploy` bin for sandboxed agents.
 
 Driggsby is a personal financial MCP server that provides secure access to users'
 financial data (such as balances, transactions, and investments) to their AI client
@@ -10,15 +13,22 @@ or agent of choice. As such, security is non-negotiable and is your top priority
 
 ## Project Scope
 
-- This repo owns the `driggsby` npm package and its publishing workflow. It is
-  an npm-workspaces monorepo under `packages/`.
+- This repo owns the `driggsby` and `@driggsby/deploy` npm packages and their
+  publishing workflow. It is an npm-workspaces monorepo under `packages/`.
+  The two packages version in lockstep and publish together;
+  `@driggsby/deploy` publishes first because `driggsby` depends on it.
 - The CLI is pure TypeScript compiled to JavaScript. It installs from the npm
   registry alone: no platform binaries, no postinstall scripts, no binary
   downloads. It must keep working in sandboxes whose network egress is limited
   to the npm registry, and in WebContainer-style environments that cannot run
   native binaries.
-- The published package must have **zero runtime dependencies**. Development
+- The published packages must have **zero third-party runtime dependencies**.
+  The single allowed runtime dependency is `driggsby`'s exact-pinned,
+  lockstep-versioned dependency on our own `@driggsby/deploy`;
+  `@driggsby/deploy` itself has zero dependencies of any kind. Development
   tooling (typescript, eslint, the test runner) stays in devDependencies.
+  `scripts/release/check-npm-publish-surface.ts` enforces this contract
+  against the packed tarballs.
 - Main install path:
   - `npx driggsby@latest mcp setup`
   - `npx driggsby@latest mcp setup claude-code`
@@ -40,10 +50,13 @@ https://app.driggsby.com/mcp
 - Assume every committed file is public and may be shared broadly. Take utmost
   care before publishing operational, security, infrastructure, release, or
   credential-adjacent details.
-- The root `README.md` and `packages/driggsby/README.md` are public
-  launch-facing docs. Keep them user-facing and concise; do not include
-  internal release runbooks, environment variable names, or other
-  maintainer-only operational notes.
+- The root `README.md`, `packages/driggsby/README.md`, and
+  `packages/deploy/README.md` are public launch-facing docs. Keep them
+  user-facing and concise; do not include internal release runbooks,
+  maintainer-only operational notes, or environment variable names — except
+  `DRIGGSBY_TOKEN`, which `packages/deploy/README.md` must document because
+  it is the standalone bin's only way to authenticate. `DRIGGSBY_BASE_URL`
+  stays out of all public docs.
 
 ## Security
 
@@ -132,17 +145,19 @@ When implementing a feature, fix, or release change:
      lines. The 500-line source gate is enforced by
      `scripts/check_source_line_lengths.sh`.
    - For release behavior, inspect `.github/workflows/release.yml`,
-     `.github/workflows/pr-security.yml`, `packages/driggsby/package.json`, and
-     `scripts/release/*`.
+     `.github/workflows/pr-security.yml`, `packages/driggsby/package.json`,
+     `packages/deploy/package.json`, and `scripts/release/*`.
 
 3. Implement carefully.
    - Keep TypeScript strict and boring: explicit types, straightforward control
      flow, no cleverness.
    - Preserve public CLI/MCP output quality; changed output means updated
      fixtures with a reviewed reason.
-   - Avoid new dependencies. The published packages must keep zero runtime
-     dependencies; adding a devDependency needs clear justification and a
-     current-version check.
+   - Avoid new dependencies. The published packages must keep zero
+     third-party runtime dependencies (the only runtime dependency is
+     `driggsby`'s exact-pinned `@driggsby/deploy`, per Project Scope);
+     adding a devDependency needs clear justification and a current-version
+     check.
    - Keep behavior identical across macOS, Linux, and Windows: use `node:path`
      for paths, never shell out to POSIX-only tools, and never assume POSIX
      file permissions on Windows.
@@ -252,8 +267,12 @@ driggsby-vX.Y.Z
 
 Before creating a release tag:
 
-1. Update the version in `packages/driggsby/package.json` and the workspace
-   root `package.json`, and refresh `package-lock.json` (`npm install`).
+1. Update the version in `packages/driggsby/package.json`,
+   `packages/deploy/package.json`, and the workspace root `package.json`;
+   update `packages/driggsby/package.json`'s exact-pinned
+   `dependencies["@driggsby/deploy"]` to the same version (the packages
+   version in lockstep and the publish-surface check fails on any mismatch);
+   then refresh `package-lock.json` (`npm install`).
 2. Run `just verify` and `just check-npm-package`.
 3. Merge the PR to `main`.
 4. Sync local `main` with `origin/main`.
@@ -267,12 +286,16 @@ git push origin driggsby-vX.Y.Z
 The release workflow rejects tags that are not on current `origin/main`, and
 rejects tags whose version does not match the package version. It then
 verifies on all three OSes, validates the packed npm package surface, and
-publishes `driggsby` with `--provenance` through the `npm-publish`
-environment.
+publishes `@driggsby/deploy` followed by `driggsby` with `--provenance`
+through the `npm-publish` environment, skipping any package whose exact
+version is already on the registry so a partially-failed release can be
+re-run.
 
-The npm trusted publisher must match the public repository, release workflow file,
-and `npm-publish` environment. If npm publish fails, inspect trusted publishing and
-environment protection before changing package code.
+The npm trusted publisher must match the public repository, release workflow
+file, and `npm-publish` environment, and is configured per package on
+npmjs.com — a brand-new package needs its trusted publisher set up there
+before its first tagged release can publish. If npm publish fails, inspect
+trusted publishing and environment protection before changing package code.
 
 If a release fails after a tag push:
 

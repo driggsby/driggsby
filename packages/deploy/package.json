@@ -1,0 +1,37 @@
+{
+  "name": "@driggsby/deploy",
+  "version": "0.2.0",
+  "description": "Deploy static Driggsby apps: the deploy protocol client used by the driggsby CLI.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/driggsby/driggsby.git"
+  },
+  "homepage": "https://driggsby.com",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "driggsby-deploy": "bin/driggsby-deploy.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "!dist/.tsbuildinfo",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

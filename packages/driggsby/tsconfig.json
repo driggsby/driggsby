@@ -2,7 +2,15 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "src"
+    // No rootDir here: the paths mapping below pulls @driggsby/deploy source
+    // into this program, and rootDir would (needlessly, since nothing emits)
+    // refuse files outside src/.
+    // Typecheck and lint resolve the workspace dependency straight to its
+    // source, so `npm run check` never needs a prior build. The build config
+    // resolves it normally, to the built @driggsby/deploy package.
+    "paths": {
+      "@driggsby/deploy": ["../deploy/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

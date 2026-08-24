@@ -36,6 +36,23 @@ stored in your platform keychain when one is available, otherwise in
 `~/.driggsby/credentials.json`, and is never printed.
 `npx driggsby@latest logout` removes it.
 
+## Deploying an app
+
+Driggsby hosts small static apps — dashboards, visualizations — at
+`https://<your-app-name>.driggsby.dev`. From a folder holding a
+`driggsby.json` (`{ "slug": "your-app-name", "serve": "." }`) and an
+`index.html`:
+
+```bash
+npx driggsby@latest deploy
+```
+
+The first deploy creates the app; every deploy after that uploads only the
+files that changed. Deploy with `--preview` to upload a version without
+changing what visitors see, `npx driggsby@latest versions` to list every
+kept version, and `npx driggsby@latest rollback` to switch which one is
+live — switching re-uploads nothing.
+
 The CLI is pure TypeScript and installs from the npm registry alone — no
 binary downloads, no install scripts — and runs on macOS, Linux, and Windows
 with Node.js 18 or newer.

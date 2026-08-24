@@ -19,12 +19,15 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p ../deploy/tsconfig.build.json && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "npm run build",
     "test": "node --test \"src/**/*.test.ts\""
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@driggsby/deploy": "0.2.0"
   }
 }

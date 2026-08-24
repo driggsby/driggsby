@@ -11,7 +11,10 @@ export type ParsedCommand =
   | { kind: "print-version" }
   | { kind: "mcp-setup"; client: string | undefined; print: boolean; scope: McpScope | undefined }
   | { kind: "login" }
-  | { kind: "logout" };
+  | { kind: "logout" }
+  | { kind: "deploy"; preview: boolean }
+  | { kind: "rollback"; toVersion: number | null }
+  | { kind: "versions" };
 
 // "--print=true" / "--help=x" / "--version=x": these flags take no value.
 export function unexpectedFlagValue(flag: string, rawValue: string, usage: string): CliError {
@@ -24,6 +27,8 @@ export function unexpectedFlagValue(flag: string, rawValue: string, usage: strin
 
 export function unexpectedArgument(argument: string, usage: string, tipLine?: string): CliError {
   const shown = sanitizeForTerminal(argument);
+  // The whole tip line is sanitized here, in one place — its dynamic parts
+  // carry user argv, and the sanitizer leaves the line's own spacing alone.
   const tip = tipLine === undefined ? "" : `${sanitizeForTerminal(tipLine)}\n\n`;
   return new CliError(
     `error: unexpected argument '${shown}' found\n\n${tip}${sanitizeForTerminal(usage)}\n\nFor more information, try '--help'.`,

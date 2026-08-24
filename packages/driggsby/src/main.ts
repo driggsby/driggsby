@@ -2,6 +2,9 @@
 // never imported as a library.
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
+import { runDeploy } from "./deploy/deploy-command.ts";
+import { runRollback } from "./deploy/rollback-command.ts";
+import { runVersions } from "./deploy/versions-command.ts";
 import { runLogin } from "./login/login.ts";
 import { runLogout } from "./login/logout.ts";
 import { runMcpSetup } from "./mcp-setup/setup.ts";
@@ -26,6 +29,12 @@ async function run(argv: string[]): Promise<number> {
       return 0;
     case "logout":
       return await runLogout();
+    case "deploy":
+      return await runDeploy({ preview: command.preview });
+    case "rollback":
+      return await runRollback({ toVersion: command.toVersion });
+    case "versions":
+      return await runVersions({});
   }
 }
 
