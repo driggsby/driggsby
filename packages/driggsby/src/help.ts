@@ -8,9 +8,12 @@
 export const ROOT_HELP = `Usage: npx driggsby@latest <COMMAND>
 
 Commands:
-  mcp     Set up Driggsby MCP clients.
-  login   Sign in to Driggsby and save an app token on this machine.
-  logout  Remove the saved Driggsby app token.
+  mcp       Set up Driggsby MCP clients.
+  login     Sign in to Driggsby and save an app token on this machine.
+  logout    Remove the saved Driggsby app token.
+  deploy    Deploy the app in this directory to Driggsby.
+  rollback  Switch which deployed version of your app is live.
+  versions  List your deployed app's versions.
 
 Options:
   -h, --help     Print help
@@ -22,6 +25,7 @@ Examples:
   npx driggsby@latest mcp setup codex
   npx driggsby@latest mcp setup other
   npx driggsby@latest login
+  npx driggsby@latest deploy
 `;
 
 export const LOGIN_HELP = `Sign in to Driggsby and save an app token on this machine.
@@ -44,6 +48,47 @@ machine. It does not sign you out of Driggsby in your browser or in your AI
 clients.
 
 Usage: npx driggsby@latest logout
+
+Options:
+  -h, --help  Print help
+`;
+
+export const DEPLOY_HELP = `Deploy the app in this directory to Driggsby.
+
+This reads driggsby.json next to your app files, uploads only what changed,
+and makes the new version live at your app's driggsby.dev address. With
+--preview, the version is uploaded and kept ready without changing what's
+live.
+
+Sign in first with npx driggsby@latest login.
+
+Usage: npx driggsby@latest deploy [--preview]
+
+Options:
+      --preview  Upload this version without making it live.
+  -h, --help     Print help
+`;
+
+export const ROLLBACK_HELP = `Switch which deployed version of your app is live.
+
+Driggsby keeps your app's recent versions, so going live with any of them —
+older or newer — re-uploads nothing. Without --to, this lists the versions
+you can choose from and asks for one.
+
+Usage: npx driggsby@latest rollback [--to <VERSION>]
+
+Options:
+      --to <VERSION>  The version number to make live, as shown by
+                      npx driggsby@latest versions.
+  -h, --help          Print help
+`;
+
+export const VERSIONS_HELP = `List your deployed app's versions.
+
+Shows every version Driggsby has kept for the app in this directory, which
+one is live, and the version numbers npx driggsby@latest rollback accepts.
+
+Usage: npx driggsby@latest versions
 
 Options:
   -h, --help  Print help
