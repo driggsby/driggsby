@@ -5,6 +5,7 @@
 // "--" end-of-options, and short-flag cluster dispatch. Newer commands
 // (login, logout) keep the same behavior and exit codes without chasing
 // clap's byte-level quirks.
+import { parseDeploy, parseRollback, parseVersions } from "./args-deploy.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import {
   type ParsedCommand,
@@ -42,12 +43,15 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout"],
+  subcommands: ["mcp", "login", "logout", "deploy", "rollback", "versions"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
     { name: "login", longFlags: ["help"] },
     { name: "logout", longFlags: ["help"] },
+    { name: "deploy", longFlags: ["preview", "help"] },
+    { name: "rollback", longFlags: ["to", "help"] },
+    { name: "versions", longFlags: ["help"] },
   ],
   usagePrefix: "npx driggsby@latest",
   hasVersion: true,
@@ -111,6 +115,12 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseBareCommand({ kind: "login" }, LOGIN_HELP, "Usage: npx driggsby@latest login", rest);
     case "logout":
       return parseBareCommand({ kind: "logout" }, LOGOUT_HELP, "Usage: npx driggsby@latest logout", rest);
+    case "deploy":
+      return parseDeploy(rest);
+    case "rollback":
+      return parseRollback(rest);
+    case "versions":
+      return parseVersions(rest);
     case "setup":
       return parseMcpSetup(rest);
     default:

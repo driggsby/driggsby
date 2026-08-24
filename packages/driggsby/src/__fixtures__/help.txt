@@ -1,9 +1,12 @@
 Usage: npx driggsby@latest <COMMAND>
 
 Commands:
-  mcp     Set up Driggsby MCP clients.
-  login   Sign in to Driggsby and save an app token on this machine.
-  logout  Remove the saved Driggsby app token.
+  mcp       Set up Driggsby MCP clients.
+  login     Sign in to Driggsby and save an app token on this machine.
+  logout    Remove the saved Driggsby app token.
+  deploy    Deploy the app in this directory to Driggsby.
+  rollback  Switch which deployed version of your app is live.
+  versions  List your deployed app's versions.
 
 Options:
   -h, --help     Print help
@@ -15,3 +18,4 @@ Examples:
   npx driggsby@latest mcp setup codex
   npx driggsby@latest mcp setup other
   npx driggsby@latest login
+  npx driggsby@latest deploy

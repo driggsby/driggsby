@@ -16,6 +16,8 @@ const CONNECTION_FAILURE_CODES = new Set([
   "ENETUNREACH",
   "EPIPE",
   "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
   "UND_ERR_SOCKET",
 ]);
 
@@ -51,6 +53,12 @@ function hasConnectionFailure(error: unknown, depth: number): boolean {
   }
   const code = (error as { code?: unknown }).code;
   if (typeof code === "string" && CONNECTION_FAILURE_CODES.has(code)) {
+    return true;
+  }
+  // An AbortSignal.timeout fires as a DOMException named TimeoutError: the
+  // stalled-but-connected shape (an egress proxy that accepts and never
+  // replies) that the errno codes above don't cover.
+  if ((error as { name?: unknown }).name === "TimeoutError") {
     return true;
   }
   if (error instanceof AggregateError && error.errors.some((inner) => hasConnectionFailure(inner, depth + 1))) {

@@ -79,6 +79,40 @@ jobs:
           node packages/driggsby/bin/driggsby.js mcp setup claude-code --print
           node packages/driggsby/bin/driggsby.js mcp setup other
 
+      # The standalone deploy bin with no token must load cleanly on Node 18
+      # and refuse with the message naming DRIGGSBY_TOKEN (exit 1 by design).
+      # env -i pins the bin to an empty environment (PATH only), matching the
+      # publish-surface check: an ambient DRIGGSBY_TOKEN could otherwise turn
+      # this smoke into a real authenticated request.
+      - name: Smoke the built deploy bin on the engines floor
+        run: |
+          if env -i PATH="$PATH" node packages/deploy/bin/driggsby-deploy.js 2> deploy-smoke-stderr.txt; then
+            echo "driggsby-deploy without a token must fail" >&2
+            exit 1
+          fi
+          grep -q DRIGGSBY_TOKEN deploy-smoke-stderr.txt
+
+      # The token check exits the bin before any real work, so this exercises
+      # the library's actual deploy work (directory walk, stream hashing) on
+      # the Node 18 floor too, against a throwaway fixture directory.
+      - name: Exercise the built deploy library on the engines floor
+        run: |
+          mkdir -p /tmp/deploy-floor-smoke/assets
+          printf '<h1>hi</h1>' > /tmp/deploy-floor-smoke/index.html
+          printf 'body {}' > /tmp/deploy-floor-smoke/assets/app.css
+          node --input-type=module -e "
+            const { collectDeployFiles } = await import('./packages/deploy/dist/manifest.js');
+            const collected = await collectDeployFiles('/tmp/deploy-floor-smoke');
+            const paths = collected.files.map((file) => file.path).join(',');
+            if (paths !== 'assets/app.css,index.html') {
+              throw new Error('unexpected manifest: ' + paths);
+            }
+            if (!/^[0-9a-f]{64}\$/.test(collected.files[0].sha256)) {
+              throw new Error('missing sha256');
+            }
+            console.log('deploy library manifest + hashing OK on ' + process.version);
+          "
+
   npm-publish-surface:
     name: npm publish surface
     runs-on: ubuntu-latest
