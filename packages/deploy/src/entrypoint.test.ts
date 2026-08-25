@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -45,6 +45,43 @@ test("deploys the current directory live and prints the URL", async () => {
     assert.ok(io.stdout().includes('Deployed "money-dash" (v1'));
     assert.ok(io.stdout().includes("https://money-dash.driggsby.dev"));
     assert.equal(io.stderr(), "");
+  } finally {
+    await server.close();
+  }
+});
+
+test("a first deploy creates the app, saves the assigned slug, and says to commit it", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await mkdtemp(join(tmpdir(), "driggsby-entrypoint-"));
+    await writeFile(join(directory, "driggsby.json"), '{ "slug": "money-dash" }');
+    await writeFile(join(directory, "index.html"), "<h1>hi</h1>");
+    server.injectResponse("POST", "/deploy/apps/money-dash/versions", 404, {
+      error: "app_not_found",
+      error_description: "missing",
+    });
+    const io = capturedIo(directory, {
+      DRIGGSBY_TOKEN: "dgb_at_test_token_3333",
+      DRIGGSBY_BASE_URL: server.baseUrl,
+    });
+    const exitCode = await runDeployEntrypoint(io);
+    assert.equal(exitCode, 0);
+    const assignedMatch = /"(money-dash-[a-z0-9]{6})"/.exec(io.stdout());
+    assert.ok(assignedMatch !== null, "the created line must name the assigned slug");
+    const assigned = assignedMatch[1] ?? "";
+    assert.ok(io.stdout().includes("Created your app as"));
+    // This bin targets ephemeral sandboxes, where a discarded driggsby.json
+    // means a new app on every run — the commit reminder is the fix.
+    // wrapProse may break the phrase across lines, so match unwrapped text.
+    assert.ok(io.stdout().replace(/\n/g, " ").includes("Commit that updated driggsby.json"));
+    assert.ok(io.stdout().includes(`Deployed "${assigned}" (v1`));
+    for (const line of io.stdout().split("\n")) {
+      assert.ok(line.length <= 80, `line exceeds 80 columns: ${line}`);
+    }
+    const rewritten = JSON.parse(
+      await readFile(join(directory, "driggsby.json"), "utf8"),
+    ) as { slug?: unknown };
+    assert.equal(rewritten.slug, assigned);
   } finally {
     await server.close();
   }

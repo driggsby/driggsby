@@ -12,19 +12,11 @@ export const PATH_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 // App slugs: 3-63 chars, lowercase letters/digits/dashes, no leading or
 // trailing dash, and no "xn--"-style label (dashes in positions 3 and 4).
+// There is no reserved-name list to mirror: Driggsby assigns every app's
+// final address by adding a unique ending to the name you pick, so any
+// readable name works and names never collide.
 export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 export const SLUG_PUNYCODE_PATTERN = /^..--/;
-
-// Slugs the server refuses because they collide with Driggsby's own hosts
-// and reserved names. Kept in sync with the deploy API.
-export const RESERVED_SLUGS: readonly string[] = [
-  "www", "app", "api", "mcp", "mail", "email", "smtp", "admin", "operator",
-  "console", "dashboard", "dashboards", "deploy", "deploys", "blog", "docs",
-  "help", "support", "status", "assets", "static", "cdn", "dev", "test",
-  "staging", "demo", "driggsby", "plaid", "auth", "login", "signin", "signup",
-  "connect", "settings", "billing", "security", "abuse", "postmaster",
-  "webmaster", "root",
-];
 
 // Returns a human-readable problem with the slug, or null when it is valid.
 export function slugProblem(slug: string): string | null {
@@ -36,9 +28,6 @@ export function slugProblem(slug: string): string | null {
   }
   if (SLUG_PUNYCODE_PATTERN.test(slug)) {
     return "an app slug can't have dashes in its third and fourth characters";
-  }
-  if (RESERVED_SLUGS.includes(slug)) {
-    return "that slug is reserved by Driggsby — pick another name";
   }
   return null;
 }

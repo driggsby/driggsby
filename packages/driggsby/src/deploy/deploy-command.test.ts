@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -19,6 +19,38 @@ import {
 
 // A fixed clock: the upload duration is deterministic ("under a second").
 const FIXED_NOW = { now: () => 0 };
+
+test("a first deploy creates the app and reports the assigned name saved in driggsby.json", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await makeProject("money-dash");
+    server.injectResponse("POST", "/deploy/apps/money-dash/versions", 404, {
+      error: "app_not_found",
+      error_description: "We couldn't find an app with that slug under this account.",
+    });
+    const environment = await makeEnvironment(server.baseUrl);
+    const io = capturedOut();
+
+    const exitCode = await runDeploy(
+      { preview: false, projectDirectory: directory },
+      environment,
+      { out: io.out, ...FIXED_NOW },
+    );
+
+    assert.equal(exitCode, 0);
+    const text = io.text();
+    assert.match(text, /✓ Created {3}"money-dash-[a-z0-9]{6}"/);
+    assert.ok(text.includes("saved in driggsby.json"));
+    assert.match(text, /https:\/\/money-dash-[a-z0-9]{6}\.driggsby\.dev/);
+    assertFitsTerminal(text);
+
+    const raw = await readFile(join(directory, "driggsby.json"), "utf8");
+    const config = JSON.parse(raw) as { slug: string };
+    assert.match(config.slug, /^money-dash-[a-z0-9]{6}$/);
+  } finally {
+    await server.close();
+  }
+});
 
 test("a hostile symlink name prints quoted and truncated, never unbounded", async () => {
   const server = await startFakeDeployServer();
@@ -153,7 +185,6 @@ test("first live deploy walks through every step and prints the URL", async () =
     assert.ok(text.includes("under a second"));
     assert.ok(text.includes("✓ Live      v1, at:"));
     assert.ok(text.includes("https://money-dash.driggsby.dev"));
-    assert.ok(text.includes("money-dash didn't exist on Driggsby before"));
     assert.ok(text.includes("Next:"));
     assert.ok(text.includes("npx driggsby@latest rollback"));
     assertFitsTerminal(text);
@@ -185,7 +216,6 @@ test("a redeploy with nothing changed uploads nothing and still goes live", asyn
     assert.ok(text.includes("✓ Compared  no file changed since the last deploy"));
     assert.ok(text.includes("✓ Uploaded  nothing — Driggsby already had every file"));
     assert.ok(text.includes("✓ Live      v2, at:"));
-    assert.ok(!text.includes("didn't exist on Driggsby before"));
     assertFitsTerminal(text);
     assert.equal(server.liveVersionNumber("money-dash"), 2);
   } finally {

@@ -12,6 +12,8 @@ export type ParsedCommand =
   | { kind: "mcp-setup"; client: string | undefined; print: boolean; scope: McpScope | undefined }
   | { kind: "login" }
   | { kind: "logout" }
+  | { kind: "init"; slug: string | null }
+  | { kind: "dev" }
   | { kind: "deploy"; preview: boolean }
   | { kind: "rollback"; toVersion: number | null }
   | { kind: "versions" };

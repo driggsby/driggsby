@@ -11,10 +11,9 @@ export {
   MAX_FILE_COUNT,
   MAX_PATH_LENGTH,
   MAX_TOTAL_BYTES,
-  RESERVED_SLUGS,
   slugProblem,
 } from "./limits.ts";
-export { type ProjectConfig, readProjectConfig } from "./project-config.ts";
+export { type ProjectConfig, readProjectConfig, writeAssignedSlug } from "./project-config.ts";
 export {
   type CollectedDeploy,
   type DeployFile,
@@ -23,19 +22,28 @@ export {
 } from "./manifest.ts";
 export {
   type BlobsMissing,
+  type CreatedApp,
   type CreatedVersion,
   type DeployApi,
   type FinalizedVersion,
   type ManifestFile,
   type VersionList,
   type VersionSummary,
+  createApp,
   createVersion,
   finalizeVersion,
   listVersions,
   setLiveVersion,
   uploadBlob,
 } from "./client.ts";
-export { type DeployOptions, type DeployOutcome, deployCollectedFiles } from "./deploy.ts";
+export {
+  type DeployOptions,
+  type DeployOutcome,
+  type ProjectDeployOptions,
+  type ProjectDeployResult,
+  deployCollectedFiles,
+  deployProjectFiles,
+} from "./deploy.ts";
 // Terminal-safety helpers for anything that echoes untrusted text (file
 // names, server strings) into CLI output. See terminal-text.ts for what the
 // sanitizer strips and the deliberate boundary of that defense.

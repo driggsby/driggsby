@@ -1,0 +1,34 @@
+{
+  "name": "@driggsby/sdk",
+  "version": "0.2.0",
+  "description": "The browser SDK for Driggsby apps: live financial data through driggsby.watch().",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/driggsby/driggsby.git"
+  },
+  "homepage": "https://driggsby.com",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./driggsby-sdk.js": "./dist/driggsby-sdk.js"
+  },
+  "files": [
+    "dist",
+    "!dist/.tsbuildinfo",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && esbuild src/entrypoint.ts --bundle --format=esm --target=es2022 --outfile=dist/driggsby-sdk.js --log-level=warning",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

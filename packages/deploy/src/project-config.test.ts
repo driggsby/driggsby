@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import { DeployError } from "./errors.ts";
-import { readProjectConfig } from "./project-config.ts";
+import { readProjectConfig, writeAssignedSlug } from "./project-config.ts";
 
 async function projectDirectory(driggsbyJson?: string): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "driggsby-deploy-config-"));
@@ -68,11 +68,29 @@ test("a bad slug is refused locally with the slug rules", async () => {
   });
 });
 
-test("a reserved slug is refused locally", async () => {
-  const directory = await projectDirectory('{ "slug": "dashboard" }');
-  await assert.rejects(readProjectConfig(directory), (error: unknown) => {
+test("writeAssignedSlug rewrites only the slug, keeping every other field", async () => {
+  const directory = await projectDirectory(
+    '{ "slug": "money-dash", "serve": "site", "dev_command": "npm run dev" }',
+  );
+  await writeAssignedSlug(directory, "money-dash-x7k2qf");
+
+  const raw = await readFile(join(directory, "driggsby.json"), "utf8");
+  assert.ok(raw.endsWith("\n"));
+  assert.deepEqual(JSON.parse(raw), {
+    slug: "money-dash-x7k2qf",
+    serve: "site",
+    dev_command: "npm run dev",
+  });
+  const config = await readProjectConfig(directory);
+  assert.equal(config.slug, "money-dash-x7k2qf");
+});
+
+test("writeAssignedSlug on an unreadable config fails with the manual fix", async () => {
+  const directory = await projectDirectory("{ not json");
+  await assert.rejects(writeAssignedSlug(directory, "money-dash-x7k2qf"), (error: unknown) => {
     assert.ok(error instanceof DeployError);
-    assert.ok(error.message.includes("reserved"));
+    assert.ok(error.message.includes("money-dash-x7k2qf"));
+    assert.ok(error.message.includes('"slug"'));
     return true;
   });
 });

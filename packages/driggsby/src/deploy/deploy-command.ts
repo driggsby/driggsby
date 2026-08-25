@@ -3,8 +3,8 @@
 // ready-but-not-live version with --preview).
 import {
   collectDeployFiles,
-  deployCollectedFiles,
   type DeployOutcome,
+  deployProjectFiles,
   formatBytes,
   readProjectConfig,
 } from "@driggsby/deploy";
@@ -70,11 +70,21 @@ export async function runDeploy(
     io.out(`${hashedLine(collected.files.length)}\n`);
 
     const startedAt = io.now();
-    const outcome = await deployCollectedFiles(
+    const { outcome, createdApp } = await deployProjectFiles(
       { baseUrl: session.baseUrl, token: session.token },
+      projectDirectory,
       config.slug,
       collected,
-      { live: !options.preview },
+      {
+        live: !options.preview,
+        // The assigned slug is server text, so it prints quoted and
+        // length-bounded like every other string this CLI did not author.
+        // A validated slug tops out at 63 characters, so the line never
+        // passes 80 columns; the closing note explains where it is saved.
+        onAppCreated: (created) => {
+          io.out(`✓ Created   ${quotedForTerminal(created.appSlug, MAX_SERVER_TEXT_CHARS)}\n`);
+        },
+      },
     );
     const seconds = (io.now() - startedAt) / 1_000;
     io.out(`${changedNote(outcome)}\n`);
@@ -91,9 +101,9 @@ export async function runDeploy(
     if (collected.skippedSymlinks.length > 0) {
       io.out(`\n${symlinkNote(collected.skippedSymlinks)}\n`);
     }
-    if (outcome.versionNumber === 1) {
+    if (createdApp !== null) {
       io.out(
-        `\n${wrapProse(`${config.slug} didn't exist on Driggsby before — this deploy created it.`)}\n`,
+        `\n${wrapProse(`This deploy created your app. Its address is assigned by Driggsby — the name you picked plus a unique ending — and it's saved in driggsby.json, so every later deploy targets it. If this project lives in git, commit the updated driggsby.json: it's the only record of your app's address, and a fresh checkout without it would create a second app.`)}\n`,
       );
     }
     io.out(`\n${nextSection(outcome)}`);

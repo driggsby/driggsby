@@ -3,6 +3,7 @@
 // so redirects are always refused — the token goes to the configured API
 // origin and nowhere else.
 import { DeployApiError, DeployError } from "./errors.ts";
+import { slugProblem } from "./limits.ts";
 
 export interface DeployApi {
   baseUrl: string;
@@ -70,6 +71,43 @@ const UNEXPECTED_RESPONSE_MESSAGE =
   "The Driggsby deploy API sent a response we didn't recognize. Please try\n" +
   "again in a minute.";
 
+export interface CreatedApp {
+  appSlug: string;
+  url: string;
+}
+
+// Creates the app itself. The server assigns the final slug — the readable
+// base name passed here plus a unique ending — and every later deploy
+// targets that assigned slug, so callers must persist it (in driggsby.json)
+// before uploading anything. The request field is base_name, not slug: the
+// two are different values on the two sides of this round trip, and the API
+// keeps them visibly distinct.
+export async function createApp(
+  api: DeployApi,
+  baseName: string,
+  appName?: string,
+): Promise<CreatedApp> {
+  const body: Record<string, unknown> = { base_name: baseName };
+  if (appName !== undefined) {
+    body.app_name = appName;
+  }
+  const parsed = await requestJson(api, "POST", "/deploy/apps", {
+    json: body,
+    expectedStatus: 201,
+  });
+  const appSlug = stringField(parsed, "app_slug");
+  // The assigned slug gets written into driggsby.json and reused as a URL
+  // path segment, so it is shape-validated like every other server field —
+  // a malformed answer must fail here, never land on disk.
+  if (slugProblem(appSlug) !== null) {
+    throw new DeployError(UNEXPECTED_RESPONSE_MESSAGE);
+  }
+  return { appSlug, url: stringField(parsed, "url") };
+}
+
+// app_name here is NOT a leftover of the old create-by-deploy flow: the
+// server intentionally keeps rename-on-redeploy, applying a sent app_name
+// to the existing app once the deploy is accepted.
 export async function createVersion(
   api: DeployApi,
   slug: string,

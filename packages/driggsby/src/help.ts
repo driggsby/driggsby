@@ -11,6 +11,8 @@ Commands:
   mcp       Set up Driggsby MCP clients.
   login     Sign in to Driggsby and save an app token on this machine.
   logout    Remove the saved Driggsby app token.
+  init      Create a new Driggsby app in a new folder.
+  dev       Preview the app in this directory with your live Driggsby data.
   deploy    Deploy the app in this directory to Driggsby.
   rollback  Switch which deployed version of your app is live.
   versions  List your deployed app's versions.
@@ -25,7 +27,28 @@ Examples:
   npx driggsby@latest mcp setup codex
   npx driggsby@latest mcp setup other
   npx driggsby@latest login
+  npx driggsby@latest init money-dash
+  npx driggsby@latest dev
   npx driggsby@latest deploy
+`;
+
+export const INIT_HELP = `Create a new Driggsby app in a new folder.
+
+This makes a small static app — index.html, app.js, styles.css — plus the
+driggsby.json that names it. The app shows sample data on its own, and your
+real Driggsby data when it runs inside Driggsby.
+
+Usage: npx driggsby@latest init [NAME]
+
+Arguments:
+  [NAME]  The app's name: 3-63 lowercase letters, digits, and dashes.
+          Any readable name works — the first deploy assigns the app's
+          address by adding a unique ending, like
+          your-name-x7k2qf.driggsby.dev — so names never collide.
+          Asked for when omitted.
+
+Options:
+  -h, --help  Print help
 `;
 
 export const LOGIN_HELP = `Sign in to Driggsby and save an app token on this machine.
@@ -53,12 +76,31 @@ Options:
   -h, --help  Print help
 `;
 
+export const DEV_HELP = `Preview the app in this directory with your live Driggsby data.
+
+This runs the app locally, embedded the same way Driggsby embeds it after a
+deploy, so what you see here is what a deploy will show. Edits to the app's
+files reload the page on save.
+
+While dev runs, the preview serves your financial data to this machine —
+other websites can't reach it, but anything running locally can, so stop
+it when you're done.
+
+Sign in first with npx driggsby@latest login.
+
+Usage: npx driggsby@latest dev
+
+Options:
+  -h, --help  Print help
+`;
+
 export const DEPLOY_HELP = `Deploy the app in this directory to Driggsby.
 
 This reads driggsby.json next to your app files, uploads only what changed,
-and makes the new version live at your app's driggsby.dev address. With
---preview, the version is uploaded and kept ready without changing what's
-live.
+and makes the new version live at your app's driggsby.dev address. The
+first deploy creates the app: Driggsby assigns its address (your name plus
+a unique ending) and saves it back into driggsby.json. With --preview, the
+version is uploaded and kept ready without changing what's live.
 
 Sign in first with npx driggsby@latest login.
 

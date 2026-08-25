@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import {
+  createApp,
+  type CreatedApp,
   createVersion,
   type DeployApi,
   finalizeVersion,
@@ -13,6 +15,7 @@ import {
 } from "./client.ts";
 import { DeployApiError, DeployError } from "./errors.ts";
 import { type CollectedDeploy, type DeployFile } from "./manifest.ts";
+import { writeAssignedSlug } from "./project-config.ts";
 import { quotedForTerminal } from "./terminal-text.ts";
 
 const UPLOAD_CONCURRENCY = 4;
@@ -33,6 +36,48 @@ export interface DeployOutcome {
   uploadedBytes: number;
   // Files whose content was already on Driggsby from an earlier deploy.
   unchangedFileCount: number;
+}
+
+export interface ProjectDeployOptions extends DeployOptions {
+  // Called right after the app is created and its assigned slug is saved
+  // into driggsby.json, before any bytes upload — the caller's chance to
+  // tell the user their app's real address.
+  onAppCreated?: (created: CreatedApp) => void;
+}
+
+export interface ProjectDeployResult {
+  outcome: DeployOutcome;
+  // The app the server created for this deploy, or null when the slug in
+  // driggsby.json already named an existing app.
+  createdApp: CreatedApp | null;
+}
+
+// Deploys a project whose driggsby.json slug may not be an app yet. Apps
+// are created explicitly with a server-assigned slug (the readable name
+// plus a unique ending), so when the version post answers app_not_found,
+// this creates the app, persists the assigned slug into driggsby.json
+// BEFORE uploading anything (a deploy that dies mid-upload must never
+// strand an app the project forgot), and deploys to the assigned slug.
+export async function deployProjectFiles(
+  api: DeployApi,
+  projectDirectory: string,
+  slug: string,
+  collected: CollectedDeploy,
+  options: ProjectDeployOptions,
+): Promise<ProjectDeployResult> {
+  try {
+    const outcome = await deployCollectedFiles(api, slug, collected, options);
+    return { outcome, createdApp: null };
+  } catch (error) {
+    if (!(error instanceof DeployApiError) || error.code !== "app_not_found") {
+      throw error;
+    }
+  }
+  const created = await createApp(api, slug, options.appName);
+  await writeAssignedSlug(projectDirectory, created.appSlug);
+  options.onAppCreated?.(created);
+  const outcome = await deployCollectedFiles(api, created.appSlug, collected, options);
+  return { outcome, createdApp: created };
 }
 
 export async function deployCollectedFiles(

@@ -6,7 +6,7 @@
 import { readFile } from "node:fs/promises";
 
 import { resolveBaseUrl } from "./base-url.ts";
-import { deployCollectedFiles } from "./deploy.ts";
+import { deployProjectFiles } from "./deploy.ts";
 import { DeployApiError, DeployError } from "./errors.ts";
 import { collectDeployFiles, formatBytes } from "./manifest.ts";
 import { readProjectConfig } from "./project-config.ts";
@@ -72,9 +72,26 @@ export async function runDeployEntrypoint(io: EntrypointIo): Promise<number> {
     const baseUrl = resolveBaseUrl(io.env);
     const config = await readProjectConfig(io.cwd);
     const collected = await collectDeployFiles(config.serveDirectory);
-    const outcome = await deployCollectedFiles({ baseUrl, token }, config.slug, collected, {
-      live: true,
-    });
+    const { outcome, createdApp } = await deployProjectFiles(
+      { baseUrl, token },
+      io.cwd,
+      config.slug,
+      collected,
+      { live: true },
+    );
+    if (createdApp !== null) {
+      // The assigned slug is server text, so it prints quoted and bounded
+      // like every other string this bin did not author; the whole sentence
+      // wraps because a maximum-length slug pushes it past 80 columns. The
+      // commit reminder matters most here: this bin targets ephemeral
+      // sandboxes, and a checkout that discards the rewritten driggsby.json
+      // creates a brand-new app at a new address on every run.
+      io.out(
+        `${wrapProse(
+          `Created your app as ${quotedForTerminal(createdApp.appSlug, 80)} — Driggsby assigns the final name (yours plus a unique ending) and saved it in driggsby.json. Commit that updated driggsby.json: it is the only record of your app's address, and without it the next deploy creates a second app.`,
+        )}\n`,
+      );
+    }
     const uploadedNote =
       outcome.uploadedBlobCount === 0
         ? "nothing new to upload — every file was already on Driggsby"

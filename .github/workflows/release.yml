@@ -123,19 +123,20 @@ jobs:
         shell: bash
         run: |
           node scripts/release/check-npm-publish-surface.ts "${GITHUB_REF_NAME#driggsby-v}"
-      # @driggsby/deploy publishes first: driggsby pins it at the exact
-      # lockstep version, so the dependency must exist on the registry before
-      # the CLI that requires it does. Each publish is skipped when that exact
-      # version is already on the registry, so a re-run of a release that
-      # failed between the two publishes completes instead of dying on the
-      # version conflict. Note: npm trusted publishing is configured per
-      # package on npmjs.com, so @driggsby/deploy needs its trusted publisher
-      # set up there before the first release that includes it.
+      # The libraries publish first: driggsby pins @driggsby/deploy and
+      # @driggsby/sdk at the exact lockstep version, so each dependency must
+      # exist on the registry before the CLI that requires it does. Each
+      # publish is skipped when that exact version is already on the
+      # registry, so a re-run of a release that failed between publishes
+      # completes instead of dying on the version conflict. Note: npm trusted
+      # publishing is configured per package on npmjs.com, so each package
+      # needs its trusted publisher set up there before the first release
+      # that includes it.
       - name: Publish npm packages
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#driggsby-v}"
-          for package in "@driggsby/deploy" "driggsby"; do
+          for package in "@driggsby/deploy" "@driggsby/sdk" "driggsby"; do
             if npm view "${package}@${version}" version > /dev/null 2>&1; then
               echo "${package}@${version} is already on the registry; skipping its publish."
               continue

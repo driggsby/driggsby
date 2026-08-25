@@ -2,10 +2,14 @@
 
 This repository contains the public, open-source Driggsby CLI: pure
 TypeScript npm packages that set up supported AI clients to connect to the
-remote Driggsby MCP endpoint and deploy static apps to Driggsby's app
-hosting. `driggsby` is the CLI; `@driggsby/deploy` is the deploy protocol
-library it depends on, which also ships a minimal standalone
-`driggsby-deploy` bin for sandboxed agents.
+remote Driggsby MCP endpoint, scaffold and locally preview Driggsby apps,
+and deploy static apps to Driggsby's app hosting. `driggsby` is the CLI
+(`mcp setup`, `login`/`logout`, `init`, `dev`, `deploy`, `rollback`,
+`versions`); `@driggsby/deploy` is the deploy protocol library it depends
+on, which also ships a minimal standalone `driggsby-deploy` bin for
+sandboxed agents; `@driggsby/sdk` is the in-page SDK bundle that scaffolded
+apps load (`driggsby dev` serves it locally; deployed apps get it from the
+serving host).
 
 Driggsby is a personal financial MCP server that provides secure access to users'
 financial data (such as balances, transactions, and investments) to their AI client
@@ -13,22 +17,36 @@ or agent of choice. As such, security is non-negotiable and is your top priority
 
 ## Project Scope
 
-- This repo owns the `driggsby` and `@driggsby/deploy` npm packages and their
-  publishing workflow. It is an npm-workspaces monorepo under `packages/`.
-  The two packages version in lockstep and publish together;
-  `@driggsby/deploy` publishes first because `driggsby` depends on it.
+- This repo owns the `driggsby`, `@driggsby/deploy`, and `@driggsby/sdk`
+  npm packages and their publishing workflow. It is an npm-workspaces
+  monorepo under `packages/`. The three packages version in lockstep and
+  publish together; the libraries (`@driggsby/deploy`, `@driggsby/sdk`)
+  publish first because `driggsby` depends on both.
 - The CLI is pure TypeScript compiled to JavaScript. It installs from the npm
   registry alone: no platform binaries, no postinstall scripts, no binary
   downloads. It must keep working in sandboxes whose network egress is limited
   to the npm registry, and in WebContainer-style environments that cannot run
   native binaries.
 - The published packages must have **zero third-party runtime dependencies**.
-  The single allowed runtime dependency is `driggsby`'s exact-pinned,
-  lockstep-versioned dependency on our own `@driggsby/deploy`;
-  `@driggsby/deploy` itself has zero dependencies of any kind. Development
-  tooling (typescript, eslint, the test runner) stays in devDependencies.
+  The only allowed runtime dependencies are `driggsby`'s exact-pinned,
+  lockstep-versioned dependencies on our own `@driggsby/deploy` and
+  `@driggsby/sdk`; the two libraries themselves have zero runtime
+  dependencies of any kind. Development tooling (typescript, eslint,
+  esbuild for the SDK bundle, the test runner) stays in devDependencies.
   `scripts/release/check-npm-publish-surface.ts` enforces this contract
   against the packed tarballs.
+- `packages/sdk/src/sdk-core.ts` and `packages/sdk/src/entrypoint.ts` are a
+  copy of the SDK runtime that Driggsby's production serving host delivers
+  to every deployed app; the production copy is canonical. Never change the
+  protocol behavior or security properties here alone (the host-origin
+  allowlist, the first-valid-hello origin pin, parent-window-only
+  messaging): a behavior change must ship on the Driggsby service side
+  first and be mirrored into these files verbatim, or `driggsby dev`
+  silently stops matching what a deployed app actually does. The same rule
+  covers `packages/driggsby/src/dev/tool-allowlist.ts` (a copy of the
+  read-only tool allowlist the Driggsby service enforces) and the host-page
+  protocol in `packages/driggsby/src/dev/host-page.ts`: service side first,
+  then mirror.
 - Main install path:
   - `npx driggsby@latest mcp setup`
   - `npx driggsby@latest mcp setup claude-code`
@@ -146,7 +164,8 @@ When implementing a feature, fix, or release change:
      `scripts/check_source_line_lengths.sh`.
    - For release behavior, inspect `.github/workflows/release.yml`,
      `.github/workflows/pr-security.yml`, `packages/driggsby/package.json`,
-     `packages/deploy/package.json`, and `scripts/release/*`.
+     `packages/deploy/package.json`, `packages/sdk/package.json`, and
+     `scripts/release/*`.
 
 3. Implement carefully.
    - Keep TypeScript strict and boring: explicit types, straightforward control
@@ -154,10 +173,10 @@ When implementing a feature, fix, or release change:
    - Preserve public CLI/MCP output quality; changed output means updated
      fixtures with a reviewed reason.
    - Avoid new dependencies. The published packages must keep zero
-     third-party runtime dependencies (the only runtime dependency is
-     `driggsby`'s exact-pinned `@driggsby/deploy`, per Project Scope);
-     adding a devDependency needs clear justification and a current-version
-     check.
+     third-party runtime dependencies (the only runtime dependencies are
+     `driggsby`'s exact-pinned `@driggsby/deploy` and `@driggsby/sdk`, per
+     Project Scope); adding a devDependency needs clear justification and a
+     current-version check.
    - Keep behavior identical across macOS, Linux, and Windows: use `node:path`
      for paths, never shell out to POSIX-only tools, and never assume POSIX
      file permissions on Windows.
@@ -268,11 +287,12 @@ driggsby-vX.Y.Z
 Before creating a release tag:
 
 1. Update the version in `packages/driggsby/package.json`,
-   `packages/deploy/package.json`, and the workspace root `package.json`;
-   update `packages/driggsby/package.json`'s exact-pinned
-   `dependencies["@driggsby/deploy"]` to the same version (the packages
-   version in lockstep and the publish-surface check fails on any mismatch);
-   then refresh `package-lock.json` (`npm install`).
+   `packages/deploy/package.json`, `packages/sdk/package.json`, and the
+   workspace root `package.json`; update `packages/driggsby/package.json`'s
+   exact-pinned `dependencies` on `@driggsby/deploy` and `@driggsby/sdk` to
+   the same version (the packages version in lockstep and the
+   publish-surface check fails on any mismatch); then refresh
+   `package-lock.json` (`npm install`).
 2. Run `just verify` and `just check-npm-package`.
 3. Merge the PR to `main`.
 4. Sync local `main` with `origin/main`.
@@ -286,10 +306,10 @@ git push origin driggsby-vX.Y.Z
 The release workflow rejects tags that are not on current `origin/main`, and
 rejects tags whose version does not match the package version. It then
 verifies on all three OSes, validates the packed npm package surface, and
-publishes `@driggsby/deploy` followed by `driggsby` with `--provenance`
-through the `npm-publish` environment, skipping any package whose exact
-version is already on the registry so a partially-failed release can be
-re-run.
+publishes `@driggsby/deploy`, then `@driggsby/sdk`, then `driggsby` with
+`--provenance` through the `npm-publish` environment, skipping any package
+whose exact version is already on the registry so a partially-failed
+release can be re-run.
 
 The npm trusted publisher must match the public repository, release workflow
 file, and `npm-publish` environment, and is configured per package on
