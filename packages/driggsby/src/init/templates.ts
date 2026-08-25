@@ -19,8 +19,8 @@ export function indexHtml(slug: string): string {
   <main>
     <header>
       <h1>${slug}</h1>
-      <p class="sample-note" id="sample-note">Sample data — your real accounts
-      appear when this app runs inside Driggsby.</p>
+      <p class="sample-note" id="sample-note" hidden>Sample data — your real
+      accounts appear when this app runs inside Driggsby.</p>
     </header>
     <section aria-label="Overview">
       <div class="stat-grid" id="overview"></div>
@@ -48,8 +48,8 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 // real result shapes, so the render functions work unchanged either way.
 
 // ---------------------------------------------------------------------------
-// Sample data. Every name and number here is invented. It renders only
-// until real data arrives from Driggsby.
+// Sample data. Every name and number here is invented. It paints only
+// when this page is opened on its own, outside Driggsby.
 // ---------------------------------------------------------------------------
 
 const SAMPLE_OVERVIEW = {
@@ -149,31 +149,35 @@ function renderAccounts(result) {
 
 // ---------------------------------------------------------------------------
 // Live data. window.driggsby exists when the Driggsby SDK loaded — inside
-// Driggsby, or under driggsby dev. Standalone, the sample data stays and
-// the note above explains why.
+// Driggsby, or under driggsby dev. Whether anything embeds this page is
+// knowable synchronously: opened directly in a tab, no host will ever
+// answer, so the sample data paints right away and the note explaining it
+// is revealed (it ships hidden in the HTML, so an embedded page never
+// shows it, not even for the moment before this script runs). Embedded,
+// sample numbers never paint at all — a muted loading line holds the
+// accounts area until real data arrives.
 // ---------------------------------------------------------------------------
 
-renderOverview(SAMPLE_OVERVIEW);
-renderAccounts(SAMPLE_ACCOUNTS);
+const standalone = window.parent === window;
+const note = document.getElementById("sample-note");
 
-let overviewIsLive = false;
-let accountsAreLive = false;
-
-function removeSampleNoteWhenAllLive() {
-  if (!overviewIsLive || !accountsAreLive) return;
-  const note = document.getElementById("sample-note");
+if (standalone) {
+  renderOverview(SAMPLE_OVERVIEW);
+  renderAccounts(SAMPLE_ACCOUNTS);
+  if (note) note.hidden = false;
+} else {
   if (note) note.remove();
+  const accounts = document.getElementById("accounts");
+  if (accounts) {
+    accounts.replaceChildren(element("div", "loading-note", "Loading your accounts…"));
+  }
 }
 
 if (window.driggsby) {
   driggsby.watch("get_overview", {}, (result) => {
-    overviewIsLive = true;
-    removeSampleNoteWhenAllLive();
     renderOverview(result);
   });
   driggsby.watch("list_accounts", {}, (result) => {
-    accountsAreLive = true;
-    removeSampleNoteWhenAllLive();
     renderAccounts(result);
   });
 }
@@ -226,6 +230,17 @@ h2 {
   border-radius: 6px;
   background: var(--note-background);
   color: var(--note-text);
+  font-size: 13px;
+}
+
+/* The display rule above would defeat the hidden attribute without this. */
+.sample-note[hidden] {
+  display: none;
+}
+
+.loading-note {
+  margin-top: 8px;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
