@@ -44,25 +44,31 @@ const FORBIDDEN_DEPENDENCY_FIELDS = [
 
 interface PackageExpectation {
   workspace: string;
-  binName: string;
-  binPath: string;
+  // null for library-only packages that must ship no bin at all.
+  bin: { binName: string; binPath: string } | null;
   allowedFilePattern: RegExp;
 }
 
 const DEPLOY_EXPECTATION: PackageExpectation = {
   workspace: "@driggsby/deploy",
-  binName: "driggsby-deploy",
-  binPath: "bin/driggsby-deploy.js",
+  bin: { binName: "driggsby-deploy", binPath: "bin/driggsby-deploy.js" },
   // Like the CLI pattern below: no dist file may start with a dot — a stray
   // dot-file in dist must fail this check, not pack silently.
   allowedFilePattern:
     /^(package\.json|LICENSE|README\.md|bin\/driggsby-deploy\.js|dist\/[^/.][^/]*\.(js|d\.ts))$/,
 };
 
+const SDK_EXPECTATION: PackageExpectation = {
+  workspace: "@driggsby/sdk",
+  bin: null,
+  // A flat dist: the module build plus the one self-contained browser
+  // bundle. No dot-files, no nesting, no bin.
+  allowedFilePattern: /^(package\.json|LICENSE|README\.md|dist\/[^/.][^/]*\.(js|d\.ts))$/,
+};
+
 const CLI_EXPECTATION: PackageExpectation = {
   workspace: "driggsby",
-  binName: "driggsby",
-  binPath: "bin/driggsby.js",
+  bin: { binName: "driggsby", binPath: "bin/driggsby.js" },
   // dist may nest (api/, deploy/, login/), but no path segment may start
   // with a dot — a stray dot-directory in dist must fail this check, not
   // pack silently.
@@ -167,8 +173,12 @@ function checkManifest(
   if (expectedVersion !== undefined && manifest.version !== expectedVersion) {
     fail(`${name} version ${manifest.version} does not match expected ${expectedVersion}`);
   }
-  if (manifest.bin?.[expectation.binName] !== expectation.binPath) {
-    fail(`${name} bin must map ${expectation.binName} to ${expectation.binPath}`);
+  if (expectation.bin === null) {
+    if (manifest.bin !== undefined) {
+      fail(`${name} must ship no bin`);
+    }
+  } else if (manifest.bin?.[expectation.bin.binName] !== expectation.bin.binPath) {
+    fail(`${name} bin must map ${expectation.bin.binName} to ${expectation.bin.binPath}`);
   }
   for (const script of FORBIDDEN_SCRIPTS) {
     if (manifest.scripts?.[script] !== undefined) {
@@ -189,29 +199,37 @@ function checkManifest(
   }
 }
 
-// `driggsby` may depend on exactly one package: our own @driggsby/deploy, at
-// the same lockstep version, pinned exactly (no range operators) so the CLI
-// pair that shipped together is the pair that installs together.
-function checkDependencyContract(deploy: PackageManifest, cli: PackageManifest): void {
-  const deployDependencies = deploy.dependencies ?? {};
-  if (Object.keys(deployDependencies).length > 0) {
-    fail("@driggsby/deploy must have zero runtime dependencies");
+// `driggsby` may depend on exactly two packages: our own @driggsby/deploy
+// and @driggsby/sdk, at the same lockstep version, pinned exactly (no range
+// operators) so the trio that shipped together is the trio that installs
+// together. The libraries themselves stay dependency-free.
+function checkDependencyContract(
+  deploy: PackageManifest,
+  sdk: PackageManifest,
+  cli: PackageManifest,
+): void {
+  for (const library of [deploy, sdk]) {
+    if (Object.keys(library.dependencies ?? {}).length > 0) {
+      fail(`${library.name} must have zero runtime dependencies`);
+    }
   }
   const cliDependencies = cli.dependencies ?? {};
-  const dependencyNames = Object.keys(cliDependencies);
-  if (dependencyNames.length !== 1 || dependencyNames[0] !== "@driggsby/deploy") {
+  const dependencyNames = Object.keys(cliDependencies).sort();
+  if (dependencyNames.join(",") !== "@driggsby/deploy,@driggsby/sdk") {
     fail(
-      `driggsby dependencies must be exactly {"@driggsby/deploy"}, got ${JSON.stringify(dependencyNames)}`,
+      `driggsby dependencies must be exactly {"@driggsby/deploy", "@driggsby/sdk"}, got ${JSON.stringify(dependencyNames)}`,
     );
   }
-  const pinned = cliDependencies["@driggsby/deploy"];
-  if (pinned !== deploy.version) {
-    fail(
-      `driggsby must pin @driggsby/deploy to the exact lockstep version ${deploy.version}, got ${pinned ?? "unset"}`,
-    );
-  }
-  if (cli.version !== deploy.version) {
-    fail(`lockstep versions differ: driggsby ${cli.version}, @driggsby/deploy ${deploy.version}`);
+  for (const library of [deploy, sdk]) {
+    const pinned = cliDependencies[library.name];
+    if (pinned !== library.version) {
+      fail(
+        `driggsby must pin ${library.name} to the exact lockstep version ${library.version}, got ${pinned ?? "unset"}`,
+      );
+    }
+    if (cli.version !== library.version) {
+      fail(`lockstep versions differ: driggsby ${cli.version}, ${library.name} ${library.version}`);
+    }
   }
 }
 
@@ -230,14 +248,14 @@ const expectedVersion = process.argv[2];
 const workDirectory = mkdtempSync(join(tmpdir(), "driggsby-npm-surface-"));
 
 try {
-  const reports = [DEPLOY_EXPECTATION, CLI_EXPECTATION].map((expectation) =>
+  const reports = [DEPLOY_EXPECTATION, SDK_EXPECTATION, CLI_EXPECTATION].map((expectation) =>
     packWorkspace(expectation, workDirectory),
   );
 
-  // One install of both tarballs: npm resolves driggsby's @driggsby/deploy
-  // dependency against the sibling tarball's version, with no registry
-  // involved for either package.
-  note("Installing both packed tarballs into a temp prefix...");
+  // One install of all three tarballs: npm resolves driggsby's library
+  // dependencies against the sibling tarballs' versions, with no registry
+  // involved for any package.
+  note("Installing all packed tarballs into a temp prefix...");
   const installPrefix = join(workDirectory, "install");
   execFileSync(
     "npm",
@@ -255,15 +273,37 @@ try {
   );
 
   const installedDeploy = join(installPrefix, "node_modules", "@driggsby", "deploy");
+  const installedSdk = join(installPrefix, "node_modules", "@driggsby", "sdk");
   const installedCliPackage = join(installPrefix, "node_modules", "driggsby");
   const deployManifest = readInstalledManifest(installedDeploy);
+  const sdkManifest = readInstalledManifest(installedSdk);
   const cliManifest = readInstalledManifest(installedCliPackage);
 
   checkManifest(DEPLOY_EXPECTATION, deployManifest, expectedVersion);
+  checkManifest(SDK_EXPECTATION, sdkManifest, expectedVersion);
   checkManifest(CLI_EXPECTATION, cliManifest, expectedVersion);
-  checkDependencyContract(deployManifest, cliManifest);
+  checkDependencyContract(deployManifest, sdkManifest, cliManifest);
   checkShebang(installedDeploy, "bin/driggsby-deploy.js");
   checkShebang(installedCliPackage, "bin/driggsby.js");
+
+  // The SDK bundle the CLI serves during `driggsby dev` must resolve from
+  // the installed CLI (a runtime require.resolve, not a static import, so
+  // --version alone would not catch a broken edge), and must be the one
+  // self-contained browser file.
+  const sdkBundlePath = execFileSync(
+    process.execPath,
+    [
+      "-e",
+      "const { createRequire } = require('node:module');" +
+        "console.log(createRequire(process.argv[1] + '/').resolve('@driggsby/sdk/driggsby-sdk.js'));",
+      installedCliPackage,
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  const sdkBundle = readFileSync(sdkBundlePath, "utf8");
+  if (!sdkBundle.includes("driggsby-sdk/1") || /^\s*import\b/m.test(sdkBundle)) {
+    fail("the installed SDK bundle must carry the protocol marker and import nothing at runtime");
+  }
 
   // Behavior checks against the installed bytes. `driggsby --version` walks
   // the full static import graph, including the @driggsby/deploy resolution,
@@ -299,7 +339,7 @@ try {
   }
 
   note(
-    `npm publish surface OK: @driggsby/deploy@${deployManifest.version} + driggsby@${cliManifest.version}`,
+    `npm publish surface OK: @driggsby/deploy@${deployManifest.version} + @driggsby/sdk@${sdkManifest.version} + driggsby@${cliManifest.version}`,
   );
 } catch (error) {
   if (!(error instanceof SurfaceCheckFailure)) {
