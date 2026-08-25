@@ -12,13 +12,15 @@ export { startFakeDeployServer } from "../../../../deploy/src/test-support/fake-
 
 export const TEST_TOKEN = "dgb_at_test_token_3333";
 
-// A project folder holding driggsby.json plus the given files.
+// A project folder holding driggsby.json plus the given files. extraConfig
+// merges into driggsby.json for tests exercising optional fields.
 export async function makeProject(
   slug: string,
   files: Record<string, string> = { "index.html": "<h1>hi</h1>" },
+  extraConfig: Record<string, unknown> = {},
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "driggsby-cmd-"));
-  await writeFile(join(directory, "driggsby.json"), JSON.stringify({ slug, serve: "." }));
+  await writeFile(join(directory, "driggsby.json"), JSON.stringify({ slug, serve: ".", ...extraConfig }));
   for (const [name, content] of Object.entries(files)) {
     await writeFile(join(directory, name), content);
   }

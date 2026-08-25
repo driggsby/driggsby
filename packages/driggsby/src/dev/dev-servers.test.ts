@@ -33,6 +33,7 @@ async function startServers(overrides: {
   const serveDirectory = overrides.serveDirectory ?? (await makeServeDirectory());
   const calls: RecordedCall[] = [];
   const servers = await startDevServers({
+    background: null,
     slug: "money-dash",
     serveDirectory,
     sdkBundle: "// the sdk bundle\n",
@@ -361,6 +362,7 @@ test("a failed host bind closes the already-bound app server instead of squattin
   try {
     await assert.rejects(
       startDevServers({
+        background: null,
         slug: "money-dash",
         serveDirectory,
         sdkBundle: "// the sdk bundle\n",

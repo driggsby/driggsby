@@ -77,7 +77,7 @@ export async function runDeployEntrypoint(io: EntrypointIo): Promise<number> {
       io.cwd,
       config.slug,
       collected,
-      { live: true },
+      { live: true, ...(config.background !== null ? { background: config.background } : {}) },
     );
     if (createdApp !== null) {
       // The assigned slug is server text, so it prints quoted and bounded

@@ -70,6 +70,27 @@ test("createVersion sends the exact manifest shape with bearer auth", async () =
   }
 });
 
+test("createVersion includes the declared background when one is passed", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    await createVersion(
+      api(server.baseUrl),
+      "money-dash",
+      [{ path: "index.html", sha256: sha256Hex("<h1>hi</h1>"), byteSize: 11 }],
+      undefined,
+      "#0b0c0f",
+    );
+    const request = server.requests[0];
+    assert.ok(request !== undefined);
+    assert.deepEqual(JSON.parse(request.body.toString("utf8")), {
+      files: [{ path: "index.html", sha256: sha256Hex("<h1>hi</h1>"), byte_size: 11 }],
+      background: "#0b0c0f",
+    });
+  } finally {
+    await server.close();
+  }
+});
+
 test("uploadBlob PUTs raw bytes as octet-stream", async () => {
   const server = await startFakeDeployServer();
   try {

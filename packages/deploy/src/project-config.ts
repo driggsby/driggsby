@@ -16,7 +16,14 @@ export interface ProjectConfig {
   // The relative "serve" value as written, for display ("." when omitted).
   serve: string;
   devCommand: string | null;
+  // The app's own page background color, declared so Driggsby can paint
+  // it while the app loads. null when the project doesn't declare one.
+  background: string | null;
 }
+
+// Exactly a bare lowercase hex color — the same shape the deploy API
+// enforces, checked locally so a typo fails fast with the fix.
+const BACKGROUND_PATTERN = /^#[0-9a-f]{6}$/;
 
 const MISSING_CONFIG_MESSAGE =
   "No driggsby.json found in this directory. Create one next to the files you\n" +
@@ -74,6 +81,24 @@ export async function readProjectConfig(projectDirectory: string): Promise<Proje
   }
   const serveDirectory = await resolveServeDirectory(projectDirectory, serve);
 
+  // A declared background must be exactly the shape the server accepts;
+  // anything else fails here, locally, instead of as a refused deploy.
+  // Friendly slop (case, whitespace) normalizes rather than failing.
+  const rawBackground = config.background;
+  let background: string | null = null;
+  if (rawBackground !== undefined && rawBackground !== null) {
+    const normalized =
+      typeof rawBackground === "string" ? rawBackground.trim().toLowerCase() : "";
+    if (!BACKGROUND_PATTERN.test(normalized)) {
+      throw new DeployError(
+        'The "background" field in driggsby.json must be a plain lowercase hex\n' +
+          'color like "#0b0c0f" — your app\'s own page background, so Driggsby can\n' +
+          "paint it while the app loads. Remove the field if you don't want one.",
+      );
+    }
+    background = normalized;
+  }
+
   // dev_command is attacker-controlled text from a cloned or generated
   // driggsby.json. Nothing executes it today; any future consumer must spawn
   // it without a shell and never let it reach one.
@@ -83,6 +108,7 @@ export async function readProjectConfig(projectDirectory: string): Promise<Proje
     serveDirectory,
     serve,
     devCommand: typeof devCommand === "string" && devCommand !== "" ? devCommand : null,
+    background,
   };
 }
 

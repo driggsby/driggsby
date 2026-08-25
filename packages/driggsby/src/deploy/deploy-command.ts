@@ -77,6 +77,7 @@ export async function runDeploy(
       collected,
       {
         live: !options.preview,
+        ...(config.background !== null ? { background: config.background } : {}),
         // The assigned slug is server text, so it prints quoted and
         // length-bounded like every other string this CLI did not author.
         // A validated slug tops out at 63 characters, so the line never

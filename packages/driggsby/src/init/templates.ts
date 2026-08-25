@@ -421,6 +421,10 @@ h2 {
 }
 `;
 
+// "background" is the template's own page background (styles.css
+// --background): Driggsby paints it while the app loads, so the loading
+// surface matches the app from the first frame. An agent that re-themes
+// the app should keep this equal to the page's real background color.
 export function driggsbyJsonText(slug: string): string {
-  return `{\n  "slug": ${JSON.stringify(slug)},\n  "serve": "."\n}\n`;
+  return `{\n  "slug": ${JSON.stringify(slug)},\n  "serve": ".",\n  "background": "#ffffff"\n}\n`;
 }
