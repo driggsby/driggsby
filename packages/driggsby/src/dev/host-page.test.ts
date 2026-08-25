@@ -31,10 +31,11 @@ test("the declared background paints the frame surround; none falls back to whit
 // Behavioral coverage for the route sync: HOST_PAGE_JS is browser code in
 // a string, so it is executed here under stubbed globals and driven with
 // real message events — matching the production host's semantics (strict
-// sanitizer, bare-"#" cleared sentinel, hello hand-back, throttled
-// fragment-only URL writes). The pattern spelled inside the string is the
-// dev host's own copy; cross-repo agreement with the platform is pinned by
-// the platform repo's tests, not here.
+// sanitizer, bare-"#" cleared sentinel, hello hand-back, bucket-paced
+// fragment-only URL writes). The route pattern and bucket constants
+// spelled inside the string are the dev host's own copies of the
+// platform host's; nothing pins them across the two codebases, so a
+// change on either side must be mirrored by hand.
 test("the host page script syncs routes: sanitize, mirror, clear, and hand back", () => {
   const writes: string[] = [];
   const posted: Record<string, unknown>[] = [];
@@ -47,7 +48,12 @@ test("the host page script syncs routes: sanitize, mirror, clear, and hand back"
   const listeners = new Map<string, Listener>();
   const pendingTimers: (() => void)[] = [];
   const flushTimers = (): void => {
+    // A timer callback may re-arm itself; a regression in the token
+    // arithmetic must fail loudly here, not spin forever.
+    let fired = 0;
     while (pendingTimers.length > 0) {
+      fired += 1;
+      assert.ok(fired <= 100, "timer flush did not converge");
       pendingTimers.shift()?.();
     }
   };
@@ -62,9 +68,11 @@ test("the host page script syncs routes: sanitize, mirror, clear, and hand back"
       listeners.set(name, listener);
     },
   };
+  let nowMs = 0;
   const stubbed = {
     window: stubWindow,
     location: stubWindow.location,
+    Date: { now: () => nowMs },
     history: {
       state: null,
       replaceState: (_state: unknown, _title: string, url: string) => {
@@ -107,17 +115,37 @@ test("the host page script syncs routes: sanitize, mirror, clear, and hand back"
   deliver({ protocol: "driggsby-sdk/1", type: "ready" });
   assert.deepEqual(posted.at(-1), { protocol: "driggsby-sdk/1", type: "hello", route: "#/seeded" });
 
-  // A clean route lands in the URL immediately (leading edge), fragment only.
+  // Human-speed navigation writes instantly, back to back — the token
+  // bucket only paces sustained spam, never ordinary clicking.
   deliver({ protocol: "driggsby-sdk/1", type: "route", hash: "#/cash-flow/recurring" });
   assert.equal(writes.at(-1), "http://localhost:4573/#/cash-flow/recurring");
-
-  // A second route inside the open throttle window does not write
-  // synchronously; the trailing edge picks it up when the window closes.
-  const inWindow = writes.length;
   deliver({ protocol: "driggsby-sdk/1", type: "route", hash: "#/overview" });
-  assert.equal(writes.length, inWindow);
-  flushTimers();
   assert.equal(writes.at(-1), "http://localhost:4573/#/overview");
+
+  // A spam burst drains the bucket (15 instant writes total, 2 spent
+  // above), then defers; the trailing write lands the FINAL state once a
+  // token accrues, and the skipped intermediates never write.
+  for (let i = 0; i < 13; i += 1) {
+    deliver({ protocol: "driggsby-sdk/1", type: "route", hash: `#/burst-${String(i)}` });
+  }
+  assert.equal(writes.at(-1), "http://localhost:4573/#/burst-12");
+  const drained = writes.length;
+  deliver({ protocol: "driggsby-sdk/1", type: "route", hash: "#/deferred-a" });
+  deliver({ protocol: "driggsby-sdk/1", type: "route", hash: "#/deferred-b" });
+  assert.equal(writes.length, drained);
+  nowMs += 600; // one refill period: exactly one token accrues
+  flushTimers();
+  assert.equal(writes.length, drained + 1);
+  assert.equal(writes.at(-1), "http://localhost:4573/#/deferred-b");
+
+  // Re-reporting the route already in the URL is a no-op: no write, and
+  // no token spent (the bucket is empty here, so a spend would defer).
+  deliver({ protocol: "driggsby-sdk/1", type: "route", hash: "#/deferred-b" });
+  assert.equal(writes.length, drained + 1);
+  assert.equal(pendingTimers.length, 0);
+
+  // Idle time refills the bucket for the assertions below.
+  nowMs += 600 * 15;
 
   // Hostile shapes never write.
   const before = writes.length;
