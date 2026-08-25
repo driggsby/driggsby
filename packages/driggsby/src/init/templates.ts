@@ -4,7 +4,10 @@
 // (`driggsby dev` locally, or the Driggsby console after a deploy). The
 // sample values below are invented for the template and match the real
 // tool result shapes only in structure, so the scaffold's render functions
-// work unchanged when live data replaces them.
+// work unchanged when live data replaces them. The HTML ships a skeleton
+// of the final layout so the first paint — in every context, before any
+// script runs — is muted bars that the first render replaces, fading in
+// at the exact same size so nothing shifts.
 
 export function indexHtml(slug: string): string {
   return `<!doctype html>
@@ -22,12 +25,56 @@ export function indexHtml(slug: string): string {
       <p class="sample-note" id="sample-note" hidden>Sample data — your real
       accounts appear when this app runs inside Driggsby.</p>
     </header>
+    <!-- The bars below are skeleton placeholders. app.js replaces them
+         with data on its first render; edit the render functions there,
+         and keep the four stat bars in step with what renderOverview
+         draws. (The account rows are just a plausible list length —
+         the real count comes from the data.) -->
     <section aria-label="Overview">
-      <div class="stat-grid" id="overview"></div>
+      <div class="stat-grid" id="overview" aria-busy="true">
+        <div class="stat">
+          <div class="skeleton skeleton-label"></div>
+          <div class="skeleton skeleton-value"></div>
+        </div>
+        <div class="stat">
+          <div class="skeleton skeleton-label"></div>
+          <div class="skeleton skeleton-value"></div>
+        </div>
+        <div class="stat">
+          <div class="skeleton skeleton-label"></div>
+          <div class="skeleton skeleton-value"></div>
+        </div>
+        <div class="stat">
+          <div class="skeleton skeleton-label"></div>
+          <div class="skeleton skeleton-value"></div>
+        </div>
+      </div>
     </section>
     <section aria-label="Accounts">
       <h2>Accounts</h2>
-      <div id="accounts"></div>
+      <div id="accounts" aria-busy="true">
+        <div class="account-row">
+          <div class="account-names">
+            <div class="skeleton skeleton-name"></div>
+            <div class="skeleton skeleton-institution"></div>
+          </div>
+          <div class="skeleton skeleton-balance"></div>
+        </div>
+        <div class="account-row">
+          <div class="account-names">
+            <div class="skeleton skeleton-name"></div>
+            <div class="skeleton skeleton-institution"></div>
+          </div>
+          <div class="skeleton skeleton-balance"></div>
+        </div>
+        <div class="account-row">
+          <div class="account-names">
+            <div class="skeleton skeleton-name"></div>
+            <div class="skeleton skeleton-institution"></div>
+          </div>
+          <div class="skeleton skeleton-balance"></div>
+        </div>
+      </div>
     </section>
   </main>
   <script type="module" src="/-/driggsby-sdk.js"></script>
@@ -106,6 +153,19 @@ function element(tag, className, text) {
   return node;
 }
 
+// The page ships with a skeleton of this exact layout in its HTML — muted
+// bars where the numbers will be — so the very first paint is already the
+// final shape. The first render into a container replaces its skeleton and
+// fades in, so data arriving reads as the page settling, never as content
+// popping. classList.add is idempotent and re-adding a class never restarts
+// its animation, so later live updates repaint in place without re-fading.
+// aria-busy ships in the HTML so assistive tech hears "loading" until the
+// first real content lands.
+function revealOnce(container) {
+  container.classList.add("fade-in");
+  container.removeAttribute("aria-busy");
+}
+
 function renderOverview(result) {
   const rollups = (result && result.summary_rollups) || {};
   const container = document.getElementById("overview");
@@ -124,6 +184,7 @@ function renderOverview(result) {
     );
     container.append(stat);
   }
+  revealOnce(container);
 }
 
 function renderAccounts(result) {
@@ -145,32 +206,32 @@ function renderAccounts(result) {
     row.append(names, element("div", "account-balance", formatMoney(account.current_balance)));
     container.append(row);
   }
+  revealOnce(container);
 }
 
 // ---------------------------------------------------------------------------
 // Live data. window.driggsby exists when the Driggsby SDK loaded — inside
 // Driggsby, or under driggsby dev. Whether anything embeds this page is
 // knowable synchronously: opened directly in a tab, no host will ever
-// answer, so the sample data paints right away and the note explaining it
-// is revealed (it ships hidden in the HTML, so an embedded page never
-// shows it, not even for the moment before this script runs). Embedded,
-// sample numbers never paint at all — a muted loading line holds the
-// accounts area until real data arrives.
+// answer, so the sample data replaces the skeleton right away and the note
+// explaining it is revealed (it ships hidden in the HTML, so an embedded
+// page never shows it, not even for the moment before this script runs).
+// Embedded, sample numbers never paint at all — the shipped skeleton holds
+// the layout until the first real results replace it and fade in.
 // ---------------------------------------------------------------------------
 
 const standalone = window.parent === window;
 const note = document.getElementById("sample-note");
 
 if (standalone) {
+  // The note and the sample values paint together (this whole branch is
+  // one synchronous task). The reveal is kept first so an edit that ever
+  // makes rendering async can't paint values before their label.
+  if (note) note.hidden = false;
   renderOverview(SAMPLE_OVERVIEW);
   renderAccounts(SAMPLE_ACCOUNTS);
-  if (note) note.hidden = false;
-} else {
-  if (note) note.remove();
-  const accounts = document.getElementById("accounts");
-  if (accounts) {
-    accounts.replaceChildren(element("div", "loading-note", "Loading your accounts…"));
-  }
+} else if (note) {
+  note.remove();
 }
 
 if (window.driggsby) {
@@ -238,10 +299,64 @@ h2 {
   display: none;
 }
 
-.loading-note {
-  margin-top: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
+/* The skeleton ships in the HTML so the first paint is the final layout as
+   muted bars; the first render replaces it and fades in (see app.js). The
+   bar margins make each skeleton block exactly the height of the text it
+   stands in for, so nothing shifts when data lands. */
+.skeleton {
+  border-radius: 4px;
+  background: var(--hairline);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-label {
+  width: 64px;
+  height: 12px;
+  margin: 3.75px 0 0;
+}
+
+.skeleton-value {
+  width: 96px;
+  height: 20px;
+  margin: 8.75px 0 5px;
+}
+
+.skeleton-name {
+  width: 150px;
+  height: 14px;
+  margin: 4px 0 8px;
+}
+
+.skeleton-institution {
+  width: 110px;
+  height: 12px;
+  margin: 4px 0;
+}
+
+.skeleton-balance {
+  width: 72px;
+  height: 14px;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .fade-in {
+    animation: none;
+  }
 }
 
 .stat-grid {

@@ -66,12 +66,38 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
     html.includes('id="sample-note" hidden'),
     "the sample note must ship hidden in the HTML",
   );
+  // The skeleton ships in the HTML itself so the first paint in every
+  // context — before any script runs — is the final layout as muted bars.
+  assert.equal(
+    html.split('class="skeleton skeleton-value"').length - 1,
+    4,
+    "the four overview stats must ship as skeleton bars",
+  );
+  assert.equal(
+    html.split('class="skeleton skeleton-name"').length - 1,
+    3,
+    "three account rows must ship as skeleton bars",
+  );
+  assert.equal(
+    html.split('aria-busy="true"').length - 1,
+    2,
+    "both skeleton containers must ship marked busy for assistive tech",
+  );
   // The CSS guard is what actually keeps the hidden note invisible: the
   // scaffold's own display rule would defeat the hidden attribute without it.
   const css = await readFile(join(appDirectory, "styles.css"), "utf8");
   assert.ok(
     css.includes(".sample-note[hidden]"),
     "styles.css must keep the [hidden] display guard",
+  );
+  assert.ok(css.includes(".skeleton"), "styles.css must style the skeleton bars");
+  assert.ok(
+    css.includes("@keyframes fade-in"),
+    "styles.css must define the first-data fade",
+  );
+  assert.ok(
+    css.includes("prefers-reduced-motion"),
+    "styles.css must disable the pulse and fade under reduced motion",
   );
 
   const text = io.text();
@@ -221,6 +247,14 @@ class StubNode {
   hidden: boolean;
   removed = false;
   children: StubNode[] = [];
+  classes: string[] = [];
+  attributes = new Map<string, string>();
+  classList = {
+    add: (name: string): void => {
+      if (!this.classes.includes(name)) this.classes.push(name);
+    },
+    contains: (name: string): boolean => this.classes.includes(name),
+  };
 
   constructor(id = "", hidden = false) {
     this.id = id;
@@ -238,18 +272,41 @@ class StubNode {
   remove(): void {
     this.removed = true;
   }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
 }
 
 interface ScaffoldRun {
   overview: StubNode;
   accounts: StubNode;
   note: StubNode;
+  overviewSkeleton: StubNode[];
+  accountsSkeleton: StubNode[];
   watches: Map<string, (result: unknown) => void>;
+}
+
+// Mirrors the shipped HTML: the containers start marked busy and holding
+// their skeleton children (4 stat bars, 3 account rows), so the assertions
+// about replacement are about a skeleton that was genuinely there.
+function skeletonNodes(count: number): StubNode[] {
+  return Array.from({ length: count }, () => {
+    const node = new StubNode();
+    node.className = "skeleton";
+    return node;
+  });
 }
 
 function runScaffoldAppJs(options: { embedded: boolean; sdkLoaded: boolean }): ScaffoldRun {
   const overview = new StubNode("overview");
   const accounts = new StubNode("accounts");
+  const overviewSkeleton = skeletonNodes(4);
+  const accountsSkeleton = skeletonNodes(3);
+  overview.children = [...overviewSkeleton];
+  accounts.children = [...accountsSkeleton];
+  overview.attributes.set("aria-busy", "true");
+  accounts.attributes.set("aria-busy", "true");
   const note = new StubNode("sample-note", true);
   const byId = new Map<string, StubNode>([
     ["overview", overview],
@@ -277,26 +334,46 @@ function runScaffoldAppJs(options: { embedded: boolean; sdkLoaded: boolean }): S
   windowStub.parent = options.embedded ? {} : windowStub;
   if (driggsbyStub) windowStub.driggsby = driggsbyStub;
   runInNewContext(APP_JS, { window: windowStub, document: documentStub, driggsby: driggsbyStub });
-  return { overview, accounts, note, watches };
+  return { overview, accounts, note, overviewSkeleton, accountsSkeleton, watches };
+}
+
+function holdsNoSkeleton(container: StubNode, skeleton: StubNode[]): boolean {
+  return container.children.every((child) => !skeleton.includes(child));
 }
 
 test("standalone, the scaffold paints sample data and reveals its note", () => {
   const run = runScaffoldAppJs({ embedded: false, sdkLoaded: false });
   assert.equal(run.overview.children.length, 4, "the four sample stats must paint");
   assert.equal(run.accounts.children.length, 3, "the three sample accounts must paint");
+  assert.ok(
+    holdsNoSkeleton(run.overview, run.overviewSkeleton) &&
+      holdsNoSkeleton(run.accounts, run.accountsSkeleton),
+    "the sample render must replace the skeleton, not stack under it",
+  );
   assert.equal(run.note.hidden, false, "the sample note must be revealed");
   assert.equal(run.note.removed, false);
+  assert.ok(
+    run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
+    "the sample render must fade in",
+  );
+  assert.ok(
+    !run.overview.attributes.has("aria-busy") && !run.accounts.attributes.has("aria-busy"),
+    "aria-busy must clear once content lands",
+  );
 });
 
-test("embedded, no sample pixels paint — the layout waits for real data", () => {
+test("embedded, the shipped skeleton stands untouched until real data replaces it", () => {
   const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
-  assert.equal(run.overview.children.length, 0, "no sample stats may paint while embedded");
+  // Before data arrives the script must not touch the containers: the
+  // HTML-shipped skeleton stays, still marked busy — no sample values,
+  // no loading text.
+  assert.deepEqual(run.overview.children, run.overviewSkeleton, "the skeleton must survive");
+  assert.deepEqual(run.accounts.children, run.accountsSkeleton, "the skeleton must survive");
+  assert.equal(run.overview.attributes.get("aria-busy"), "true", "still busy before data");
   assert.ok(run.note.removed, "the sample note must be removed while embedded");
-  // The accounts area holds only the loading line — a status, never a value.
-  assert.equal(run.accounts.children.length, 1);
-  assert.equal(run.accounts.children[0]?.textContent, "Loading your accounts…");
+  assert.ok(!run.overview.classList.contains("fade-in"), "nothing fades before data");
 
-  // The first real results replace the loading line and fill the stats.
+  // The first real results replace the skeleton and fade in.
   const overviewCallback = run.watches.get("get_overview");
   const accountsCallback = run.watches.get("list_accounts");
   assert.ok(overviewCallback, "the scaffold must watch get_overview");
@@ -316,7 +393,20 @@ test("embedded, no sample pixels paint — the layout waits for real data", () =
   });
   assert.equal(run.overview.children.length, 4);
   assert.equal(run.accounts.children.length, 1);
+  assert.ok(
+    holdsNoSkeleton(run.overview, run.overviewSkeleton) &&
+      holdsNoSkeleton(run.accounts, run.accountsSkeleton),
+    "real data must replace the skeleton, not stack under it",
+  );
   const row = run.accounts.children[0];
   assert.ok(row, "the real account row must render");
   assert.equal(row.children[0]?.children[0]?.textContent, "Checking");
+  assert.ok(
+    run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
+    "the first real render must fade in",
+  );
+  assert.ok(
+    !run.overview.attributes.has("aria-busy") && !run.accounts.attributes.has("aria-busy"),
+    "aria-busy must clear once real content lands",
+  );
 });
