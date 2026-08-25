@@ -93,6 +93,27 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 // Each watch is a live subscription: the callback runs with a fresh result
 // whenever your Driggsby data changes. The sample data below matches the
 // real result shapes, so the render functions work unchanged either way.
+//
+// These are the tools an app can watch — read-only, nothing else responds:
+//
+//   get_overview                 money rollups + every linked account
+//   get_history                  balances, holdings, or debts over time
+//                                (history_type is required: "account_balances",
+//                                "investment_holdings", or "liabilities")
+//   list_accounts                current balances per linked account
+//   list_assets_and_liabilities  the full balance sheet, incl. manual items
+//   list_findings                issues Driggsby has flagged
+//   list_investment_holdings     current investment positions
+//   list_outstanding_debts       linked debts with balances and rates
+//   list_recurring_transactions  subscriptions, bills, and paychecks
+//   query_cash_sql               SQL over cash transactions ({ sql: "..." })
+//   query_investment_sql         SQL over investment activity ({ sql: "..." })
+//   search_cash_transactions     bank and card transaction search
+//   search_investment_activity   trades, dividends, and transfers
+//
+// Params mirror Driggsby's public MCP tools of the same names, with one
+// simplification: those tools require a "reason" string, but a watch can
+// leave it out — Driggsby fills one in naming the dashboard.
 
 // ---------------------------------------------------------------------------
 // Sample data. Every name and number here is invented. It paints only

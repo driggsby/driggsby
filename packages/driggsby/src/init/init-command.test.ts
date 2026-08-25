@@ -11,6 +11,7 @@ import { transformSync } from "esbuild";
 import { CliError } from "../cli-error.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
 import { type InitCommandIo, runInit } from "./init-command.ts";
+import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
 import { APP_JS } from "./templates.ts";
 
 function makeIo(overrides: Partial<InitCommandIo> = {}): InitCommandIo & { text: () => string } {
@@ -60,6 +61,14 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   assert.ok(appJs.includes('driggsby.watch("get_overview"'));
   assert.ok(appJs.includes('driggsby.watch("list_accounts"'));
   assert.ok(appJs.includes("Sample Bank"), "sample values must be obviously synthetic");
+  // The scaffold is many builders' only documentation, so it must name
+  // every tool an app can watch — an agent editing app.js discovers the
+  // surface here, not by calling a wrong tool and reading the refusal.
+  // Looping over the dev host's own allowlist (not a copied list) means
+  // a tool added there without a scaffold mention is a red build.
+  for (const tool of APP_TOOL_ALLOWLIST) {
+    assert.ok(appJs.includes(tool), `app.js must name the watchable tool ${tool}`);
+  }
   // The note ships hidden so an embedded page never shows it, not even for
   // the moment before app.js runs; the standalone branch reveals it.
   assert.ok(
