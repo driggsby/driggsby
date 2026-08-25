@@ -113,12 +113,16 @@ export async function createVersion(
   slug: string,
   files: ManifestFile[],
   appName?: string,
+  background?: string,
 ): Promise<CreatedVersion> {
   const body: Record<string, unknown> = {
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, byte_size: file.byteSize })),
   };
   if (appName !== undefined) {
     body.app_name = appName;
+  }
+  if (background !== undefined) {
+    body.background = background;
   }
   const parsed = await requestJson(api, "POST", `/deploy/apps/${encodeURIComponent(slug)}/versions`, {
     json: body,

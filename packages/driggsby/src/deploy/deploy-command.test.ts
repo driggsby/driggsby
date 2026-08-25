@@ -194,6 +194,31 @@ test("first live deploy walks through every step and prints the URL", async () =
   }
 });
 
+test("a declared background travels from driggsby.json into the manifest request", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await makeProject("money-dash", { "index.html": "<h1>hi</h1>" }, {
+      background: "#0b0c0f",
+    });
+    const environment = await makeEnvironment(server.baseUrl);
+    const io = capturedOut();
+
+    const exitCode = await runDeploy(
+      { preview: false, projectDirectory: directory },
+      environment,
+      { out: io.out, ...FIXED_NOW },
+    );
+
+    assert.equal(exitCode, 0);
+    const manifestRequest = server.requests.find((request) => request.path.endsWith("/versions"));
+    assert.ok(manifestRequest !== undefined);
+    const body = JSON.parse(manifestRequest.body.toString("utf8")) as Record<string, unknown>;
+    assert.equal(body.background, "#0b0c0f");
+  } finally {
+    await server.close();
+  }
+});
+
 test("a redeploy with nothing changed uploads nothing and still goes live", async () => {
   const server = await startFakeDeployServer();
   try {

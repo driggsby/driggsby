@@ -50,6 +50,9 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   const config = await readProjectConfig(appDirectory);
   assert.equal(config.slug, "money-dash");
   assert.equal(config.serve, ".");
+  // The template's own page background — kept in driggsby.json so
+  // Driggsby paints the same color while the app loads.
+  assert.equal(config.background, "#ffffff");
 
   const html = await readFile(join(appDirectory, "index.html"), "utf8");
   assert.ok(html.includes('src="/-/driggsby-sdk.js"'), "the page must load the Driggsby SDK");

@@ -50,6 +50,32 @@ test("deploys the current directory live and prints the URL", async () => {
   }
 });
 
+test("a declared background in driggsby.json reaches the manifest request", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await mkdtemp(join(tmpdir(), "driggsby-entrypoint-"));
+    await writeFile(
+      join(directory, "driggsby.json"),
+      '{ "slug": "money-dash", "background": "#0b0c0f" }',
+    );
+    await writeFile(join(directory, "index.html"), "<h1>hi</h1>");
+    const io = capturedIo(directory, {
+      DRIGGSBY_TOKEN: "dgb_at_test_token_3333",
+      DRIGGSBY_BASE_URL: server.baseUrl,
+    });
+    const exitCode = await runDeployEntrypoint(io);
+    assert.equal(exitCode, 0);
+    const manifestRequest = server.requests.find((request) =>
+      request.path.endsWith("/versions"),
+    );
+    assert.ok(manifestRequest !== undefined);
+    const body = JSON.parse(manifestRequest.body.toString("utf8")) as Record<string, unknown>;
+    assert.equal(body.background, "#0b0c0f");
+  } finally {
+    await server.close();
+  }
+});
+
 test("a first deploy creates the app, saves the assigned slug, and says to commit it", async () => {
   const server = await startFakeDeployServer();
   try {

@@ -7,6 +7,7 @@ import {
   SdkCore,
   isAllowedHostOrigin,
   isLocalAppHostname,
+  sanitizeAppRoute,
 } from "./sdk-core.ts";
 
 // The Driggsby console origin — the only host origin a production app ever
@@ -147,6 +148,91 @@ test("post-handshake messages from any other origin are ignored", () => {
     result: { net_worth: 1 },
   });
   assert.equal(seen.length, 0);
+});
+
+test("a hello carrying a route restores it exactly once, before held watches fire", () => {
+  const { core, posted } = coreWithLog();
+  const events: string[] = [];
+  core.onRestoreRoute = (route) => {
+    events.push(`restore:${route}`);
+  };
+  core.watch("list_accounts", {}, () => undefined);
+
+  core.handleMessage(CONSOLE_ORIGIN, true, {
+    protocol: PROTOCOL,
+    type: "hello",
+    route: "#/cash-flow/recurring",
+  });
+
+  assert.deepEqual(events, ["restore:#/cash-flow/recurring"]);
+  assert.equal(posted.length, 1, "the held watch fires after the restore");
+
+  // A second hello (already pinned) restores nothing.
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "hello", route: "#/debts" });
+  assert.deepEqual(events, ["restore:#/cash-flow/recurring"]);
+});
+
+test("a hello with a malformed or missing route restores nothing", () => {
+  const { core } = coreWithLog();
+  const events: string[] = [];
+  core.onRestoreRoute = (route) => {
+    events.push(route);
+  };
+
+  core.handleMessage(CONSOLE_ORIGIN, true, {
+    protocol: PROTOCOL,
+    type: "hello",
+    route: "javascript:alert(1)",
+  });
+  assert.deepEqual(events, []);
+  assert.equal(core.hostReady, true, "a bad route never blocks the handshake itself");
+
+  const second = coreWithLog();
+  const secondEvents: string[] = [];
+  second.core.onRestoreRoute = (route) => {
+    secondEvents.push(route);
+  };
+  hello(second.core);
+  assert.deepEqual(secondEvents, []);
+});
+
+test("reportRoute posts only after the host pins, and only clean hashes", () => {
+  const { core, posted } = coreWithLog();
+
+  core.reportRoute("#/overview"); // nobody to tell yet
+  assert.equal(posted.length, 0);
+
+  hello(core);
+  core.reportRoute("#/overview");
+  assert.deepEqual(posted.at(-1), {
+    message: { protocol: PROTOCOL, type: "route", hash: "#/overview" },
+    targetOrigin: CONSOLE_ORIGIN,
+  });
+
+  // Anything unmirrorable — a no-hash location OR a hash outside the
+  // strict shape — reports the bare-"#" cleared sentinel: the host must
+  // forget rather than keep claiming a location the app already left.
+  core.reportRoute("");
+  assert.deepEqual(posted.at(-1)?.message, { protocol: PROTOCOL, type: "route", hash: "#" });
+  core.reportRoute("#");
+  assert.deepEqual(posted.at(-1)?.message, { protocol: PROTOCOL, type: "route", hash: "#" });
+  core.reportRoute("#/txns?cat=dining");
+  assert.deepEqual(posted.at(-1)?.message, { protocol: PROTOCOL, type: "route", hash: "#" });
+  core.reportRoute("#bad hash");
+  assert.deepEqual(posted.at(-1)?.message, { protocol: PROTOCOL, type: "route", hash: "#" });
+});
+
+test("sanitizeAppRoute keeps only the short, boring hash shape", () => {
+  assert.equal(sanitizeAppRoute("#/cash-flow/recurring"), "#/cash-flow/recurring");
+  assert.equal(sanitizeAppRoute("#/overview"), "#/overview");
+  assert.equal(sanitizeAppRoute("#"), "");
+  assert.equal(sanitizeAppRoute(""), "");
+  assert.equal(sanitizeAppRoute("no-hash-prefix"), "");
+  assert.equal(sanitizeAppRoute("#has space"), "");
+  assert.equal(sanitizeAppRoute("#/a?q=1"), "");
+  assert.equal(sanitizeAppRoute(`#${"a".repeat(257)}`), "");
+  assert.equal(sanitizeAppRoute(42), "");
+  assert.equal(sanitizeAppRoute(undefined), "");
 });
 
 test("a result reaches its watch callback and dedupes by JSON identity", () => {

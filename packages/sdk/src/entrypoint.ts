@@ -70,13 +70,35 @@ const core = new SdkCore((message, targetOrigin) => {
   // exactly the Driggsby console origin.
   allowLocalHostOrigins: isLocalAppHostname(window.location.hostname),
 });
-core.onHostReady = removeStandaloneNote;
 core.onNewVersion = () => {
   window.location.reload();
 };
 core.onToolError = (tool, message) => {
   console.error(`Driggsby: the ${tool} call didn't work — ${message}`);
 };
+// Route sync (zero app code for hash-routed apps): the host remembers the
+// app's location — restore what it hands us in the hello, and report every
+// later in-page move so refresh and redeploy reloads land on the same page.
+// The route lands in the host page's URL, so apps should keep sensitive
+// identifiers and amounts out of their hash routes. On host-ready, a hash
+// the app already navigated to during boot is reported too (skipped when
+// blank — a restore may be about to arrive, and blank must not clear it).
+// location.replace, not location.hash: the restore must not push a history
+// entry the user never created, or the first browser Back after a deep
+// link rewinds the app's route instead of leaving the host page. The
+// target is rebuilt absolute so a page's <base href> can't turn the
+// fragment change into a real navigation.
+core.onHostReady = () => {
+  removeStandaloneNote();
+  if (window.location.hash !== "") core.reportRoute(window.location.hash);
+};
+core.onRestoreRoute = (route) => {
+  if (window.location.hash === route) return;
+  window.location.replace((window.location.href.split("#")[0] ?? "") + route);
+};
+window.addEventListener("hashchange", () => {
+  core.reportRoute(window.location.hash);
+});
 
 window.addEventListener("message", (event: MessageEvent) => {
   core.handleMessage(event.origin, event.source === window.parent, event.data);

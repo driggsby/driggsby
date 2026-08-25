@@ -23,6 +23,9 @@ const UPLOAD_CONCURRENCY = 4;
 export interface DeployOptions {
   live: boolean;
   appName?: string;
+  // The app's declared page background from driggsby.json, sent with the
+  // manifest so Driggsby paints it while the app loads.
+  background?: string;
 }
 
 export interface DeployOutcome {
@@ -86,7 +89,7 @@ export async function deployCollectedFiles(
   collected: CollectedDeploy,
   options: DeployOptions,
 ): Promise<DeployOutcome> {
-  const created = await createVersion(api, slug, collected.files, options.appName);
+  const created = await createVersion(api, slug, collected.files, options.appName, options.background);
 
   const fileBySha = new Map<string, DeployFile>();
   for (const file of collected.files) {

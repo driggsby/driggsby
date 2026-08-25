@@ -136,6 +136,38 @@ test("a serve folder reached through an in-project symlink is allowed", async ()
   assert.equal(config.serveDirectory, join(directory, "dist"));
 });
 
+test("background: absent means null, valid values normalize, bad shapes are refused", async () => {
+  const absent = await readProjectConfig(
+    await projectDirectory('{ "slug": "money-dash" }'),
+  );
+  assert.equal(absent.background, null);
+
+  const declared = await readProjectConfig(
+    await projectDirectory('{ "slug": "money-dash", "background": " #0B0C0F " }'),
+  );
+  assert.equal(declared.background, "#0b0c0f");
+
+  // An explicit null reads as "no declared background", same as absent.
+  const explicitNull = await readProjectConfig(
+    await projectDirectory('{ "slug": "money-dash", "background": null }'),
+  );
+  assert.equal(explicitNull.background, null);
+
+  for (const bad of ['"white"', '"#fff"', '"url(x)"', "42"]) {
+    await assert.rejects(
+      readProjectConfig(
+        await projectDirectory(`{ "slug": "money-dash", "background": ${bad} }`),
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof DeployError);
+        assert.match(error.message, /background/);
+        assert.match(error.message, /#0b0c0f/);
+        return true;
+      },
+    );
+  }
+});
+
 test("dev_command is surfaced when present", async () => {
   const directory = await projectDirectory(
     '{ "slug": "money-dash", "serve": ".", "dev_command": "npm run dev" }',

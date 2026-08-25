@@ -26,6 +26,9 @@ export type BrokerResult =
 
 export interface DevServerOptions {
   slug: string;
+  // The app's declared background from driggsby.json (validated hex, or
+  // null): the host page paints it behind the frame like production does.
+  background: string | null;
   serveDirectory: string;
   sdkBundle: string;
   runToolCall: (tool: string, argumentsObject: Record<string, unknown>) => Promise<BrokerResult>;
@@ -167,7 +170,7 @@ async function handleHostRequest(
   const path = requestPath(request);
 
   if (request.method === "GET" && path === "/") {
-    sendHostPage(response, hostPageHtml(options.slug, appOrigin), appOrigin);
+    sendHostPage(response, hostPageHtml(options.slug, appOrigin, options.background), appOrigin);
     return;
   }
   if (request.method === "GET" && path === "/host.js") {
