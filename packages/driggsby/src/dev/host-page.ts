@@ -9,12 +9,14 @@
 // The page's script is served as its own file so the page can carry a
 // Content-Security-Policy with no inline scripts.
 //
-// Both interpolations below are HTML-safe by construction, not by escaping:
+// All interpolations below are HTML-safe by construction, not by escaping:
 // `slug` has passed readProjectConfig's strict slug rules (lowercase
-// alphanumerics and dashes only) before runDev ever calls this, and
+// alphanumerics and dashes only) before runDev ever calls this,
 // `appOrigin` is built by startDevServers from a literal plus a bound port
-// number. Anything looser than those two sources must not be passed here.
-export function hostPageHtml(slug: string, appOrigin: string): string {
+// number, and `background` has passed readProjectConfig's strict hex-color
+// rule (or is null). Anything looser than those sources must not be
+// passed here.
+export function hostPageHtml(slug: string, appOrigin: string, background: string | null): string {
   return `<!doctype html>
 <html lang="en" data-app-origin="${appOrigin}">
 <head>
@@ -46,6 +48,9 @@ export function hostPageHtml(slug: string, appOrigin: string): string {
       flex: 1;
       width: 100%;
       border: none;
+      /* The app's declared background from driggsby.json, painted while
+         the app loads — the same surface the production host shows. */
+      background: ${background ?? "#ffffff"};
     }
   </style>
 </head>
@@ -67,6 +72,47 @@ export const HOST_PAGE_JS = [
   'const PROTOCOL = "driggsby-sdk/1";',
   "const APP_ORIGIN = document.documentElement.dataset.appOrigin;",
   'const frame = document.getElementById("app");',
+  "",
+  "// The app's in-page location (a URL fragment), mirrored into this",
+  "// page's own URL and handed back in the hello — the same route sync",
+  "// the production host does, same strict shape on both sides.",
+  "const APP_ROUTE_PATTERN = /^#[A-Za-z0-9\\/\\-._]{1,256}$/;",
+  "",
+  "function sanitizeAppRoute(value) {",
+  '  return typeof value === "string" && APP_ROUTE_PATTERN.test(value) ? value : "";',
+  "}",
+  "",
+  "let appRoute = sanitizeAppRoute(window.location.hash);",
+  "",
+  "// URL writes are bounded (leading + one trailing per window) because",
+  "// the frame controls their rate, and each write is guarded: Safari",
+  "// hard-errors on rapid replaceState bursts.",
+  "const ROUTE_WRITE_WINDOW_MS = 1000;",
+  "let routeWriteTimer = null;",
+  "",
+  "function writeRouteToUrl() {",
+  "  if (window.location.hash === appRoute) {",
+  "    return;",
+  "  }",
+  '  const base = window.location.href.split("#")[0];',
+  "  try {",
+  '    history.replaceState(history.state, "", base + appRoute);',
+  "  } catch (error) {",
+  "    // A refused write costs only URL freshness; the next one retries.",
+  "  }",
+  "}",
+  "",
+  "function applyRoute(hash) {",
+  "  appRoute = hash;",
+  "  if (routeWriteTimer !== null) {",
+  "    return;",
+  "  }",
+  "  writeRouteToUrl();",
+  "  routeWriteTimer = setTimeout(() => {",
+  "    routeWriteTimer = null;",
+  "    writeRouteToUrl();",
+  "  }, ROUTE_WRITE_WINDOW_MS);",
+  "}",
   "",
   "function postToApp(message) {",
   "  if (frame.contentWindow) {",
@@ -116,7 +162,25 @@ export const HOST_PAGE_JS = [
   "  }",
   "  const data = event.data;",
   '  if (data.type === "ready") {',
-  '    postToApp({ protocol: PROTOCOL, type: "hello" });',
+  "    const hello = { protocol: PROTOCOL, type: \"hello\" };",
+  '    if (appRoute !== "") {',
+  "      hello.route = appRoute;",
+  "    }",
+  "    postToApp(hello);",
+  "    return;",
+  "  }",
+  '  if (data.type === "route") {',
+  '    // A bare "#" is the explicit cleared sentinel: the app is back at',
+  "    // its no-hash location, so the page URL drops its fragment.",
+  '    if (data.hash === "#") {',
+  '      applyRoute("");',
+  "      return;",
+  "    }",
+  "    const hash = sanitizeAppRoute(data.hash);",
+  '    if (hash === "") {',
+  "      return;",
+  "    }",
+  "    applyRoute(hash);",
   "    return;",
   "  }",
   '  if (data.type !== "call") {',

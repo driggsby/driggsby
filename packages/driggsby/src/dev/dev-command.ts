@@ -84,6 +84,7 @@ export async function runDev(
   try {
     servers = await startDevServers({
       slug: config.slug,
+      background: config.background,
       serveDirectory: config.serveDirectory,
       sdkBundle,
       runToolCall: (tool, argumentsObject) => broker.runToolCall(tool, argumentsObject),

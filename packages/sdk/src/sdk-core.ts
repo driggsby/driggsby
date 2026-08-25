@@ -46,6 +46,17 @@ export function isAllowedHostOrigin(origin: string, allowLocalHostOrigins: boole
 export type WatchCallback = (result: unknown) => void;
 export type PostFunction = (message: Record<string, unknown>, targetOrigin: string) => void;
 
+// The app's in-page location, as a URL fragment. The host mirrors it into
+// its own page URL (so refresh and shared links restore it) and hands it
+// back in the hello after a reload. The shape is deliberately narrow — a
+// short, boring hash — and must stay identical to the host's sanitizer;
+// anything else normalizes to ''.
+const APP_ROUTE_PATTERN = /^#[A-Za-z0-9/\-._]{1,256}$/;
+
+export function sanitizeAppRoute(value: unknown): string {
+  return typeof value === "string" && APP_ROUTE_PATTERN.test(value) ? value : "";
+}
+
 interface WatchEntry {
   tool: string;
   params: Record<string, unknown>;
@@ -59,6 +70,7 @@ interface ProtocolMessage {
   id: string | null;
   result: unknown;
   errorMessage: string | null;
+  route: string;
 }
 
 // Untrusted wire data -> a normalized message, or null when it is not ours.
@@ -81,15 +93,17 @@ function parseProtocolMessage(data: unknown): ProtocolMessage | null {
     id: typeof record.id === "string" ? record.id : null,
     result: record.result,
     errorMessage,
+    route: sanitizeAppRoute(record.route),
   };
 }
 
 export class SdkCore {
   // Wired by the page entry: remove the standalone note, log tool errors,
-  // reload on a new deployed version.
+  // reload on a new deployed version, restore the host-remembered route.
   onHostReady: (() => void) | null = null;
   onToolError: ((tool: string, message: string) => void) | null = null;
   onNewVersion: (() => void) | null = null;
+  onRestoreRoute: ((route: string) => void) | null = null;
 
   private readonly post: PostFunction;
   private readonly allowLocalHostOrigins: boolean;
@@ -139,7 +153,7 @@ export class SdkCore {
     if (message === null) return;
 
     if (message.type === "hello") {
-      this.handleHello(origin);
+      this.handleHello(origin, message.route);
       return;
     }
     // Everything after the handshake must come from the pinned host origin.
@@ -154,12 +168,30 @@ export class SdkCore {
     }
   }
 
-  private handleHello(origin: string): void {
+  private handleHello(origin: string, route: string): void {
     if (this.hostOrigin !== null) return; // pinned; later hellos are ignored
     if (!isAllowedHostOrigin(origin, this.allowLocalHostOrigins)) return;
     this.hostOrigin = origin;
     this.onHostReady?.();
+    // Restore before the watches fire so the app renders the remembered
+    // page (the host page's fragment, or the pre-redeploy location) with
+    // its first data, not after it.
+    if (route !== "") this.onRestoreRoute?.(route);
     this.requestAllWatches();
+  }
+
+  // The app moved to a new in-page location; tell the pinned host so it
+  // can mirror the fragment into its own page URL. Anything unmirrorable —
+  // an empty hash (the app is back at its no-hash location) or a hash
+  // outside the strict shape (a query-bearing route, say) — is reported
+  // as the bare-"#" cleared sentinel: the host must forget rather than
+  // keep claiming a location the app already left, or a refresh or
+  // redeploy reload would yank the user to a stale page. Before the
+  // handshake there is nobody to tell.
+  reportRoute(hash: string): void {
+    if (this.hostOrigin === null) return;
+    const route = sanitizeAppRoute(hash) || "#";
+    this.post({ protocol: PROTOCOL, type: "route", hash: route }, this.hostOrigin);
   }
 
   private handleResult(message: ProtocolMessage): void {
