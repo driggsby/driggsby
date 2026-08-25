@@ -1,11 +1,13 @@
 // Reads and validates the project's driggsby.json. This is the one file that
 // names the app (slug) and what to publish (serve). Validation mirrors the
 // deploy API's slug rules so mistakes fail fast, locally, with the fix.
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, relative, resolve, isAbsolute } from "node:path";
 
 import { DeployError } from "./errors.ts";
 import { slugProblem } from "./limits.ts";
+import { quotedForTerminal } from "./terminal-text.ts";
 
 export interface ProjectConfig {
   slug: string;
@@ -20,8 +22,10 @@ const MISSING_CONFIG_MESSAGE =
   "No driggsby.json found in this directory. Create one next to the files you\n" +
   "want to deploy:\n\n" +
   '  { "slug": "your-app-name", "serve": "." }\n\n' +
-  '"slug" names your app (it becomes your-app-name.driggsby.dev) and "serve"\n' +
-  "is the folder to publish, relative to driggsby.json.";
+  '"slug" names your app — the first deploy gives it a unique address like\n' +
+  'your-app-name-x7k2qf.driggsby.dev and saves that assigned name back into\n' +
+  'this file — and "serve" is the folder to publish, relative to\n' +
+  "driggsby.json.";
 
 export async function readProjectConfig(projectDirectory: string): Promise<ProjectConfig> {
   const configPath = join(projectDirectory, "driggsby.json");
@@ -80,6 +84,49 @@ export async function readProjectConfig(projectDirectory: string): Promise<Proje
     serve,
     devCommand: typeof devCommand === "string" && devCommand !== "" ? devCommand : null,
   };
+}
+
+// Persists the server-assigned slug into driggsby.json, keeping every other
+// field as-is. This runs after the app is created and BEFORE any bytes
+// upload, so a deploy that dies mid-upload never strands an app whose name
+// the project forgot. A failed write aborts the deploy with the manual fix,
+// because deploying on without saving the name would create a second app on
+// the next run.
+export async function writeAssignedSlug(
+  projectDirectory: string,
+  assignedSlug: string,
+): Promise<void> {
+  const configPath = join(projectDirectory, "driggsby.json");
+  let config: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(await readFile(configPath, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("driggsby.json is not a JSON object");
+    }
+    config = parsed as Record<string, unknown>;
+    config.slug = assignedSlug;
+    // Temp-file-plus-rename, so a crash mid-write can never leave a
+    // truncated driggsby.json holding half of a name only the server knows.
+    // The temp name starts with a dot: the deploy walk excludes dotfiles at
+    // every depth, so a leftover from a crash between write and rename can
+    // never be swept into a later deploy and published.
+    const temporaryPath = join(projectDirectory, `.driggsby.json.${randomUUID()}.tmp`);
+    try {
+      await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+      await rename(temporaryPath, configPath);
+    } catch (error) {
+      await rm(temporaryPath, { force: true });
+      throw error;
+    }
+  } catch {
+    // The assigned slug came from the server, so it prints through
+    // quotedForTerminal like every other string this package did not author.
+    throw new DeployError(
+      `Driggsby created your app as ${quotedForTerminal(assignedSlug, 80)}, but we couldn't save\n` +
+        'that name into driggsby.json. Update its "slug" field to exactly that\n' +
+        "value, then deploy again.",
+    );
+  }
 }
 
 const SERVE_ESCAPES_PROJECT_MESSAGE =

@@ -3,6 +3,8 @@
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
 import { runDeploy } from "./deploy/deploy-command.ts";
+import { runDev } from "./dev/dev-command.ts";
+import { runInit } from "./init/init-command.ts";
 import { runRollback } from "./deploy/rollback-command.ts";
 import { runVersions } from "./deploy/versions-command.ts";
 import { runLogin } from "./login/login.ts";
@@ -29,6 +31,10 @@ async function run(argv: string[]): Promise<number> {
       return 0;
     case "logout":
       return await runLogout();
+    case "init":
+      return await runInit({ slug: command.slug });
+    case "dev":
+      return await runDev();
     case "deploy":
       return await runDeploy({ preview: command.preview });
     case "rollback":

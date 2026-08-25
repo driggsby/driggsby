@@ -49,6 +49,7 @@ export interface FakeDeployServer {
 export async function startFakeDeployServer(): Promise<FakeDeployServer> {
   const requests: RecordedRequest[] = [];
   const injected: InjectedResponse[] = [];
+  let createdAppCount = 0;
   const blobs = new Map<string, Buffer>();
   const versions = new Map<string, FakeVersion>();
   const liveBySlug = new Map<string, number>();
@@ -82,6 +83,29 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
   });
 
   function handle(method: string, path: string, body: Buffer, response: ServerResponse): void {
+    // App creation with a server-assigned slug: the readable base name plus
+    // a unique 6-char ending, mirroring the real API. (Unlike the real API,
+    // version posts below auto-create unknown apps — that keeps the many
+    // protocol tests terse; tests exercising the creation flow inject an
+    // app_not_found response for the first version post instead.)
+    if (path === "/deploy/apps" && method === "POST") {
+      const parsed = JSON.parse(body.toString("utf8")) as { base_name?: unknown };
+      const base = typeof parsed.base_name === "string" ? parsed.base_name : "";
+      createdAppCount += 1;
+      // The real API caps long bases at 56 characters (trimming trailing
+      // dashes) before adding the ending, so every assigned slug fits the
+      // 63-character DNS label limit; model that here so tests see the
+      // slugs clients actually receive.
+      const cappedBase = base.slice(0, 56).replace(/-+$/, "");
+      const assigned = `${cappedBase}-${String(createdAppCount).padStart(6, "0")}`;
+      respondJson(response, 201, {
+        app_slug: assigned,
+        url: `https://${assigned}.driggsby.dev`,
+        next_step: `Save the app_slug — every deploy targets it. Then POST /deploy/apps/${assigned}/versions with this app's file manifest.`,
+      });
+      return;
+    }
+
     const manifestMatch = /^\/deploy\/apps\/([^/]+)\/versions$/.exec(path);
     if (manifestMatch !== null && method === "POST") {
       const slug = manifestMatch[1] ?? "";

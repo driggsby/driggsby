@@ -4,6 +4,8 @@ Commands:
   mcp       Set up Driggsby MCP clients.
   login     Sign in to Driggsby and save an app token on this machine.
   logout    Remove the saved Driggsby app token.
+  init      Create a new Driggsby app in a new folder.
+  dev       Preview the app in this directory with your live Driggsby data.
   deploy    Deploy the app in this directory to Driggsby.
   rollback  Switch which deployed version of your app is live.
   versions  List your deployed app's versions.
@@ -18,4 +20,6 @@ Examples:
   npx driggsby@latest mcp setup codex
   npx driggsby@latest mcp setup other
   npx driggsby@latest login
+  npx driggsby@latest init money-dash
+  npx driggsby@latest dev
   npx driggsby@latest deploy

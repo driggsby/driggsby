@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import {
+  createApp,
   createVersion,
   finalizeVersion,
   listVersions,
@@ -21,6 +22,27 @@ function sha256Hex(contents: string): string {
 function api(baseUrl: string): { baseUrl: string; token: string } {
   return { baseUrl, token: TOKEN };
 }
+
+test("createApp posts the base name and returns the server-assigned slug", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const created = await createApp(api(server.baseUrl), "money-dash", "Money Dash");
+    assert.match(created.appSlug, /^money-dash-[a-z0-9]{6}$/);
+    assert.equal(created.url, `https://${created.appSlug}.driggsby.dev`);
+
+    const request = server.requests[0];
+    assert.ok(request !== undefined);
+    assert.equal(request.method, "POST");
+    assert.equal(request.path, "/deploy/apps");
+    assert.equal(request.headers.authorization, `Bearer ${TOKEN}`);
+    assert.deepEqual(JSON.parse(request.body.toString("utf8")), {
+      base_name: "money-dash",
+      app_name: "Money Dash",
+    });
+  } finally {
+    await server.close();
+  }
+});
 
 test("createVersion sends the exact manifest shape with bearer auth", async () => {
   const server = await startFakeDeployServer();
