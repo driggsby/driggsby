@@ -6,6 +6,7 @@
 // (login, logout) keep the same behavior and exit codes without chasing
 // clap's byte-level quirks.
 import { parseDeploy, parseRollback, parseVersions } from "./args-deploy.ts";
+import { parseDev } from "./args-dev.ts";
 import { parseInit } from "./args-init.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
@@ -18,7 +19,7 @@ import {
 } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
-import { DEV_HELP, LOGIN_HELP, LOGOUT_HELP, MCP_HELP, ROOT_HELP } from "./help.ts";
+import { LOGIN_HELP, LOGOUT_HELP, MCP_HELP, ROOT_HELP } from "./help.ts";
 import { sanitizeForTerminal } from "./terminal-text.ts";
 
 export { type ParsedCommand } from "./args-shared.ts";
@@ -52,7 +53,7 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "login", longFlags: ["help"] },
     { name: "logout", longFlags: ["help"] },
     { name: "init", longFlags: ["help"] },
-    { name: "dev", longFlags: ["help"] },
+    { name: "dev", longFlags: ["stop", "help"] },
     { name: "deploy", longFlags: ["preview", "help"] },
     { name: "rollback", longFlags: ["to", "help"] },
     { name: "versions", longFlags: ["help"] },
@@ -123,7 +124,7 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
     case "init":
       return parseInit(rest);
     case "dev":
-      return parseBareCommand({ kind: "dev" }, DEV_HELP, "Usage: npx driggsby@latest dev", rest);
+      return parseDev(rest);
     case "deploy":
       return parseDeploy(rest);
     case "rollback":

@@ -13,7 +13,7 @@ export type ParsedCommand =
   | { kind: "login" }
   | { kind: "logout" }
   | { kind: "init"; slug: string | null }
-  | { kind: "dev" }
+  | { kind: "dev"; stop: boolean }
   | { kind: "deploy"; preview: boolean }
   | { kind: "rollback"; toVersion: number | null }
   | { kind: "versions" }

@@ -6,6 +6,7 @@
 // the CLI process.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
+import { DEV_IDENTITY_PATH } from "./dev-state.ts";
 import { hostPageHtml, HOST_PAGE_JS } from "./host-page.ts";
 import { serveStaticFile } from "./static-files.ts";
 import { APP_TOOL_ALLOWLIST } from "./tool-allowlist.ts";
@@ -45,6 +46,9 @@ export interface DevServers {
   // Pushes a change event to every connected host page (served files
   // changed; the app should reload).
   notifyChange: () => void;
+  // How many host pages hold an open event stream right now; zero means no
+  // page is looking at the preview.
+  clientCount: () => number;
   close: () => Promise<void>;
 }
 
@@ -90,6 +94,7 @@ export async function startDevServers(options: DevServerOptions): Promise<DevSer
         client.write("event: change\ndata: files-changed\n\n");
       }
     },
+    clientCount: () => sseClients.size,
     close: async () => {
       for (const client of sseClients) {
         client.end();
@@ -169,6 +174,12 @@ async function handleHostRequest(
   }
   const path = requestPath(request);
 
+  if (request.method === "GET" && path === DEV_IDENTITY_PATH) {
+    // Lets `dev --stop` (and a colliding `dev`) confirm that the process in
+    // ~/.driggsby/dev.json is the one actually serving this port.
+    sendJson(response, 200, { pid: process.pid });
+    return;
+  }
   if (request.method === "GET" && path === "/") {
     sendHostPage(response, hostPageHtml(options.slug, appOrigin, options.background), appOrigin);
     return;
