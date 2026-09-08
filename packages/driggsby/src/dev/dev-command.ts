@@ -17,9 +17,10 @@ import {
 } from "../credentials/store.ts";
 import { requireDeploySession } from "../deploy/api-session.ts";
 import { tryOpenUrl } from "../login/open-url.ts";
-import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
+import { wrapProse } from "../terminal-text.ts";
 import { startDevServers, type DevServers } from "./dev-servers.ts";
 import { readLiveDevState, removeDevState, writeDevState } from "./dev-state.ts";
+import { displayFolder } from "./display-folder.ts";
 import { McpBroker } from "./mcp-broker.ts";
 import { watchDirectory } from "./watcher.ts";
 
@@ -33,7 +34,6 @@ const DEV_IDLE_CHECK_MS = 15 * 1000;
 
 const DEV_RETRY_COMMAND = "npx driggsby@latest dev";
 const DEV_STOP_COMMAND = "npx driggsby@latest dev --stop";
-const MAX_FOLDER_CHARS = 200;
 
 export interface DevCommandIo {
   out: (text: string) => void;
@@ -64,6 +64,11 @@ function defaultDevIo(): DevCommandIo {
           resolve();
         });
         process.once("SIGTERM", () => {
+          resolve();
+        });
+        // A closed terminal window: still a clean stop, so the record and
+        // the ports are released like any other exit.
+        process.once("SIGHUP", () => {
           resolve();
         });
       });
@@ -109,22 +114,19 @@ export async function runDev(
   const stopWatching = watchDirectory(config.serveDirectory, () => {
     servers.notifyChange();
   });
-  const idle = idleWatch(servers, options.idleTimeoutMs ?? DEV_IDLE_TIMEOUT_MS, options.idleCheckMs ?? DEV_IDLE_CHECK_MS);
+  const idleTimeoutMs = options.idleTimeoutMs ?? DEV_IDLE_TIMEOUT_MS;
+  const idle = idleWatch(servers, idleTimeoutMs, options.idleCheckMs ?? DEV_IDLE_CHECK_MS);
 
   try {
-    await writeDevState(environment.homeDirectory, {
-      pid: process.pid,
-      folder: projectDirectory,
-      startedAt: new Date().toISOString(),
-      hostPort: servers.hostPort,
-      appPort: servers.appPort,
-    });
+    // The record is what `dev --stop` finds; a home that can't be written
+    // costs that convenience, not the preview.
+    const recorded = await tryWriteDevState(environment.homeDirectory, projectDirectory, servers);
     const opened = await io.openUrl(servers.hostOrigin);
-    io.out(readyText(config.slug, servers, opened));
+    io.out(readyText(config.slug, servers, opened, recorded, idleTimeoutMs));
     const ending = await Promise.race([io.waitForShutdown().then(() => "shutdown" as const), idle.expired]);
     if (ending === "idle") {
       io.out(
-        `✓ Stopped   No page was open for ${idleWindowWords(options.idleTimeoutMs ?? DEV_IDLE_TIMEOUT_MS)}, so ` +
+        `✓ Stopped   No page was open for ${idleWindowWords(idleTimeoutMs)}, so ` +
           `driggsby dev stopped itself.\n\nStart it again with:\n  ${DEV_RETRY_COMMAND}\n`,
       );
     }
@@ -137,14 +139,31 @@ export async function runDev(
   }
 }
 
-function readyText(slug: string, servers: DevServers, opened: boolean): string {
+async function tryWriteDevState(homeDirectory: string, folder: string, servers: DevServers): Promise<boolean> {
+  try {
+    await writeDevState(homeDirectory, {
+      pid: process.pid,
+      folder,
+      startedAt: new Date().toISOString(),
+      hostPort: servers.hostPort,
+      appPort: servers.appPort,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readyText(slug: string, servers: DevServers, opened: boolean, recorded: boolean, idleTimeoutMs: number): string {
+  const stopLine = recorded
+    ? `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop, or from any terminal:")}\n  ${DEV_STOP_COMMAND}\n`
+    : `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop.")}\n`;
   return (
     `✓ Ready     ${slug} is running with your live Driggsby data${opened ? ", at:" : ":"}\n\n` +
     `  ${servers.hostOrigin}\n\n` +
     `${wrapProse(`That page embeds the app from ${servers.appOrigin}. Opened on its own, the app gets no Driggsby data, so use the address above.`)}\n\n` +
-    `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop, or from any terminal:")}\n` +
-    `  ${DEV_STOP_COMMAND}\n\n` +
-    `${wrapProse(`It stops on its own after ${idleWindowWords(DEV_IDLE_TIMEOUT_MS)} with no page open.`)}\n` +
+    `${stopLine}\n` +
+    `${wrapProse(`It stops on its own after ${idleWindowWords(idleTimeoutMs)} with no page open.`)}\n` +
     "\nNext:\n  Put it live on driggsby.dev with npx driggsby@latest deploy\n"
   );
 }
@@ -202,7 +221,7 @@ async function devStartFailure(error: unknown, baseUrl: string, homeDirectory: s
     const running = await readLiveDevState(homeDirectory);
     if (running !== null) {
       return new CliError(
-        `driggsby dev is already running for the app in:\n  ${quotedForTerminal(running.folder, MAX_FOLDER_CHARS)}\n\n` +
+        `driggsby dev is already running for the app in:\n  ${displayFolder(running.folder)}\n\n` +
           `Only one can run at a time. Stop it first:\n  ${DEV_STOP_COMMAND}\n\n` +
           `Then try again here:\n  ${DEV_RETRY_COMMAND}`,
         1,

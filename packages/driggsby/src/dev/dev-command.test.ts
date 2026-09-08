@@ -12,7 +12,7 @@ import {
 } from "../deploy/test-support/deploy-command-harness.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
 import { type DevCommandIo, runDev } from "./dev-command.ts";
-import { type DevState, readLiveDevState, writeDevState } from "./dev-state.ts";
+import { DEV_IDENTITY_PATH, type DevState, readLiveDevState, writeDevState } from "./dev-state.ts";
 
 // The dev loopback base URL keeps the saved-sign-in pin satisfied; nothing
 // in these tests ever reaches it.
@@ -120,19 +120,55 @@ test("dev stops itself after the idle window with no page open", async () => {
   assertFitsTerminal(captured.text());
 });
 
+test("an open page holds the idle window off", async () => {
+  const directory = await makeProject("money-dash");
+  const environment = await makeEnvironment(LOOPBACK_BASE_URL);
+  let stillUpWhileHeld = false;
+  const io = probingIo(async (openedUrl) => {
+    // A host page keeps its event stream open the whole time it is shown.
+    const controller = new AbortController();
+    const stream = fetch(`${openedUrl}/events`, { signal: controller.signal });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 120);
+    });
+    stillUpWhileHeld = (await fetch(openedUrl)).ok;
+    controller.abort();
+    await stream.catch(() => undefined);
+  });
+
+  const exitCode = await runDev(
+    { projectDirectory: directory, hostPort: 0, appPort: 0, idleTimeoutMs: 30, idleCheckMs: 5 },
+    environment,
+    io,
+  );
+
+  assert.equal(exitCode, 0);
+  assert.ok(stillUpWhileHeld, "the preview must outlive the idle window while a page is open");
+  assert.ok(!io.text().includes("stopped itself"));
+});
+
 test("a port held by another driggsby dev names that dev's folder and how to stop it", async () => {
   const directory = await makeProject("money-dash");
   const environment = await makeEnvironment(LOOPBACK_BASE_URL);
-  // Another dev on this machine (this very process stands in for it).
-  await writeDevState(environment.homeDirectory, {
-    pid: process.pid, folder: "/Users/someone/other-app", startedAt: new Date().toISOString(), hostPort: 4111, appPort: 4112,
+  // Another dev on this machine (this very process stands in for it): its
+  // host origin answers the identity probe with its pid, and its record
+  // names that port.
+  const squatter = createServer((request, response) => {
+    response.writeHead(request.url === DEV_IDENTITY_PATH ? 200 : 404, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ pid: process.pid }));
   });
-  const squatter = createServer();
   await new Promise<void>((resolve) => {
     squatter.listen(0, "127.0.0.1", resolve);
   });
   const address = squatter.address();
   assert.ok(address !== null && typeof address !== "string");
+  await writeDevState(environment.homeDirectory, {
+    pid: process.pid,
+    folder: "/Users/someone/other-app",
+    startedAt: new Date().toISOString(),
+    hostPort: address.port,
+    appPort: 4112,
+  });
   try {
     const error = await runDev(
       { projectDirectory: directory, hostPort: address.port, appPort: 0 },

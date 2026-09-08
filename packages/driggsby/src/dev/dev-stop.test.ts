@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { CliError } from "../cli-error.ts";
 import { capturedOut } from "../deploy/test-support/deploy-command-harness.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
-import { readLiveDevState, writeDevState } from "./dev-state.ts";
+import { type DevProbes, readLiveDevState, writeDevState } from "./dev-state.ts";
 import { runDevStop } from "./dev-stop.ts";
 
 async function home(): Promise<string> {
@@ -16,7 +16,9 @@ async function home(): Promise<string> {
 
 test("stop with nothing running says so and points at dev", async () => {
   const io = capturedOut();
-  const code = await runDevStop(await home(), io, { isAlive: () => false, terminate: () => undefined, waitMs: 10 });
+  const code = await runDevStop(await home(), io, {
+    isAlive: () => false, pidServing: () => Promise.resolve(null), terminate: () => undefined, waitMs: 10,
+  });
 
   assert.equal(code, 0);
   assert.ok(io.text().includes("No driggsby dev is running on this machine."));
@@ -39,6 +41,7 @@ test("stop terminates the running dev, waits for it to go, and removes its state
       probes += 1;
       return terminated.length === 0 || probes < 3;
     },
+    pidServing: () => Promise.resolve(4242),
     terminate: (pid) => {
       terminated.push(pid);
     },
@@ -49,8 +52,51 @@ test("stop terminates the running dev, waits for it to go, and removes its state
   assert.deepEqual(terminated, [4242]);
   assert.ok(io.text().includes("✓ Stopped   driggsby dev for the app in:\n  \"/Users/someone/money-dash\""));
   assert.ok(io.text().includes("npx driggsby@latest dev"));
-  assert.equal(await readLiveDevState(homeDirectory), null);
+  assert.equal(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
   assertFitsTerminal(io.text());
+});
+
+test("a record whose port is not served by its pid is never signalled", async () => {
+  const homeDirectory = await home();
+  await writeDevState(homeDirectory, {
+    pid: 4242, folder: "/Users/someone/money-dash", startedAt: "2026-09-08T01:02:03.000Z", hostPort: 4111, appPort: 4112,
+  });
+  const terminated: number[] = [];
+  const io = capturedOut();
+
+  const code = await runDevStop(homeDirectory, io, {
+    isAlive: () => true,
+    pidServing: () => Promise.resolve(null),
+    terminate: (pid) => {
+      terminated.push(pid);
+    },
+    waitMs: 10,
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(terminated, []);
+  assert.ok(io.text().includes("No driggsby dev is running on this machine."));
+  assert.equal(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
+});
+
+test("a pid that vanished or belongs to someone else reads as nothing running", async () => {
+  for (const code of ["ESRCH", "EPERM"]) {
+    const homeDirectory = await home();
+    await writeDevState(homeDirectory, {
+      pid: 4242, folder: "/tmp/gone", startedAt: "2026-09-08T01:02:03.000Z", hostPort: 4111, appPort: 4112,
+    });
+    const io = capturedOut();
+    const exit = await runDevStop(homeDirectory, io, {
+      ...alwaysServed(4242),
+      terminate: () => {
+        throw Object.assign(new Error(code), { code });
+      },
+      waitMs: 10,
+    });
+    assert.equal(exit, 0);
+    assert.ok(io.text().includes("No driggsby dev is running on this machine."));
+    assert.equal(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
+  }
 });
 
 test("a dev that ignores the signal is reported, not hidden", async () => {
@@ -61,10 +107,14 @@ test("a dev that ignores the signal is reported, not hidden", async () => {
 
   await assert.rejects(
     runDevStop(await Promise.resolve(homeDirectory), capturedOut(), {
-      isAlive: () => true,
+      ...alwaysServed(4343),
       terminate: () => undefined,
       waitMs: 10,
     }),
     (error: unknown) => error instanceof CliError && error.exitCode === 1 && error.message.includes("Ctrl+C"),
   );
 });
+
+function alwaysServed(pid: number): DevProbes {
+  return { isAlive: () => true, pidServing: () => Promise.resolve(pid) };
+}
