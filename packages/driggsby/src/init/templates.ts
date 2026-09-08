@@ -52,6 +52,7 @@ export function indexHtml(slug: string): string {
       <h2>Accounts</h2>
       <div id="accounts" aria-busy="true">
         <div class="account-row">
+          <div class="skeleton skeleton-glyph"></div>
           <div class="account-names">
             <div class="skeleton skeleton-name"></div>
             <div class="skeleton skeleton-institution"></div>
@@ -59,6 +60,7 @@ export function indexHtml(slug: string): string {
           <div class="skeleton skeleton-balance"></div>
         </div>
         <div class="account-row">
+          <div class="skeleton skeleton-glyph"></div>
           <div class="account-names">
             <div class="skeleton skeleton-name"></div>
             <div class="skeleton skeleton-institution"></div>
@@ -66,6 +68,7 @@ export function indexHtml(slug: string): string {
           <div class="skeleton skeleton-balance"></div>
         </div>
         <div class="account-row">
+          <div class="skeleton skeleton-glyph"></div>
           <div class="account-names">
             <div class="skeleton skeleton-name"></div>
             <div class="skeleton skeleton-institution"></div>
@@ -164,10 +167,22 @@ function formatMoney(value) {
   if (!value || typeof value.amount !== "string") return "—";
   const number = Number(value.amount);
   if (!Number.isFinite(number)) return "—";
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: value.currency_code || "USD"
-  }).format(number);
+  const currency = value.currency_code === undefined ? "USD" : value.currency_code;
+  if (typeof currency !== "string") return "—";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currency
+    }).format(number);
+  } catch (error) {
+    // An unknown currency code renders as absent, never as a guess in
+    // the wrong currency — and never takes the rest of the page down.
+    return "—";
+  }
+}
+
+function asText(value) {
+  return typeof value === "string" ? value : "";
 }
 
 function element(tag, className, text) {
@@ -212,22 +227,41 @@ function renderOverview(result) {
 }
 
 function renderAccounts(result) {
-  const accounts = (result && result.linked_accounts) || [];
+  const list = result && Array.isArray(result.linked_accounts) ? result.linked_accounts : [];
+  const accounts = list.filter((account) => account && typeof account === "object");
   const container = document.getElementById("accounts");
   container.replaceChildren();
+  if (accounts.length === 0) {
+    container.append(element("div", "empty-row", "No linked accounts yet."));
+    revealOnce(container);
+    return;
+  }
   for (const account of accounts) {
     const row = element("div", "account-row");
     const names = element("div", "account-names");
-    const mask = account.account_mask_last4;
+    // Only strings paint; a malformed field renders as absent, never as
+    // "[object Object]".
+    const displayName = asText(account.account_display_name);
+    const institution = asText(account.institution_name);
+    const mask = asText(account.account_mask_last4);
+    // The institution's initial on a round pill, the way Driggsby's own
+    // account rows draw it. Array.from keeps an emoji-leading name from
+    // breaking the render (it splits by whole character, not UTF-16 half).
+    const initialSource = (institution || displayName).trim();
+    const initial = (Array.from(initialSource)[0] || "?").toUpperCase();
+    const institutionLine = [institution, mask ? "····" + mask : ""].filter(Boolean).join(" ");
     names.append(
-      element("div", "account-name", account.account_display_name || "Account"),
-      element(
-        "div",
-        "account-institution",
-        (account.institution_name || "") + (mask ? " ····" + mask : "")
-      )
+      element("div", "account-name", displayName || "Account"),
+      element("div", "account-institution", institutionLine)
     );
-    row.append(names, element("div", "account-balance", formatMoney(account.current_balance)));
+    const glyph = element("div", "account-glyph", initial);
+    // Decorative: the institution's name is read out on the next line.
+    glyph.setAttribute("aria-hidden", "true");
+    row.append(
+      glyph,
+      names,
+      element("div", "account-balance", formatMoney(account.current_balance))
+    );
     container.append(row);
   }
   revealOnce(container);
@@ -261,149 +295,11 @@ if (window.driggsby) {
 }
 `;
 
-export const STYLES_CSS = `:root {
-  --background: #ffffff;
-  --text: #1f2430;
-  --text-muted: #6d7280;
-  --hairline: #e6e8ec;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
-}
-
-main {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 48px 24px 64px;
-}
-
-h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-h2 {
-  margin: 40px 0 4px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/* The skeleton ships in the HTML so the first paint is the final layout as
-   muted bars; the first render replaces it and fades in (see app.js). The
-   bar margins make each skeleton block exactly the height of the text it
-   stands in for, so nothing shifts when data lands. */
-.skeleton {
-  border-radius: 4px;
-  background: var(--hairline);
-  animation: skeleton-pulse 1.6s ease-in-out infinite;
-}
-
-.skeleton-label {
-  width: 64px;
-  height: 12px;
-  margin: 3.75px 0 0;
-}
-
-.skeleton-value {
-  width: 96px;
-  height: 20px;
-  margin: 8.75px 0 5px;
-}
-
-.skeleton-name {
-  width: 150px;
-  height: 14px;
-  margin: 4px 0 8px;
-}
-
-.skeleton-institution {
-  width: 110px;
-  height: 12px;
-  margin: 4px 0;
-}
-
-.skeleton-balance {
-  width: 72px;
-  height: 14px;
-}
-
-@keyframes skeleton-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-
-.fade-in {
-  animation: fade-in 200ms ease-out;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .fade-in {
-    animation: none;
-  }
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 20px;
-  margin-top: 32px;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.stat-value {
-  font-size: 20px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.account-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--hairline);
-}
-
-.account-row:first-child {
-  border-top: none;
-}
-
-.account-institution {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.account-balance {
-  font-variant-numeric: tabular-nums;
-}
-`;
 
 // "background" is the template's own page background (styles.css
-// --background): Driggsby paints it while the app loads, so the loading
+// --bg-app): Driggsby paints it while the app loads, so the loading
 // surface matches the app from the first frame. An agent that re-themes
 // the app should keep this equal to the page's real background color.
 export function driggsbyJsonText(slug: string): string {
-  return `{\n  "slug": ${JSON.stringify(slug)},\n  "serve": ".",\n  "background": "#ffffff"\n}\n`;
+  return `{\n  "slug": ${JSON.stringify(slug)},\n  "serve": ".",\n  "background": "#000000"\n}\n`;
 }

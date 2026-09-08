@@ -11,7 +11,8 @@ import { slugProblem } from "@driggsby/deploy";
 
 import { CliError } from "../cli-error.ts";
 import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
-import { APP_JS, STYLES_CSS, driggsbyJsonText, indexHtml } from "./templates.ts";
+import { STYLES_CSS } from "./template-styles.ts";
+import { APP_JS, driggsbyJsonText, indexHtml } from "./templates.ts";
 
 // Argv and prompt answers echo back inside quotes with this cap; a slug can
 // never be longer than 63 characters, so the cap only trims hostile input.

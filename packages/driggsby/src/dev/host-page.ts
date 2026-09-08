@@ -24,33 +24,40 @@ export function hostPageHtml(slug: string, appOrigin: string, background: string
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${slug} — driggsby dev</title>
   <style>
+    /* The strip above the frame is the console's title row, in its own
+       measured values: 46px tall on the black ground, 14px ink, a 14%
+       white hairline under it. */
     * { box-sizing: border-box; }
+    html { color-scheme: dark; }
     body {
       margin: 0;
       display: flex;
       flex-direction: column;
       height: 100vh;
-      background: #ffffff;
-      color: #1f2430;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #000000;
+      color: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 14px;
+      line-height: 21px;
+      -webkit-font-smoothing: antialiased;
     }
     header {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
-      padding: 10px 16px;
-      border-bottom: 1px solid #e6e8ec;
+      height: 46px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.14);
     }
-    header .slug { font-weight: 600; }
-    header .mode { color: #6d7280; font-size: 13px; }
+    header .slug { font-weight: 500; }
+    header .mode { color: #a1a1a1; font-size: 13px; }
     iframe {
       flex: 1;
       width: 100%;
       border: none;
       /* The app's declared background from driggsby.json, painted while
          the app loads — the same surface the production host shows. */
-      background: ${background ?? "#ffffff"};
+      background: ${background ?? "#000000"};
     }
   </style>
 </head>
