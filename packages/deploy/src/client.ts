@@ -43,6 +43,9 @@ export interface FinalizedVersion {
   versionNumber: number;
   live: boolean;
   url: string | null;
+  // The Driggsby page where the person opens this app with their own data.
+  // Null from a server that predates the field.
+  consoleUrl: string | null;
 }
 
 export interface BlobsMissing {
@@ -394,6 +397,7 @@ function parseFinalized(parsed: Record<string, unknown>): FinalizedVersion {
     versionNumber: integerField(parsed, "version_number"),
     live: parsed.live === true,
     url: typeof parsed.url === "string" ? parsed.url : null,
+    consoleUrl: typeof parsed.console_url === "string" ? parsed.console_url : null,
   };
 }
 

@@ -10,12 +10,12 @@ import {
   type CredentialEnvironment,
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
-import { capForTerminal, wrapProse } from "../terminal-text.ts";
+import { wrapProse } from "../terminal-text.ts";
 import {
   deployFailure,
-  MAX_SERVER_URL_CHARS,
   requireDeploySession,
 } from "./api-session.ts";
+import { hasLiveAddress, liveAddressLines } from "./live-addresses.ts";
 import { fetchVersionList, renderVersionRows } from "./versions-command.ts";
 
 const ROLLBACK_RETRY_COMMAND = "npx driggsby@latest rollback";
@@ -94,13 +94,10 @@ export async function runRollback(
     const previousLive = list.liveVersionNumber;
     const result = await setLiveVersion(api, config.slug, target);
     const was = previousLive === null ? "" : ` (was v${previousLive})`;
-    // "at:" only when the URL that line promises actually follows; the URL
-    // is a server-supplied string, sanitized before printing.
-    const atSuffix = result.url === null ? "" : ", at:";
+    // "at:" only when an address that line promises actually follows.
+    const atSuffix = hasLiveAddress(result) ? ", at:" : "";
     io.out(`✓ Live      v${result.versionNumber} is what visitors see now${was}${atSuffix}\n`);
-    if (result.url !== null) {
-      io.out(`\n  ${capForTerminal(result.url, MAX_SERVER_URL_CHARS)}\n`);
-    }
+    io.out(liveAddressLines(result));
     io.out(
       `\n${wrapProse(`Nothing re-uploaded — Driggsby already had v${result.versionNumber} in full.`)}\n` +
         "\nNext:\n  See every version with npx driggsby@latest versions\n",

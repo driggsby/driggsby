@@ -22,8 +22,6 @@ export function indexHtml(slug: string): string {
   <main>
     <header>
       <h1>${slug}</h1>
-      <p class="sample-note" id="sample-note" hidden>Sample data — your real
-      accounts appear when this app runs inside Driggsby.</p>
     </header>
     <!-- The bars below are skeleton placeholders. app.js replaces them
          with data on its first render; edit the render functions there,
@@ -114,6 +112,11 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 // Params mirror Driggsby's public MCP tools of the same names, with one
 // simplification: those tools require a "reason" string, but a watch can
 // leave it out — Driggsby fills one in naming the dashboard.
+//
+// To see a tool's exact result shape before writing render code, run it
+// once from the terminal — the JSON it prints is what the callback gets:
+//
+//   npx driggsby@latest query <tool>
 
 // ---------------------------------------------------------------------------
 // Sample data. Every name and number here is invented. It paints only
@@ -234,25 +237,18 @@ function renderAccounts(result) {
 // Live data. window.driggsby exists when the Driggsby SDK loaded — inside
 // Driggsby, or under driggsby dev. Whether anything embeds this page is
 // knowable synchronously: opened directly in a tab, no host will ever
-// answer, so the sample data replaces the skeleton right away and the note
-// explaining it is revealed (it ships hidden in the HTML, so an embedded
-// page never shows it, not even for the moment before this script runs).
-// Embedded, sample numbers never paint at all — the shipped skeleton holds
-// the layout until the first real results replace it and fade in.
+// answer, so the sample data replaces the skeleton right away, and the SDK
+// shows its own notice explaining that the page runs with real data only
+// inside Driggsby. Embedded, sample numbers never paint at all — the
+// shipped skeleton holds the layout until the first real results replace
+// it and fade in.
 // ---------------------------------------------------------------------------
 
 const standalone = window.parent === window;
-const note = document.getElementById("sample-note");
 
 if (standalone) {
-  // The note and the sample values paint together (this whole branch is
-  // one synchronous task). The reveal is kept first so an edit that ever
-  // makes rendering async can't paint values before their label.
-  if (note) note.hidden = false;
   renderOverview(SAMPLE_OVERVIEW);
   renderAccounts(SAMPLE_ACCOUNTS);
-} else if (note) {
-  note.remove();
 }
 
 if (window.driggsby) {
@@ -270,8 +266,6 @@ export const STYLES_CSS = `:root {
   --text: #1f2430;
   --text-muted: #6d7280;
   --hairline: #e6e8ec;
-  --note-background: #fdf6e3;
-  --note-text: #7a5b1e;
 }
 
 * {
@@ -303,21 +297,6 @@ h2 {
   margin: 40px 0 4px;
   font-size: 15px;
   font-weight: 600;
-}
-
-.sample-note {
-  display: inline-block;
-  margin: 12px 0 0;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--note-background);
-  color: var(--note-text);
-  font-size: 13px;
-}
-
-/* The display rule above would defeat the hidden attribute without this. */
-.sample-note[hidden] {
-  display: none;
 }
 
 /* The skeleton ships in the HTML so the first paint is the final layout as

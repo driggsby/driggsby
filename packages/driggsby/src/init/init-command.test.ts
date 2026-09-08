@@ -58,7 +58,6 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   assert.ok(html.includes('src="/-/driggsby-sdk.js"'), "the page must load the Driggsby SDK");
   assert.ok(html.includes('src="app.js"'));
   assert.ok(html.includes("<title>money-dash</title>"));
-  assert.ok(html.includes("Sample data"), "the page must label its data as sample data");
 
   const appJs = await readFile(join(appDirectory, "app.js"), "utf8");
   assert.ok(appJs.includes('driggsby.watch("get_overview"'));
@@ -72,12 +71,7 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   for (const tool of APP_TOOL_ALLOWLIST) {
     assert.ok(appJs.includes(tool), `app.js must name the watchable tool ${tool}`);
   }
-  // The note ships hidden so an embedded page never shows it, not even for
-  // the moment before app.js runs; the standalone branch reveals it.
-  assert.ok(
-    html.includes('id="sample-note" hidden'),
-    "the sample note must ship hidden in the HTML",
-  );
+  assert.ok(appJs.includes("npx driggsby@latest query <tool>"), "app.js must point at query");
   // The skeleton ships in the HTML itself so the first paint in every
   // context — before any script runs — is the final layout as muted bars.
   assert.equal(
@@ -95,13 +89,7 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
     2,
     "both skeleton containers must ship marked busy for assistive tech",
   );
-  // The CSS guard is what actually keeps the hidden note invisible: the
-  // scaffold's own display rule would defeat the hidden attribute without it.
   const css = await readFile(join(appDirectory, "styles.css"), "utf8");
-  assert.ok(
-    css.includes(".sample-note[hidden]"),
-    "styles.css must keep the [hidden] display guard",
-  );
   assert.ok(css.includes(".skeleton"), "styles.css must style the skeleton bars");
   assert.ok(
     css.includes("@keyframes fade-in"),
@@ -293,7 +281,6 @@ class StubNode {
 interface ScaffoldRun {
   overview: StubNode;
   accounts: StubNode;
-  note: StubNode;
   overviewSkeleton: StubNode[];
   accountsSkeleton: StubNode[];
   watches: Map<string, (result: unknown) => void>;
@@ -319,11 +306,9 @@ function runScaffoldAppJs(options: { embedded: boolean; sdkLoaded: boolean }): S
   accounts.children = [...accountsSkeleton];
   overview.attributes.set("aria-busy", "true");
   accounts.attributes.set("aria-busy", "true");
-  const note = new StubNode("sample-note", true);
   const byId = new Map<string, StubNode>([
     ["overview", overview],
     ["accounts", accounts],
-    ["sample-note", note],
   ]);
   const watches = new Map<string, (result: unknown) => void>();
   const documentStub = {
@@ -346,14 +331,14 @@ function runScaffoldAppJs(options: { embedded: boolean; sdkLoaded: boolean }): S
   windowStub.parent = options.embedded ? {} : windowStub;
   if (driggsbyStub) windowStub.driggsby = driggsbyStub;
   runInNewContext(APP_JS, { window: windowStub, document: documentStub, driggsby: driggsbyStub });
-  return { overview, accounts, note, overviewSkeleton, accountsSkeleton, watches };
+  return { overview, accounts, overviewSkeleton, accountsSkeleton, watches };
 }
 
 function holdsNoSkeleton(container: StubNode, skeleton: StubNode[]): boolean {
   return container.children.every((child) => !skeleton.includes(child));
 }
 
-test("standalone, the scaffold paints sample data and reveals its note", () => {
+test("standalone, the scaffold paints sample data", () => {
   const run = runScaffoldAppJs({ embedded: false, sdkLoaded: false });
   assert.equal(run.overview.children.length, 4, "the four sample stats must paint");
   assert.equal(run.accounts.children.length, 3, "the three sample accounts must paint");
@@ -362,8 +347,6 @@ test("standalone, the scaffold paints sample data and reveals its note", () => {
       holdsNoSkeleton(run.accounts, run.accountsSkeleton),
     "the sample render must replace the skeleton, not stack under it",
   );
-  assert.equal(run.note.hidden, false, "the sample note must be revealed");
-  assert.equal(run.note.removed, false);
   assert.ok(
     run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
     "the sample render must fade in",
@@ -382,7 +365,6 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
   assert.deepEqual(run.overview.children, run.overviewSkeleton, "the skeleton must survive");
   assert.deepEqual(run.accounts.children, run.accountsSkeleton, "the skeleton must survive");
   assert.equal(run.overview.attributes.get("aria-busy"), "true", "still busy before data");
-  assert.ok(run.note.removed, "the sample note must be removed while embedded");
   assert.ok(!run.overview.classList.contains("fade-in"), "nothing fades before data");
 
   // The first real results replace the skeleton and fade in.

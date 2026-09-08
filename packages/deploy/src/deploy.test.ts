@@ -39,6 +39,7 @@ test("a first deploy uploads every blob and goes live", async () => {
     assert.equal(outcome.versionNumber, 1);
     assert.equal(outcome.live, true);
     assert.equal(outcome.url, "https://money-dash.driggsby.dev");
+    assert.equal(outcome.consoleUrl, "https://app.driggsby.test/dashboards/money-dash");
     assert.equal(outcome.fileCount, 2);
     assert.equal(outcome.uploadedBlobCount, 2);
     assert.equal(outcome.unchangedFileCount, 0);

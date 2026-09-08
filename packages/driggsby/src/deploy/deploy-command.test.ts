@@ -184,7 +184,12 @@ test("first live deploy walks through every step and prints the URL", async () =
     assert.ok(text.includes("✓ Uploaded"));
     assert.ok(text.includes("under a second"));
     assert.ok(text.includes("✓ Live      v1, at:"));
-    assert.ok(text.includes("https://money-dash.driggsby.dev"));
+    // The Driggsby page comes first; the app's own address follows, named
+    // for what it is.
+    const consoleAt = text.indexOf("https://app.driggsby.test/dashboards/money-dash");
+    const ownAt = text.indexOf("https://money-dash.driggsby.dev");
+    assert.ok(consoleAt !== -1 && ownAt !== -1 && consoleAt < ownAt);
+    assert.ok(text.includes("The app's own address, which gets no Driggsby data"));
     assert.ok(text.includes("Next:"));
     assert.ok(text.includes("npx driggsby@latest rollback"));
     assertFitsTerminal(text);
@@ -273,6 +278,33 @@ test("--preview uploads a ready version without touching what visitors see", asy
     assert.ok(text.includes("npx driggsby@latest rollback --to 2"));
     assertFitsTerminal(text);
     assert.equal(server.liveVersionNumber("money-dash"), 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a server without the Driggsby page address prints the app's own address alone", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await makeProject("money-dash");
+    const environment = await makeEnvironment(server.baseUrl);
+    server.injectResponse("POST", "/finalize", 200, {
+      app_slug: "money-dash",
+      version_number: 1,
+      live: true,
+      url: "https://money-dash.driggsby.dev",
+    });
+    const io = capturedOut();
+    const exitCode = await runDeploy({ preview: false, projectDirectory: directory }, environment, {
+      out: io.out,
+      ...FIXED_NOW,
+    });
+
+    assert.equal(exitCode, 0);
+    const text = io.text();
+    assert.ok(text.includes("✓ Live      v1, at:\n\n  https://money-dash.driggsby.dev\n"));
+    assert.ok(!text.includes("own address"));
+    assertFitsTerminal(text);
   } finally {
     await server.close();
   }

@@ -14,13 +14,13 @@ import {
   type CredentialEnvironment,
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
-import { capForTerminal, quotedForTerminal, wrapProse } from "../terminal-text.ts";
+import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
 import {
   deployFailure,
   MAX_SERVER_TEXT_CHARS,
-  MAX_SERVER_URL_CHARS,
   requireDeploySession,
 } from "./api-session.ts";
+import { hasLiveAddress, liveAddressLines } from "./live-addresses.ts";
 
 const DEPLOY_RETRY_COMMAND = "npx driggsby@latest deploy";
 
@@ -91,9 +91,7 @@ export async function runDeploy(
     io.out(`${changedNote(outcome)}\n`);
     io.out(`${uploadedLine(outcome, seconds)}\n`);
     io.out(`${resultLine(outcome)}\n`);
-    if (outcome.url !== null) {
-      io.out(`\n  ${capForTerminal(outcome.url, MAX_SERVER_URL_CHARS)}\n`);
-    }
+    io.out(liveAddressLines(outcome));
     if (collected.skippedNodeModules.length > 0) {
       io.out(
         `\n${wrapProse("Note: node_modules doesn't deploy — Driggsby serves your app as static files, so it isn't needed.")}\n`,
@@ -140,10 +138,10 @@ function uploadedLine(outcome: DeployOutcome, seconds: number): string {
 
 function resultLine(outcome: DeployOutcome): string {
   if (outcome.live) {
-    // "at:" only when the URL that line promises actually follows.
-    return outcome.url === null
-      ? `✓ Live      v${outcome.versionNumber}`
-      : `✓ Live      v${outcome.versionNumber}, at:`;
+    // "at:" only when an address that line promises actually follows.
+    return hasLiveAddress(outcome)
+      ? `✓ Live      v${outcome.versionNumber}, at:`
+      : `✓ Live      v${outcome.versionNumber}`;
   }
   return `✓ Ready     v${outcome.versionNumber} is uploaded but not live — what visitors see is unchanged`;
 }

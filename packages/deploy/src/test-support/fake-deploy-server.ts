@@ -185,6 +185,7 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
         version_number: version.number,
         live: nowLive,
         url: nowLive ? `https://${version.slug}.driggsby.dev` : null,
+        console_url: consoleUrlFor(version.slug),
       });
       return;
     }
@@ -235,6 +236,7 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
         version_number: target.number,
         live: true,
         url: `https://${slug}.driggsby.dev`,
+        console_url: consoleUrlFor(slug),
       });
       return;
     }
@@ -288,4 +290,10 @@ function closeServer(server: Server): Promise<void> {
       resolve();
     });
   });
+}
+
+// The real server hands back the page for the app inside Driggsby on every
+// finalize and set-live answer, live or not; the fake does the same.
+function consoleUrlFor(slug: string): string {
+  return `https://app.driggsby.test/dashboards/${slug}`;
 }
