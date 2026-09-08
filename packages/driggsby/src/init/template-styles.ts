@@ -78,6 +78,12 @@ h2 {
   }
 }
 
+@media (max-width: 400px) {
+  .stat-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .stat {
   display: flex;
   flex-direction: column;
@@ -98,6 +104,9 @@ h2 {
   line-height: 28px;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+  /* A currency string has no natural break, and a clipped balance is a
+     wrong number. If a value ever outgrows its cell, it wraps. */
+  overflow-wrap: anywhere;
 }
 
 #accounts {
@@ -134,8 +143,9 @@ h2 {
   height: 32px;
   border-radius: 50%;
   background: var(--bg-mute);
+  color: var(--text-secondary);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .account-names {
@@ -153,6 +163,9 @@ h2 {
 }
 
 .account-institution {
+  /* Holds its line even when empty, so every row measures the same as
+     the skeleton row it replaces. */
+  min-height: 21px;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;

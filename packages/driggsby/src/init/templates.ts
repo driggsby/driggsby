@@ -173,6 +173,10 @@ function formatMoney(value) {
   }).format(number);
 }
 
+function asText(value) {
+  return typeof value === "string" ? value : "";
+}
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -226,20 +230,25 @@ function renderAccounts(result) {
   for (const account of accounts) {
     const row = element("div", "account-row");
     const names = element("div", "account-names");
-    const mask = account.account_mask_last4;
-    const institution = account.institution_name || "";
+    // Only strings paint; a malformed field renders as absent, never as
+    // "[object Object]".
+    const displayName = asText(account.account_display_name);
+    const institution = asText(account.institution_name);
+    const mask = asText(account.account_mask_last4);
     // The institution's initial on a round pill, the way Driggsby's own
-    // account rows draw it. String() and Array.from keep a malformed or
-    // emoji-leading name from breaking the render (Array.from splits by
-    // whole character, not UTF-16 half).
-    const initialSource = String(institution || account.account_display_name || "").trim();
+    // account rows draw it. Array.from keeps an emoji-leading name from
+    // breaking the render (it splits by whole character, not UTF-16 half).
+    const initialSource = (institution || displayName).trim();
     const initial = (Array.from(initialSource)[0] || "?").toUpperCase();
     names.append(
-      element("div", "account-name", account.account_display_name || "Account"),
+      element("div", "account-name", displayName || "Account"),
       element("div", "account-institution", institution + (mask ? " ····" + mask : ""))
     );
+    const glyph = element("div", "account-glyph", initial);
+    // Decorative: the institution's name is read out on the next line.
+    glyph.setAttribute("aria-hidden", "true");
     row.append(
-      element("div", "account-glyph", initial),
+      glyph,
       names,
       element("div", "account-balance", formatMoney(account.current_balance))
     );

@@ -281,6 +281,10 @@ class StubNode {
     this.removed = true;
   }
 
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
   removeAttribute(name: string): void {
     this.attributes.delete(name);
   }
@@ -403,8 +407,16 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
   const row = run.accounts.children[0];
   assert.ok(row, "the real account row must render");
   // Row shape: glyph pill (the institution's initial), names, balance.
-  assert.equal(row.children[0]?.textContent, "T");
+  const glyph = row.children[0];
+  assert.ok(glyph, "the glyph pill must render");
+  assert.equal(glyph.textContent, "T");
+  assert.equal(
+    glyph.attributes.get("aria-hidden"),
+    "true",
+    "the glyph is decorative; the institution is read out on the next line",
+  );
   assert.equal(row.children[1]?.children[0]?.textContent, "Checking");
+  assert.equal(row.children[2]?.textContent, "$1.00", "the balance cell must render last");
   assert.ok(
     run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
     "the first real render must fade in",

@@ -28,12 +28,12 @@ export function hostPageHtml(slug: string, appOrigin: string, background: string
        measured values: 46px tall on the black ground, 14px ink, a 14%
        white hairline under it. */
     * { box-sizing: border-box; }
+    html { color-scheme: dark; }
     body {
       margin: 0;
       display: flex;
       flex-direction: column;
       height: 100vh;
-      color-scheme: dark;
       background: #000000;
       color: #fafafa;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
