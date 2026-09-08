@@ -26,16 +26,26 @@ export interface BrokerOptions {
   token: string;
   fetchImplementation?: typeof fetch;
   timeoutMs?: number;
+  // The reason sent when a call gives none; the dev preview's by default.
+  defaultReason?: string;
+  // What a 401 reads as; the dev preview's "reload this page" by default.
+  signInAgainMessage?: string;
+  // "envelope" (default): a connection failure becomes an { ok: false }
+  // envelope, so a page never sees a rejection. "throw": it rejects
+  // runToolCall instead, so a CLI command can name the host to allow.
+  transportErrors?: "envelope" | "throw";
 }
 
 interface QueuedCall {
   tool: string;
   argumentsObject: Record<string, unknown>;
   resolve: (result: BrokerResult) => void;
+  reject: (error: unknown) => void;
 }
 
-// One broker per `driggsby dev` run. runToolCall never rejects — every
-// failure becomes an { ok: false } envelope with a person-readable message.
+// One broker per `driggsby dev` run (or per `driggsby query`). With the
+// default transportErrors, runToolCall never rejects — every failure
+// becomes an { ok: false } envelope with a person-readable message.
 export class McpBroker {
   private readonly options: BrokerOptions;
   private readonly queue: QueuedCall[] = [];
@@ -53,8 +63,8 @@ export class McpBroker {
     if (this.queue.length >= MAX_QUEUED_CALLS) {
       return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
     }
-    return await new Promise<BrokerResult>((resolve) => {
-      this.queue.push({ tool, argumentsObject, resolve });
+    return await new Promise<BrokerResult>((resolve, reject) => {
+      this.queue.push({ tool, argumentsObject, resolve, reject });
       this.pump();
     });
   }
@@ -77,7 +87,11 @@ export class McpBroker {
     let result: BrokerResult;
     try {
       result = await this.callMcp(call.tool, call.argumentsObject);
-    } catch {
+    } catch (error) {
+      if (this.options.transportErrors === "throw") {
+        call.reject(error);
+        return;
+      }
       result = { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
     }
     call.resolve(result);
@@ -89,7 +103,7 @@ export class McpBroker {
   ): Promise<BrokerResult> {
     const toolArguments: Record<string, unknown> = { ...argumentsObject };
     if (typeof toolArguments.reason !== "string" || toolArguments.reason.trim() === "") {
-      toolArguments.reason = DEFAULT_REASON;
+      toolArguments.reason = this.options.defaultReason ?? DEFAULT_REASON;
     }
     const requestId = this.nextRequestId;
     this.nextRequestId += 1;
@@ -117,7 +131,7 @@ export class McpBroker {
     });
 
     if (response.status === 401) {
-      return { ok: false, error: { message: SIGN_IN_AGAIN_MESSAGE } };
+      return { ok: false, error: { message: this.options.signInAgainMessage ?? SIGN_IN_AGAIN_MESSAGE } };
     }
     if (!response.ok) {
       return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };

@@ -2,6 +2,7 @@
 // Same behavior contract as the rest of the tree — help on -h/--help, usage
 // errors exit 2, echoed argv is sanitized — without chasing clap byte quirks.
 import {
+  helpCommand,
   type ParsedCommand,
   unexpectedArgument,
   unexpectedFlagValue,
@@ -80,10 +81,6 @@ export function parseVersions(argv: string[]): ParsedCommand {
     throw unexpectedArgument(token, VERSIONS_USAGE);
   }
   return { kind: "versions" };
-}
-
-function helpCommand(text: string): ParsedCommand {
-  return { kind: "print-help", text, stream: "stdout", exitCode: 0 };
 }
 
 // Version numbers are the small positive integers shown by `versions` (v1,

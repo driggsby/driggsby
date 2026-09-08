@@ -5,6 +5,8 @@
 // the long setup help, and the distinct short/long setup variants). The root
 // help grew past the Rust CLI when login/logout landed; its fixture pins the
 // current text.
+import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
+
 export const ROOT_HELP = `Usage: npx driggsby@latest <COMMAND>
 
 Commands:
@@ -16,6 +18,7 @@ Commands:
   deploy    Deploy the app in this directory to Driggsby.
   rollback  Switch which deployed version of your app is live.
   versions  List your deployed app's versions.
+  query     Run one Driggsby data tool and print its result as JSON.
 
 Options:
   -h, --help     Print help
@@ -30,6 +33,7 @@ Examples:
   npx driggsby@latest init money-dash
   npx driggsby@latest dev
   npx driggsby@latest deploy
+  npx driggsby@latest query get_overview
 `;
 
 export const INIT_HELP = `Create a new Driggsby app in a new folder.
@@ -136,6 +140,37 @@ Options:
   -h, --help  Print help
 `;
 
+// The tool list is the allowlist itself, so the help can never name a tool
+// a Driggsby app cannot watch.
+const QUERY_TOOL_LINES = wrapNames([...APP_TOOL_ALLOWLIST], "          ");
+
+export const QUERY_HELP = `Run one Driggsby data tool and print its result as JSON.
+
+The output is exactly what driggsby.watch hands an app's callback for the
+same tool and params, so you can read a result's shape before writing any
+render code. Only the read-only tools an app can watch are accepted. The
+JSON goes to stdout and nothing else does; messages go to stderr.
+
+Sign in first with npx driggsby@latest login.
+
+Usage: npx driggsby@latest query <TOOL> [--sql <SQL>] [--params <JSON>]
+
+Arguments:
+  <TOOL>  One of:
+${QUERY_TOOL_LINES}
+
+Options:
+      --sql <SQL>      The SQL for query_cash_sql or query_investment_sql.
+      --params <JSON>  Other params as a JSON object, for example
+                       '{"history_type":"liabilities"}'.
+  -h, --help           Print help
+
+Examples:
+  npx driggsby@latest query get_overview
+  npx driggsby@latest query list_recurring_transactions
+  npx driggsby@latest query query_cash_sql --sql "SELECT * FROM cash_transactions"
+`;
+
 export const MCP_HELP = `Set up Driggsby MCP clients.
 
 Usage: npx driggsby@latest mcp <COMMAND>
@@ -188,3 +223,19 @@ ${"          "}
   -h, --help
           Print help (see a summary with '-h')
 `;
+
+// Comma-separated names on indented lines that stay inside 80 columns.
+function wrapNames(names: string[], indent: string): string {
+  const lines: string[] = [];
+  let line = indent;
+  for (const [index, name] of names.entries()) {
+    const piece = index === names.length - 1 ? `${name}.` : `${name},`;
+    if (line !== indent && line.length + 1 + piece.length > 80) {
+      lines.push(line);
+      line = indent;
+    }
+    line += line === indent ? piece : ` ${piece}`;
+  }
+  lines.push(line);
+  return lines.join("\n");
+}

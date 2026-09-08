@@ -98,6 +98,9 @@ npx driggsby@latest versions
 
 # Switch which version is live (nothing re-uploads)
 npx driggsby@latest rollback --to 3
+
+# Print one tool's result as JSON: the shape a watch callback receives
+npx driggsby@latest query get_overview
 ```
 
 Dotfiles, symlinks, and node_modules never upload, and the folder must stay
