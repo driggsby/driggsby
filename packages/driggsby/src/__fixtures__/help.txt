@@ -9,6 +9,7 @@ Commands:
   deploy    Deploy the app in this directory to Driggsby.
   rollback  Switch which deployed version of your app is live.
   versions  List your deployed app's versions.
+  delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
 
 Options:

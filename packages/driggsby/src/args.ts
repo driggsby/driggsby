@@ -7,6 +7,7 @@
 // clap's byte-level quirks.
 import { parseDeploy, parseRollback, parseVersions } from "./args-deploy.ts";
 import { parseDev } from "./args-dev.ts";
+import { parseDelete } from "./args-delete.ts";
 import { parseInit } from "./args-init.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
@@ -46,7 +47,7 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "query"],
+  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
@@ -57,6 +58,7 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "deploy", longFlags: ["preview", "help"] },
     { name: "rollback", longFlags: ["to", "help"] },
     { name: "versions", longFlags: ["help"] },
+    { name: "delete", longFlags: ["yes", "help"] },
     { name: "query", longFlags: ["sql", "params", "help"] },
   ],
   usagePrefix: "npx driggsby@latest",
@@ -129,6 +131,8 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseDeploy(rest);
     case "rollback":
       return parseRollback(rest);
+    case "delete":
+      return parseDelete(rest);
     case "versions":
       return parseVersions(rest);
     case "query":

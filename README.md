@@ -104,6 +104,9 @@ npx driggsby@latest versions
 # Switch which version is live (nothing re-uploads)
 npx driggsby@latest rollback --to 3
 
+# Permanently remove a deployed app (asks you to type its name back)
+npx driggsby@latest delete
+
 # Print one tool's result as JSON: the shape a watch callback receives
 npx driggsby@latest query get_overview
 ```
