@@ -68,6 +68,8 @@ test("query refuses --params that is not a JSON object, and a missing flag value
   assert.match(notJson.message, /'--params' must be a JSON object/);
   assert.match(usageError(["query", "get_overview", "--params", "[1]"]).message, /'--params' must be a JSON object/);
   assert.match(usageError(["query", "get_overview", "--sql"]).message, /a value is required for '--sql'/);
+  assert.match(usageError(["query", "query_cash_sql", "--sql="]).message, /a value is required for '--sql'/);
+  assert.match(usageError(["query", "query_cash_sql", "--sql", " "]).message, /a value is required for '--sql'/);
   assert.match(usageError(["query", "get_overview", "extra"]).message, /unexpected argument 'extra'/);
   const sqlMisuse = usageError(["query", "get_overview", "--sql", "SELECT 1"]);
   assert.equal(sqlMisuse.exitCode, 2);

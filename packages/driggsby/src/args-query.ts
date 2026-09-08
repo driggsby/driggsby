@@ -35,6 +35,9 @@ export function parseQuery(argv: string[]): ParsedCommand {
     }
     if (!optionsEnded && token.startsWith("--sql=")) {
       sql = token.slice("--sql=".length);
+      if (sql.trim() === "") {
+        throw missingFlagValue("--sql");
+      }
       continue;
     }
     if (!optionsEnded && token === "--params") {
@@ -70,13 +73,17 @@ export function parseQuery(argv: string[]): ParsedCommand {
 
 function requireFlagValue(argv: string[], index: number, flag: string): string {
   const value = argv[index + 1];
-  if (value === undefined) {
-    throw new CliError(
-      `error: a value is required for '${flag}' but none was supplied\n\n${QUERY_USAGE}\n\nFor more information, try '--help'.`,
-      2,
-    );
+  if (value === undefined || value.trim() === "") {
+    throw missingFlagValue(flag);
   }
   return value;
+}
+
+function missingFlagValue(flag: string): CliError {
+  return new CliError(
+    `error: a value is required for '${flag}' but none was supplied\n\n${QUERY_USAGE}\n\nFor more information, try '--help'.`,
+    2,
+  );
 }
 
 // --params is the tool's params object, verbatim; anything that is not a

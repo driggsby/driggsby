@@ -103,3 +103,17 @@ test("a stale sign-in and no sign-in each name the login command", async () => {
     await fake.close();
   }
 });
+
+test("a network failure names the flags to repeat without rebuilding the user's values", async () => {
+  await assert.rejects(
+    runQuery(
+      { tool: "query_cash_sql", params: { sql: "SELECT 'it''s'", limit: 5 } },
+      await makeEnvironment("http://127.0.0.1:1"),
+      capturedOut(),
+    ),
+    (error: unknown) =>
+      error instanceof CliError &&
+      error.message.includes("npx driggsby@latest query query_cash_sql --sql <the same SQL> --params <the same JSON>") &&
+      !error.message.includes("it''s"),
+  );
+});

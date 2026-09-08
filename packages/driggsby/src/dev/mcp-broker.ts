@@ -4,7 +4,7 @@
 // { ok, result | error } envelope. Bounds mirror the production host: a few
 // calls in flight, a bounded queue, and a hard per-call timeout, so a
 // buggy app can hammer its own laptop but never Driggsby.
-import { capForTerminal } from "../terminal-text.ts";
+import { capForTerminal, sanitizeForTerminal } from "../terminal-text.ts";
 import { type BrokerResult, GENERIC_TOOL_TROUBLE } from "./dev-servers.ts";
 
 export const MAX_IN_FLIGHT_CALLS = 4;
@@ -196,6 +196,6 @@ function toolRefusalMessage(resultRecord: Record<string, unknown>): string {
 // (a terminal for `query`, a page for `dev`): strip control and bidi bytes
 // and cap the length in one place, so no caller has to remember to.
 function capMessage(message: string): string {
-  const clean = capForTerminal(message, MAX_ERROR_MESSAGE_CHARS + 1);
-  return clean.length > MAX_ERROR_MESSAGE_CHARS ? `${clean.slice(0, MAX_ERROR_MESSAGE_CHARS)}…` : clean;
+  const clean = sanitizeForTerminal(message);
+  return clean.length > MAX_ERROR_MESSAGE_CHARS ? `${capForTerminal(clean, MAX_ERROR_MESSAGE_CHARS)}…` : clean;
 }

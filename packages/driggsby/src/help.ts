@@ -169,8 +169,7 @@ Options:
 Examples:
   npx driggsby@latest query get_overview
   npx driggsby@latest query list_recurring_transactions
-  npx driggsby@latest query query_cash_sql \\
-    --sql "SELECT * FROM cash_transactions"
+  npx driggsby@latest query query_cash_sql --sql "SELECT 1"
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.

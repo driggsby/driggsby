@@ -12,7 +12,7 @@ import {
 import { McpBroker } from "../dev/mcp-broker.ts";
 import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
-import { sanitizeForTerminal, wrapProse } from "../terminal-text.ts";
+import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
 
 export interface QueryCommandOptions {
   tool: string;
@@ -47,7 +47,7 @@ export async function runQuery(
   // the read-only guarantee (and the echoed retry command) from hanging on
   // one distant caller.
   if (!APP_TOOL_ALLOWLIST.has(options.tool)) {
-    throw new CliError(`'${options.tool}' isn't a tool a Driggsby app can call.`, 2);
+    throw new CliError(`${quotedForTerminal(options.tool, 60)} isn't a tool a Driggsby app can call.`, 2);
   }
   const baseUrl = apiBaseUrl(environment.env);
   const retryCommand = retryCommandFor(options);
@@ -80,21 +80,18 @@ export async function runQuery(
   }
 }
 
-// The exact command to run again, flags included, so a retry after a
-// network blip is the same query and not one the server refuses for a
-// missing sql. Values are the user's own argv, quoted for a POSIX shell.
+// The command to run again after a network blip. User values are never
+// rebuilt into a shell line: no quoting is right for sh, cmd.exe, and
+// PowerShell at once, so the line names the flags to repeat in the CLI's
+// own <placeholder> convention and stays copy-safe on every shell.
 function retryCommandFor(options: QueryCommandOptions): string {
   const { sql, ...rest } = options.params;
   const parts = [`npx driggsby@latest query ${options.tool}`];
-  if (typeof sql === "string") {
-    parts.push(`--sql ${shellQuoted(sql)}`);
+  if (sql !== undefined) {
+    parts.push("--sql <the same SQL>");
   }
   if (Object.keys(rest).length > 0) {
-    parts.push(`--params ${shellQuoted(JSON.stringify(rest))}`);
+    parts.push("--params <the same JSON>");
   }
   return parts.join(" ");
-}
-
-function shellQuoted(value: string): string {
-  return `'${sanitizeForTerminal(value).replaceAll("'", "'\\''")}'`;
 }
