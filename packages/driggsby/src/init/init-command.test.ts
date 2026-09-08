@@ -51,8 +51,16 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   assert.equal(config.slug, "money-dash");
   assert.equal(config.serve, ".");
   // The template's own page background — kept in driggsby.json so
-  // Driggsby paints the same color while the app loads.
-  assert.equal(config.background, "#ffffff");
+  // Driggsby paints the same color while the app loads. It is the
+  // console's ground, so a fresh dashboard sits inside the dark chrome
+  // as one surface, and it must equal the ground styles.css paints.
+  assert.equal(config.background, "#000000");
+  const scaffoldCss = await readFile(join(appDirectory, "styles.css"), "utf8");
+  assert.ok(
+    scaffoldCss.includes(`--bg-app: ${config.background};`),
+    "driggsby.json's background must be the page ground styles.css paints",
+  );
+  assert.ok(scaffoldCss.includes("color-scheme: dark;"), "the scaffold is dark by default");
 
   const html = await readFile(join(appDirectory, "index.html"), "utf8");
   assert.ok(html.includes('src="/-/driggsby-sdk.js"'), "the page must load the Driggsby SDK");
@@ -394,7 +402,9 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
   );
   const row = run.accounts.children[0];
   assert.ok(row, "the real account row must render");
-  assert.equal(row.children[0]?.children[0]?.textContent, "Checking");
+  // Row shape: glyph pill (the institution's initial), names, balance.
+  assert.equal(row.children[0]?.textContent, "T");
+  assert.equal(row.children[1]?.children[0]?.textContent, "Checking");
   assert.ok(
     run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
     "the first real render must fade in",
