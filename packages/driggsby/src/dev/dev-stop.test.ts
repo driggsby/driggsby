@@ -56,26 +56,34 @@ test("stop terminates the running dev, waits for it to go, and removes its state
   assertFitsTerminal(io.text());
 });
 
-test("a record whose port is not served by its pid is never signalled", async () => {
+test("a record whose port is not served by its pid is never signalled, and is reported as unconfirmed", async () => {
   const homeDirectory = await home();
   await writeDevState(homeDirectory, {
     pid: 4242, folder: "/Users/someone/money-dash", startedAt: "2026-09-08T01:02:03.000Z", hostPort: 4111, appPort: 4112,
   });
   const terminated: number[] = [];
-  const io = capturedOut();
 
-  const code = await runDevStop(homeDirectory, io, {
-    isAlive: () => true,
-    pidServing: () => Promise.resolve(null),
-    terminate: (pid) => {
-      terminated.push(pid);
+  await assert.rejects(
+    runDevStop(homeDirectory, capturedOut(), {
+      isAlive: () => true,
+      pidServing: () => Promise.resolve(null),
+      terminate: (pid) => {
+        terminated.push(pid);
+      },
+      waitMs: 10,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 1);
+      assert.ok(error.message.startsWith("driggsby dev is recorded for the app in:\n"));
+      assert.ok(error.message.includes("but didn't answer, so it wasn't stopped."));
+      assert.ok(error.message.endsWith("  npx driggsby@latest dev --stop"));
+      assert.ok(!error.message.includes("No driggsby dev is running"));
+      assert.ok(error.message.split("\n").every((line) => line.length <= 80));
+      return true;
     },
-    waitMs: 10,
-  });
-
-  assert.equal(code, 0);
+  );
   assert.deepEqual(terminated, []);
-  assert.ok(io.text().includes("No driggsby dev is running on this machine."));
   // The record stays: the pid is alive, so it may be a dev that was busy.
   assert.notEqual(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
 });
@@ -124,7 +132,7 @@ test("a dev that ignores the signal is reported, not hidden", async () => {
   });
 
   await assert.rejects(
-    runDevStop(await Promise.resolve(homeDirectory), capturedOut(), {
+    runDevStop(homeDirectory, capturedOut(), {
       ...alwaysServed(4343),
       terminate: () => undefined,
       waitMs: 10,

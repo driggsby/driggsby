@@ -13,3 +13,10 @@ test("a folder under the home prints home-relative; anything else prints as is",
   assert.equal(displayFolder(`${sep}srv${sep}app`, home), `"${sep}srv${sep}app"`);
   assert.equal(displayFolder(`${sep}srv${sep}app`, ""), `"${sep}srv${sep}app"`);
 });
+
+test("a recorded folder prints sanitized, quote-balanced, and capped", () => {
+  const shown = displayFolder(`/srv/\u001b[31mapp"\u202e${"x".repeat(400)}`, "/Users/someone");
+  assert.ok(!shown.includes("\u001b") && !shown.includes("\u202e"));
+  assert.ok(shown.startsWith('"/srv/[31mapp\'') && shown.endsWith('"'));
+  assert.ok(shown.length <= 205);
+});

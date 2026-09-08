@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import {
   DEV_IDENTITY_PATH,
@@ -137,4 +140,28 @@ test("the identity probe refuses an oversized body from whatever holds the port"
 test("liveness: this process is alive, an absurd pid is not", () => {
   assert.equal(processIsAlive(process.pid), true);
   assert.equal(processIsAlive(2_147_483_646), false);
+});
+
+// Node reads NODE_USE_ENV_PROXY at startup, so the proxy case runs in a
+// child: with a proxy named in the environment, the probe must still reach
+// the loopback dev and never the proxy.
+test("the identity probe ignores a proxy named in the environment", async () => {
+  const devStatePath = fileURLToPath(new URL("./dev-state.ts", import.meta.url));
+  const script = `
+    import { createServer } from "node:http";
+    import { DEV_IDENTITY_PATH, devPidServing } from ${JSON.stringify(devStatePath)};
+    const server = createServer((request, response) => {
+      response.writeHead(request.url === DEV_IDENTITY_PATH ? 200 : 404, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ pid: 4242 }));
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    process.stdout.write(String(await devPidServing(server.address().port)));
+    server.close();
+  `;
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    ["--no-warnings", "--input-type=module", "-e", script],
+    { env: { ...process.env, NODE_USE_ENV_PROXY: "1", HTTP_PROXY: "http://127.0.0.1:1", http_proxy: "http://127.0.0.1:1" } },
+  );
+  assert.equal(stdout, "4242");
 });

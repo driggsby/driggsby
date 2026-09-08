@@ -5,6 +5,7 @@
 // the long setup help, and the distinct short/long setup variants). The root
 // help grew past the Rust CLI when login/logout landed; its fixture pins the
 // current text.
+import { DEV_IDLE_MINUTES } from "./dev/dev-commands.ts";
 import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
 import { wrapNames } from "./terminal-text.ts";
 
@@ -90,8 +91,8 @@ files reload the page on save.
 While dev runs, the preview serves your financial data to this machine —
 other websites can't reach it, but anything running locally can, so stop
 it when you're done: press Ctrl+C, or from any terminal run
-npx driggsby@latest dev --stop. It also stops on its own after 30 minutes
-with no page open.
+npx driggsby@latest dev --stop. It also stops on its own after ${String(DEV_IDLE_MINUTES)}
+minutes with no page open.
 
 Sign in first with npx driggsby@latest login.
 

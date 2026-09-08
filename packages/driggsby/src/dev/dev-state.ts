@@ -4,7 +4,8 @@
 // reads it to say which folder already holds the ports. A file whose pid is
 // no longer alive (the machine rebooted, the process was killed hard) is
 // stale and treated as absent. It holds no credentials.
-import { readFile, rm } from "node:fs/promises";
+import { lstat, readFile, rm } from "node:fs/promises";
+import { Agent, request as httpRequest } from "node:http";
 import { join } from "node:path";
 
 import { driggsbyDirectory, writeOwnerOnlyFile } from "../owner-only-file.ts";
@@ -23,7 +24,15 @@ const STATE_FILE_NAME = "dev.json";
 export const DEV_IDENTITY_PATH = "/-/dev-identity";
 const IDENTITY_TIMEOUT_MS = 1_000;
 const IDENTITY_ATTEMPTS = 2;
+const IDENTITY_RETRY_PAUSE_MS = 100;
 const IDENTITY_MAX_BYTES = 4_096;
+// The record is a few short fields; anything larger is not ours.
+const STATE_MAX_BYTES = 4_096;
+// Node routes fetch AND the default http agent through a proxy named in the
+// environment (NODE_USE_ENV_PROXY with HTTP_PROXY); an agent built here
+// carries no such configuration, so the identity probe below can never
+// leave the loopback interface.
+const LOOPBACK_AGENT = new Agent({ keepAlive: false });
 
 export function devStatePath(homeDirectory: string): string {
   return join(driggsbyDirectory(homeDirectory), STATE_FILE_NAME);
@@ -45,38 +54,57 @@ export function defaultDevProbes(): DevProbes {
   return { isAlive: processIsAlive, pidServing: devPidServing };
 }
 
-// The state of a dev that is still running, or null. A record is live only
-// when its pid exists AND the recorded host port is served by that very
-// pid: a leftover file after a crash, a reboot, or a closed terminal can
-// name a pid the OS has since handed to something unrelated, and that
-// process must never be signalled. Only a dead pid or an unparseable file
-// gets the record removed: a port that fails to answer may be a live dev
-// on a busy machine, and deleting its record would leave that dev with
-// no way to be stopped from another terminal.
+// What a read of the record found. A record is live only when its pid
+// exists AND the recorded host port is served by that very pid: a leftover
+// file after a crash, a reboot, or a closed terminal can name a pid the OS
+// has since handed to something unrelated, and that process must never be
+// signalled. Only a dead pid or an unparseable file gets the record
+// removed: a port that fails to answer may be a live dev on a busy machine
+// (reported as "unconfirmed" so a caller can say so), and deleting its
+// record would leave that dev with no way to be stopped from another
+// terminal.
+export type DevStateRead =
+  | { status: "none"; state: null }
+  | { status: "live"; state: DevState }
+  | { status: "unconfirmed"; state: DevState };
+
+export async function readDevState(homeDirectory: string, probes: DevProbes = defaultDevProbes()): Promise<DevStateRead> {
+  const state = await readDevStateFile(homeDirectory);
+  if (state === null) {
+    return { status: "none", state: null };
+  }
+  if (state === "malformed") {
+    await rm(devStatePath(homeDirectory), { force: true });
+    return { status: "none", state: null };
+  }
+  if (!probes.isAlive(state.pid)) {
+    await removeDevState(homeDirectory, state.pid);
+    return { status: "none", state: null };
+  }
+  return (await probes.pidServing(state.hostPort)) === state.pid
+    ? { status: "live", state }
+    : { status: "unconfirmed", state };
+}
+
+// The state of a dev that is confirmed running, or null.
 export async function readLiveDevState(
   homeDirectory: string,
   probes: DevProbes = defaultDevProbes(),
 ): Promise<DevState | null> {
-  const state = await readDevStateFile(homeDirectory);
-  if (state === null) {
-    return null;
-  }
-  if (state === "malformed") {
-    await rm(devStatePath(homeDirectory), { force: true });
-    return null;
-  }
-  if (!probes.isAlive(state.pid)) {
-    await removeDevState(homeDirectory, state.pid);
-    return null;
-  }
-  return (await probes.pidServing(state.hostPort)) === state.pid ? state : null;
+  const read = await readDevState(homeDirectory, probes);
+  return read.status === "live" ? read.state : null;
 }
 
 // Asks the host origin on `hostPort` which pid serves it; null when nothing
-// answers, or whatever answers is not a driggsby dev. One retry covers a
-// dev that was busy for the first attempt.
+// answers, or whatever answers is not a driggsby dev. A short pause and one
+// retry cover a transient socket failure.
 export async function devPidServing(hostPort: number): Promise<number | null> {
   for (let attempt = 0; attempt < IDENTITY_ATTEMPTS; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, IDENTITY_RETRY_PAUSE_MS);
+      });
+    }
     const pid = await askIdentity(hostPort);
     if (pid !== null) {
       return pid;
@@ -85,49 +113,63 @@ export async function devPidServing(hostPort: number): Promise<number | null> {
   return null;
 }
 
-async function askIdentity(hostPort: number): Promise<number | null> {
-  try {
-    const response = await fetch(`http://127.0.0.1:${String(hostPort)}${DEV_IDENTITY_PATH}`, {
-      signal: AbortSignal.timeout(IDENTITY_TIMEOUT_MS),
-      redirect: "error",
+// Loopback only, on LOOPBACK_AGENT. No redirect is followed (anything but
+// 200 is no answer), and the body is read bounded, because whatever holds
+// that port is untrusted.
+function askIdentity(hostPort: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const request = httpRequest(
+      {
+        host: "127.0.0.1",
+        port: hostPort,
+        path: DEV_IDENTITY_PATH,
+        method: "GET",
+        timeout: IDENTITY_TIMEOUT_MS,
+        agent: LOOPBACK_AGENT,
+      },
+      (response) => {
+        if (response.statusCode !== 200) {
+          response.resume();
+          resolve(null);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let total = 0;
+        response.on("data", (chunk: Buffer) => {
+          total += chunk.byteLength;
+          if (total > IDENTITY_MAX_BYTES) {
+            request.destroy();
+            resolve(null);
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on("end", () => {
+          resolve(pidFromIdentityBody(Buffer.concat(chunks).toString("utf8")));
+        });
+        response.on("error", () => {
+          resolve(null);
+        });
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy();
     });
-    if (!response.ok) {
-      return null;
-    }
-    // Whatever holds that port is untrusted: read a bounded body, never
-    // buffer what it chooses to send.
-    const body = await readBounded(response, IDENTITY_MAX_BYTES);
-    if (body === null) {
-      return null;
-    }
+    request.on("error", () => {
+      resolve(null);
+    });
+    request.end();
+  });
+}
+
+function pidFromIdentityBody(body: string): number | null {
+  try {
     const payload: unknown = JSON.parse(body);
     const pid = typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>).pid : null;
     return isPid(pid) ? pid : null;
   } catch {
     return null;
   }
-}
-
-async function readBounded(response: Response, maxBytes: number): Promise<string | null> {
-  if (response.body === null) {
-    return null;
-  }
-  const reader: ReadableStreamDefaultReader<Uint8Array> = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }
 
 // Removes the file only if it still names `pid`: a dev that ends must never
@@ -152,10 +194,17 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
+// Only a small regular file is read: a symlink, a device, or anything
+// oversized at that path is not our record.
 async function readDevStateFile(homeDirectory: string): Promise<DevState | "malformed" | null> {
+  const path = devStatePath(homeDirectory);
   let raw: string;
   try {
-    raw = await readFile(devStatePath(homeDirectory), "utf8");
+    const info = await lstat(path);
+    if (!info.isFile() || info.size > STATE_MAX_BYTES) {
+      return "malformed";
+    }
+    raw = await readFile(path, "utf8");
   } catch {
     return null;
   }

@@ -49,10 +49,10 @@ export async function clearFileToken(homeDirectory: string): Promise<ClearOutcom
   // readable token in a `credentials.json.<uuid>.tmp` file; removal must not
   // leave one behind while reporting the token gone.
   try {
-    for (const entry of await readdir(join(homeDirectory, ".driggsby"))) {
+    for (const entry of await readdir(driggsbyDirectory(homeDirectory))) {
       if (entry.startsWith("credentials.json.") && entry.endsWith(".tmp")) {
         try {
-          await rm(join(homeDirectory, ".driggsby", entry), { force: true });
+          await rm(join(driggsbyDirectory(homeDirectory), entry), { force: true });
         } catch {
           outcome = "failed";
         }

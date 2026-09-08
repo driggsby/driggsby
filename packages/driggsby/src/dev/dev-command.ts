@@ -18,6 +18,7 @@ import {
 import { requireDeploySession } from "../deploy/api-session.ts";
 import { tryOpenUrl } from "../login/open-url.ts";
 import { wrapProse } from "../terminal-text.ts";
+import { DEV_IDLE_MINUTES, DEV_START_COMMAND, DEV_STOP_COMMAND } from "./dev-commands.ts";
 import { startDevServers, type DevServers } from "./dev-servers.ts";
 import { readLiveDevState, removeDevState, writeDevState } from "./dev-state.ts";
 import { displayFolder } from "./display-folder.ts";
@@ -26,14 +27,8 @@ import { watchDirectory } from "./watcher.ts";
 
 export const DEV_HOST_PORT = 4111;
 export const DEV_APP_PORT = 4112;
-// A preview nobody has open for this long stops itself, so a dev started in
-// the background (often by an agent) does not keep serving live financial
-// data on this machine indefinitely.
-export const DEV_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const DEV_IDLE_TIMEOUT_MS = DEV_IDLE_MINUTES * 60 * 1000;
 const DEV_IDLE_CHECK_MS = 15 * 1000;
-
-const DEV_RETRY_COMMAND = "npx driggsby@latest dev";
-const DEV_STOP_COMMAND = "npx driggsby@latest dev --stop";
 
 export interface DevCommandIo {
   out: (text: string) => void;
@@ -67,7 +62,9 @@ function defaultDevIo(): DevCommandIo {
           resolve();
         });
         // A closed terminal window: still a clean stop, so the record and
-        // the ports are released like any other exit.
+        // the ports are released like any other exit. (On Windows, a signal
+        // from `dev --stop` ends the process outright instead; `dev --stop`
+        // then removes the record itself once the pid is gone.)
         process.once("SIGHUP", () => {
           resolve();
         });
@@ -127,15 +124,17 @@ export async function runDev(
     if (ending === "idle") {
       io.out(
         `✓ Stopped   No page was open for ${idleWindowWords(idleTimeoutMs)}, so ` +
-          `driggsby dev stopped itself.\n\nStart it again with:\n  ${DEV_RETRY_COMMAND}\n`,
+          `driggsby dev stopped itself.\n\nStart it again with:\n  ${DEV_START_COMMAND}\n`,
       );
     }
     return 0;
   } finally {
     idle.cancel();
     stopWatching();
-    await servers.close();
+    // The record goes before the ports are freed, so a dev starting the
+    // instant these close never finds a record this one is about to remove.
     await removeDevState(environment.homeDirectory, process.pid);
+    await servers.close();
   }
 }
 
@@ -226,25 +225,25 @@ async function devStartFailure(error: unknown, baseUrl: string, homeDirectory: s
       return new CliError(
         `driggsby dev is already running for the app in:\n  ${displayFolder(running.folder)}\n\n` +
           `Only one can run at a time. Stop it first:\n  ${DEV_STOP_COMMAND}\n\n` +
-          `Then try again here:\n  ${DEV_RETRY_COMMAND}`,
+          `Then try again here:\n  ${DEV_START_COMMAND}`,
         1,
       );
     }
     return new CliError(
       `${wrapProse(`Ports ${String(DEV_HOST_PORT)} and ${String(DEV_APP_PORT)} are how driggsby dev serves the preview, and something on this machine is already using one of them. Stop that program and try again:`)}\n` +
-        `  ${DEV_RETRY_COMMAND}`,
+        `  ${DEV_START_COMMAND}`,
       1,
     );
   }
   const blocked = blockedNetworkError(error, {
     host: apiHost(baseUrl),
-    retryCommand: DEV_RETRY_COMMAND,
+    retryCommand: DEV_START_COMMAND,
   });
   if (blocked !== null) {
     return blocked;
   }
   return new CliError(
-    `We weren't able to start the preview just now. Please try again:\n  ${DEV_RETRY_COMMAND}`,
+    `We weren't able to start the preview just now. Please try again:\n  ${DEV_START_COMMAND}`,
     1,
   );
 }
