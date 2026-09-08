@@ -2,14 +2,16 @@
 // atomically with owner-only permissions. This is the only backend on
 // Windows (no readable credential CLI exists there; the profile directory's
 // default user-only ACL is the boundary) and the fallback everywhere else.
-import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
+import { driggsbyDirectory, writeOwnerOnlyFile } from "../owner-only-file.ts";
 import { type ClearOutcome } from "./clear-outcome.ts";
 
+const CREDENTIALS_FILE_NAME = "credentials.json";
+
 export function credentialsFilePath(homeDirectory: string): string {
-  return join(homeDirectory, ".driggsby", "credentials.json");
+  return join(driggsbyDirectory(homeDirectory), CREDENTIALS_FILE_NAME);
 }
 
 export async function readFileToken(homeDirectory: string): Promise<string | null> {
@@ -32,20 +34,7 @@ export async function readFileToken(homeDirectory: string): Promise<string | nul
 }
 
 export async function writeFileToken(homeDirectory: string, token: string): Promise<void> {
-  const directory = join(homeDirectory, ".driggsby");
-  // mode applies only when the directory is created; an existing ~/.driggsby
-  // keeps whatever permissions the user already gave it.
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const finalPath = credentialsFilePath(homeDirectory);
-  const temporaryPath = join(directory, `credentials.json.${randomUUID()}.tmp`);
-  const body = `${JSON.stringify({ app_token: token }, null, 2)}\n`;
-  try {
-    await writeFile(temporaryPath, body, { mode: 0o600 });
-    await rename(temporaryPath, finalPath);
-  } catch (error) {
-    await rm(temporaryPath, { force: true });
-    throw error;
-  }
+  await writeOwnerOnlyFile(homeDirectory, CREDENTIALS_FILE_NAME, `${JSON.stringify({ app_token: token }, null, 2)}\n`);
 }
 
 export async function clearFileToken(homeDirectory: string): Promise<ClearOutcome> {
@@ -60,10 +49,10 @@ export async function clearFileToken(homeDirectory: string): Promise<ClearOutcom
   // readable token in a `credentials.json.<uuid>.tmp` file; removal must not
   // leave one behind while reporting the token gone.
   try {
-    for (const entry of await readdir(join(homeDirectory, ".driggsby"))) {
+    for (const entry of await readdir(driggsbyDirectory(homeDirectory))) {
       if (entry.startsWith("credentials.json.") && entry.endsWith(".tmp")) {
         try {
-          await rm(join(homeDirectory, ".driggsby", entry), { force: true });
+          await rm(join(driggsbyDirectory(homeDirectory), entry), { force: true });
         } catch {
           outcome = "failed";
         }

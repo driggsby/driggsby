@@ -1,9 +1,12 @@
 // CLI entry point. The bin stub (bin/driggsby.js) imports this module; it is
 // never imported as a library.
+import { homedir } from "node:os";
+
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
 import { runDeploy } from "./deploy/deploy-command.ts";
 import { runDev } from "./dev/dev-command.ts";
+import { runDevStop } from "./dev/dev-stop.ts";
 import { runInit } from "./init/init-command.ts";
 import { runRollback } from "./deploy/rollback-command.ts";
 import { runVersions } from "./deploy/versions-command.ts";
@@ -35,7 +38,7 @@ async function run(argv: string[]): Promise<number> {
     case "init":
       return await runInit({ slug: command.slug });
     case "dev":
-      return await runDev();
+      return command.stop ? await runDevStop(homedir()) : await runDev();
     case "deploy":
       return await runDeploy({ preview: command.preview });
     case "rollback":
