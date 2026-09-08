@@ -16,7 +16,12 @@ export type ParsedCommand =
   | { kind: "dev" }
   | { kind: "deploy"; preview: boolean }
   | { kind: "rollback"; toVersion: number | null }
-  | { kind: "versions" };
+  | { kind: "versions" }
+  | { kind: "query"; tool: string; params: Record<string, unknown> };
+
+export function helpCommand(text: string): ParsedCommand {
+  return { kind: "print-help", text, stream: "stdout", exitCode: 0 };
+}
 
 // "--print=true" / "--help=x" / "--version=x": these flags take no value.
 export function unexpectedFlagValue(flag: string, rawValue: string, usage: string): CliError {

@@ -7,6 +7,7 @@ import { runDev } from "./dev/dev-command.ts";
 import { runInit } from "./init/init-command.ts";
 import { runRollback } from "./deploy/rollback-command.ts";
 import { runVersions } from "./deploy/versions-command.ts";
+import { runQuery } from "./query/query-command.ts";
 import { runLogin } from "./login/login.ts";
 import { runLogout } from "./login/logout.ts";
 import { runMcpSetup } from "./mcp-setup/setup.ts";
@@ -41,6 +42,8 @@ async function run(argv: string[]): Promise<number> {
       return await runRollback({ toVersion: command.toVersion });
     case "versions":
       return await runVersions({});
+    case "query":
+      return await runQuery({ tool: command.tool, params: command.params });
   }
 }
 
