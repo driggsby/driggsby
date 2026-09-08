@@ -91,7 +91,11 @@ export async function runDeploy(
     io.out(`${changedNote(outcome)}\n`);
     io.out(`${uploadedLine(outcome, seconds)}\n`);
     io.out(`${resultLine(outcome)}\n`);
-    io.out(liveAddressLines(outcome));
+    // A preview has no address to open: the Driggsby page shows the live
+    // version, which a preview leaves unchanged.
+    if (outcome.live) {
+      io.out(liveAddressLines(outcome));
+    }
     if (collected.skippedNodeModules.length > 0) {
       io.out(
         `\n${wrapProse("Note: node_modules doesn't deploy — Driggsby serves your app as static files, so it isn't needed.")}\n`,

@@ -274,7 +274,7 @@ test("--preview uploads a ready version without touching what visitors see", asy
     const text = io.text();
     assert.ok(text.includes('Deploying money-dash from "." (preview)'));
     assert.ok(text.includes("✓ Ready     v2 is uploaded but not live"));
-    assert.ok(!text.includes("driggsby.dev"), "a preview has no URL to print");
+    assert.ok(!text.includes("http"), "a preview has no address to print");
     assert.ok(text.includes("npx driggsby@latest rollback --to 2"));
     assertFitsTerminal(text);
     assert.equal(server.liveVersionNumber("money-dash"), 1);

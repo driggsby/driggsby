@@ -104,8 +104,11 @@ export async function runDeployEntrypoint(io: EntrypointIo): Promise<number> {
     io.out(
       `Deployed ${quotedForTerminal(outcome.appSlug, 80)} (v${outcome.versionNumber}, ${uploadedNote}).\n`,
     );
-    if (outcome.url !== null) {
-      io.out(`Live at:\n\n  ${capForTerminal(outcome.url, 200)}\n`);
+    // The Driggsby page for the app comes first when the server names it:
+    // that is where the app runs with the person's data.
+    const address = outcome.consoleUrl ?? outcome.url;
+    if (address !== null) {
+      io.out(`Live at:\n\n  ${capForTerminal(address, 200)}\n`);
     }
     return 0;
   } catch (error) {
