@@ -133,7 +133,14 @@ export async function runDev(
     stopWatching();
     // The record goes before the ports are freed, so a dev starting the
     // instant these close never finds a record this one is about to remove.
-    await removeDevState(environment.homeDirectory, process.pid);
+    // (A `dev --stop` waiting on this exit polls the pid for five seconds,
+    // and closing takes well under one.) The record is a convenience: a
+    // failure to remove it must never keep the ports open.
+    try {
+      await removeDevState(environment.homeDirectory, process.pid);
+    } catch {
+      // Left behind; the next read finds a dead pid and removes it.
+    }
     await servers.close();
   }
 }
@@ -167,7 +174,7 @@ function readyText(slug: string, servers: DevServers, opened: boolean, recorded:
   );
 }
 
-function idleWindowWords(timeoutMs: number): string {
+export function idleWindowWords(timeoutMs: number): string {
   const minutes = Math.round(timeoutMs / 60_000);
   if (minutes < 1) {
     return "a moment";

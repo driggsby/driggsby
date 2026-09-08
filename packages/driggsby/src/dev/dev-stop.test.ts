@@ -77,7 +77,8 @@ test("a record whose port is not served by its pid is never signalled, and is re
       assert.equal(error.exitCode, 1);
       assert.ok(error.message.startsWith("driggsby dev is recorded for the app in:\n"));
       assert.ok(error.message.includes("but didn't answer, so it wasn't stopped."));
-      assert.ok(error.message.endsWith("  npx driggsby@latest dev --stop"));
+      assert.ok(error.message.includes("then try again:\n  npx driggsby@latest dev --stop\n"));
+      assert.ok(error.message.endsWith("the next driggsby dev replaces this record."));
       assert.ok(!error.message.includes("No driggsby dev is running"));
       assert.ok(error.message.split("\n").every((line) => line.length <= 80));
       return true;

@@ -8,7 +8,7 @@ import { DEV_START_COMMAND, DEV_STOP_COMMAND } from "./dev-commands.ts";
 import { type DevProbes, defaultDevProbes, readDevState, removeDevState } from "./dev-state.ts";
 import { displayFolder } from "./display-folder.ts";
 
-// How long a signalled dev gets to close its servers before we report it.
+// How many waits of `waitMs` a signalled dev gets to go before we report it.
 const STOP_ATTEMPTS = 20;
 
 export interface DevStopIo {
@@ -57,7 +57,8 @@ export async function runDevStop(
     throw new CliError(
       `driggsby dev is recorded for the app in:\n  ${folder}\n\n` +
         "but didn't answer, so it wasn't stopped. If it's still running, press\n" +
-        `Ctrl+C in the terminal where it runs, then check again:\n  ${DEV_STOP_COMMAND}`,
+        `Ctrl+C in the terminal where it runs, then try again:\n  ${DEV_STOP_COMMAND}\n\n` +
+        `If nothing is running there, the next driggsby dev replaces this record.`,
       1,
     );
   }

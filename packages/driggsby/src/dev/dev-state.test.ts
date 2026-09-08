@@ -161,7 +161,11 @@ test("the identity probe ignores a proxy named in the environment", async () => 
   const { stdout } = await promisify(execFile)(
     process.execPath,
     ["--no-warnings", "--input-type=module", "-e", script],
-    { env: { ...process.env, NODE_USE_ENV_PROXY: "1", HTTP_PROXY: "http://127.0.0.1:1", http_proxy: "http://127.0.0.1:1" } },
+    {
+      env: { ...process.env, NODE_USE_ENV_PROXY: "1", HTTP_PROXY: "http://127.0.0.1:1", http_proxy: "http://127.0.0.1:1" },
+      // A probe that never resolves must fail the build, not hang it.
+      timeout: 15_000,
+    },
   );
   assert.equal(stdout, "4242");
 });

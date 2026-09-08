@@ -11,7 +11,7 @@ import {
   makeProject,
 } from "../deploy/test-support/deploy-command-harness.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
-import { type DevCommandIo, runDev } from "./dev-command.ts";
+import { type DevCommandIo, idleWindowWords, runDev } from "./dev-command.ts";
 import { DEV_IDENTITY_PATH, type DevState, readLiveDevState, writeDevState } from "./dev-state.ts";
 
 // The dev loopback base URL keeps the saved-sign-in pin satisfied; nothing
@@ -231,4 +231,10 @@ test("dev refuses a driggsby.json with dev_command, naming the alternative", asy
   assert.ok(error.message.includes("dev_command"));
   assert.ok(error.message.includes("npx driggsby@latest deploy"));
   assertFitsTerminal(error.message);
+});
+
+test("the idle window reads as minutes, singular at one, and a moment below that", () => {
+  assert.equal(idleWindowWords(30 * 60 * 1000), "30 minutes");
+  assert.equal(idleWindowWords(60 * 1000), "1 minute");
+  assert.equal(idleWindowWords(40), "a moment");
 });
