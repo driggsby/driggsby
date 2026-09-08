@@ -184,7 +184,12 @@ test("first live deploy walks through every step and prints the URL", async () =
     assert.ok(text.includes("✓ Uploaded"));
     assert.ok(text.includes("under a second"));
     assert.ok(text.includes("✓ Live      v1, at:"));
-    assert.ok(text.includes("https://money-dash.driggsby.dev"));
+    // The Driggsby page comes first; the app's own address follows, named
+    // for what it is.
+    const consoleAt = text.indexOf(server.consoleUrlFor("money-dash"));
+    const ownAt = text.indexOf("https://money-dash.driggsby.dev");
+    assert.ok(consoleAt !== -1 && ownAt !== -1 && consoleAt < ownAt);
+    assert.ok(text.includes("The app's own address, which shows no Driggsby data"));
     assert.ok(text.includes("Next:"));
     assert.ok(text.includes("npx driggsby@latest rollback"));
     assertFitsTerminal(text);
@@ -269,10 +274,83 @@ test("--preview uploads a ready version without touching what visitors see", asy
     const text = io.text();
     assert.ok(text.includes('Deploying money-dash from "." (preview)'));
     assert.ok(text.includes("✓ Ready     v2 is uploaded but not live"));
-    assert.ok(!text.includes("driggsby.dev"), "a preview has no URL to print");
+    assert.ok(!text.includes("http"), "a preview has no address to print");
     assert.ok(text.includes("npx driggsby@latest rollback --to 2"));
     assertFitsTerminal(text);
     assert.equal(server.liveVersionNumber("money-dash"), 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a server without the Driggsby page address prints the app's own address alone", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await makeProject("money-dash");
+    const environment = await makeEnvironment(server.baseUrl);
+    server.injectResponse("POST", "/finalize", 200, {
+      app_slug: "money-dash",
+      version_number: 1,
+      live: true,
+      url: "https://money-dash.driggsby.dev",
+    });
+    const io = capturedOut();
+    const exitCode = await runDeploy({ preview: false, projectDirectory: directory }, environment, {
+      out: io.out,
+      ...FIXED_NOW,
+    });
+
+    assert.equal(exitCode, 0);
+    const text = io.text();
+    assert.ok(text.includes("✓ Live      v1, at:\n\n  https://money-dash.driggsby.dev\n"));
+    assert.ok(!text.includes("own address"));
+    assertFitsTerminal(text);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a Driggsby page address off the signed-in origin is dropped, and a hostile one is stripped", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await makeProject("money-dash");
+    const environment = await makeEnvironment(server.baseUrl);
+    // A lookalike host: the app's own address prints alone.
+    server.injectResponse("POST", "/finalize", 200, {
+      app_slug: "money-dash",
+      version_number: 1,
+      live: true,
+      url: "https://money-dash.driggsby.dev",
+      console_url: "https://app.driggsby.com.evil.test/dashboards/money-dash",
+    });
+    const lookalike = capturedOut();
+    assert.equal(
+      await runDeploy({ preview: false, projectDirectory: directory }, environment, { out: lookalike.out, ...FIXED_NOW }),
+      0,
+    );
+    assert.ok(!lookalike.text().includes("evil.test"));
+    assert.ok(lookalike.text().includes("✓ Live      v1, at:\n\n  https://money-dash.driggsby.dev\n"));
+    assert.ok(!lookalike.text().includes("own address"));
+
+    // On the right origin but carrying terminal control and bidi bytes: it
+    // prints on one line as a parsed URL, those bytes percent-encoded.
+    server.injectResponse("POST", "/finalize", 200, {
+      app_slug: "money-dash",
+      version_number: 2,
+      live: true,
+      url: "https://money-dash.driggsby.dev",
+      console_url: `${server.baseUrl}/dashboards/money-dash\u001b[2K\r\u202eok`,
+    });
+    const hostile = capturedOut();
+    assert.equal(
+      await runDeploy({ preview: false, projectDirectory: directory }, environment, { out: hostile.out, ...FIXED_NOW }),
+      0,
+    );
+    const text = hostile.text();
+    assert.ok(!text.includes("\u001b") && !text.includes("\r") && !text.includes("\u202e"));
+    assert.ok(text.includes(`\n  ${server.baseUrl}/dashboards/money-dash%1B[2K%E2%80%AEok\n`));
+    assert.ok(text.includes("The app's own address, which shows no Driggsby data"));
+    assertFitsTerminal(text);
   } finally {
     await server.close();
   }

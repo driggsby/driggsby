@@ -54,7 +54,9 @@ test("rollback --to switches the live version without re-uploading", async () =>
     assert.equal(exitCode, 0);
     const text = io.text();
     assert.ok(text.includes("✓ Live      v1 is what visitors see now (was v2), at:"));
-    assert.ok(text.includes("https://money-dash.driggsby.dev"));
+    const consoleAt = text.indexOf(server.consoleUrlFor("money-dash"));
+    const ownAt = text.indexOf("https://money-dash.driggsby.dev");
+    assert.ok(consoleAt !== -1 && ownAt !== -1 && consoleAt < ownAt);
     assert.ok(text.includes("Nothing re-uploaded — Driggsby already had v1 in full."));
     assert.ok(text.includes("npx driggsby@latest versions"));
     assertFitsTerminal(text);

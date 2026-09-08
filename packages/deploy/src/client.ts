@@ -43,6 +43,9 @@ export interface FinalizedVersion {
   versionNumber: number;
   live: boolean;
   url: string | null;
+  // The Driggsby page where the person opens this app with their own data.
+  // Null from a server that predates the field.
+  consoleUrl: string | null;
 }
 
 export interface BlobsMissing {
@@ -393,8 +396,16 @@ function parseFinalized(parsed: Record<string, unknown>): FinalizedVersion {
     appSlug: stringField(parsed, "app_slug"),
     versionNumber: integerField(parsed, "version_number"),
     live: parsed.live === true,
-    url: typeof parsed.url === "string" ? parsed.url : null,
+    url: optionalUrlField(parsed, "url"),
+    consoleUrl: optionalUrlField(parsed, "console_url"),
   };
+}
+
+// A blank address is no address: it would otherwise take the printed slot
+// meant for a real one.
+function optionalUrlField(record: Record<string, unknown>, field: string): string | null {
+  const value = record[field];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 function stringField(record: Record<string, unknown>, field: string): string {

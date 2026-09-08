@@ -5,7 +5,7 @@ export { DeployApiError, DeployError } from "./errors.ts";
 // The base-URL policy: which origin the token travels to, and what
 // DRIGGSBY_BASE_URL may override it with. One implementation for both this
 // package's bin and the driggsby CLI.
-export { PUBLIC_BASE_URL, isLoopbackBaseUrl, resolveBaseUrl } from "./base-url.ts";
+export { PUBLIC_BASE_URL, consoleUrlOnOrigin, isLoopbackBaseUrl, resolveBaseUrl } from "./base-url.ts";
 export {
   MAX_FILE_BYTES,
   MAX_FILE_COUNT,
@@ -44,6 +44,15 @@ export {
   deployCollectedFiles,
   deployProjectFiles,
 } from "./deploy.ts";
+// The addresses a deploy or rollback prints, shared by this package's bin
+// and the driggsby CLI so both say the same thing.
+export {
+  type LiveAddresses,
+  MAX_LIVE_ADDRESS_CHARS,
+  hasLiveAddress,
+  liveAddresses,
+  liveAddressLines,
+} from "./live-addresses.ts";
 // Terminal-safety helpers for anything that echoes untrusted text (file
 // names, server strings) into CLI output. See terminal-text.ts for what the
 // sanitizer strips and the deliberate boundary of that defense.
