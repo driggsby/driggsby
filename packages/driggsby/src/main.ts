@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
+import { runDelete } from "./deploy/delete-command.ts";
 import { runDeploy } from "./deploy/deploy-command.ts";
 import { runDev } from "./dev/dev-command.ts";
 import { runDevStop } from "./dev/dev-stop.ts";
@@ -41,6 +42,8 @@ async function run(argv: string[]): Promise<number> {
       return command.stop ? await runDevStop(homedir()) : await runDev();
     case "deploy":
       return await runDeploy({ preview: command.preview });
+    case "delete":
+      return await runDelete({ slug: command.slug, yes: command.yes });
     case "rollback":
       return await runRollback({ toVersion: command.toVersion });
     case "versions":

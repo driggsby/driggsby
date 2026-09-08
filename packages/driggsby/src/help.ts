@@ -20,6 +20,7 @@ Commands:
   deploy    Deploy the app in this directory to Driggsby.
   rollback  Switch which deployed version of your app is live.
   versions  List your deployed app's versions.
+  delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
 
 Options:
@@ -134,6 +135,20 @@ Options:
       --to <VERSION>  The version number to make live, as shown by
                       npx driggsby@latest versions.
   -h, --help          Print help
+`;
+
+export const DELETE_HELP = `Permanently remove a deployed app.
+
+This deletes the app and every version Driggsby kept for it. There is no
+undo: the app's address shows nothing from that moment on. With no name,
+the app in this folder's driggsby.json is the one deleted. You'll be asked
+to type the name back to confirm; scripts and agents pass --yes instead.
+
+Usage: npx driggsby@latest delete [APP-ADDRESS-NAME] [--yes]
+
+Options:
+      --yes   Skip the confirmation question. For scripts and agents.
+  -h, --help  Print help
 `;
 
 export const VERSIONS_HELP = `List your deployed app's versions.

@@ -16,6 +16,7 @@ export type ParsedCommand =
   | { kind: "dev"; stop: boolean }
   | { kind: "deploy"; preview: boolean }
   | { kind: "rollback"; toVersion: number | null }
+  | { kind: "delete"; slug: string | null; yes: boolean }
   | { kind: "versions" }
   | { kind: "query"; tool: string; params: Record<string, unknown> };
 
