@@ -3,8 +3,9 @@ import { test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
 import { capturedOut, makeEnvironment, TEST_TOKEN } from "../deploy/test-support/deploy-command-harness.ts";
+import { GENERIC_TOOL_TROUBLE } from "../dev/dev-servers.ts";
 import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
-import { runQuery } from "./query-command.ts";
+import { runQuery, SIGN_IN_AGAIN_MESSAGE } from "./query-command.ts";
 
 test("query prints the tool's result as JSON, exactly what a watch callback receives", async () => {
   const structured = { returned_row_count: 1, rows: [{ total: "12.50" }], truncated: false, notes: [] };
@@ -85,10 +86,7 @@ test("a stale sign-in and no sign-in each name the login command", async () => {
   try {
     await assert.rejects(
       runQuery({ tool: "get_overview", params: {} }, await makeEnvironment(fake.baseUrl), capturedOut()),
-      (error: unknown) =>
-        error instanceof CliError &&
-        error.message.includes("npx driggsby@latest login") &&
-        !error.message.includes("reload"),
+      (error: unknown) => error instanceof CliError && error.message === SIGN_IN_AGAIN_MESSAGE,
     );
     await assert.rejects(
       runQuery(
@@ -105,15 +103,36 @@ test("a stale sign-in and no sign-in each name the login command", async () => {
 });
 
 test("a network failure names the flags to repeat without rebuilding the user's values", async () => {
+  const unreachable = await makeEnvironment("http://127.0.0.1:1");
   await assert.rejects(
-    runQuery(
-      { tool: "query_cash_sql", params: { sql: "SELECT 'it''s'", limit: 5 } },
-      await makeEnvironment("http://127.0.0.1:1"),
-      capturedOut(),
-    ),
+    runQuery({ tool: "query_cash_sql", params: { sql: "SELECT 'it''s'", limit: 5 } }, unreachable, capturedOut()),
     (error: unknown) =>
       error instanceof CliError &&
       error.message.includes("npx driggsby@latest query query_cash_sql --sql <the same SQL> --params <the same JSON>") &&
       !error.message.includes("it''s"),
   );
+  // A sql key on a tool that takes no --sql stays a param, so the retry
+  // line is one the parser accepts.
+  await assert.rejects(
+    runQuery({ tool: "get_history", params: { sql: "SELECT 1" } }, unreachable, capturedOut()),
+    (error: unknown) =>
+      error instanceof CliError &&
+      error.message.includes("npx driggsby@latest query get_history --params <the same JSON>") &&
+      !error.message.includes("--sql"),
+  );
+});
+
+test("a refusal made only of invisible code points falls back to the generic message", async () => {
+  const fake = await startFakeMcp((body) => ({
+    status: 200,
+    payload: { jsonrpc: "2.0", id: body.id, result: { isError: true, content: [{ type: "text", text: "\u200b\u200b" }] } },
+  }));
+  try {
+    await assert.rejects(
+      runQuery({ tool: "get_overview", params: {} }, await makeEnvironment(fake.baseUrl), capturedOut()),
+      (error: unknown) => error instanceof CliError && error.message === GENERIC_TOOL_TROUBLE,
+    );
+  } finally {
+    await fake.close();
+  }
 });

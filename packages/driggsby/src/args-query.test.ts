@@ -52,7 +52,7 @@ test("query without a tool, or with a tool apps cannot call, is a usage error na
 
   const unknown = usageError(["query", "email_me"]);
   assert.equal(unknown.exitCode, 2);
-  assert.match(unknown.message, /'email_me' isn't a tool a Driggsby app can call/);
+  assert.match(unknown.message, /"email_me" isn't a tool a Driggsby app can call/);
   assert.match(unknown.message, /get_overview/);
   assert.match(unknown.message, /search_investment_activity/);
   assert.ok(unknown.message.split("\n").every((line) => line.length <= 80));
@@ -70,6 +70,10 @@ test("query refuses --params that is not a JSON object, and a missing flag value
   assert.match(usageError(["query", "get_overview", "--sql"]).message, /a value is required for '--sql'/);
   assert.match(usageError(["query", "query_cash_sql", "--sql="]).message, /a value is required for '--sql'/);
   assert.match(usageError(["query", "query_cash_sql", "--sql", " "]).message, /a value is required for '--sql'/);
+  // A following flag is not a value.
+  assert.match(usageError(["query", "query_cash_sql", "--sql", "--params", "{}"]).message, /a value is required for '--sql'/);
+  assert.match(usageError(["query", "get_overview", "--params", " "]).message, /'--params' must be a JSON object/);
+  assert.ok(notJson.message.split("\n").every((line) => line.length <= 80));
   assert.match(usageError(["query", "get_overview", "extra"]).message, /unexpected argument 'extra'/);
   const sqlMisuse = usageError(["query", "get_overview", "--sql", "SELECT 1"]);
   assert.equal(sqlMisuse.exitCode, 2);

@@ -197,5 +197,10 @@ function toolRefusalMessage(resultRecord: Record<string, unknown>): string {
 // and cap the length in one place, so no caller has to remember to.
 function capMessage(message: string): string {
   const clean = sanitizeForTerminal(message);
+  // Text that was nothing but invisible code points sanitizes to nothing;
+  // a blank error helps nobody.
+  if (clean.trim() === "") {
+    return GENERIC_TOOL_TROUBLE;
+  }
   return clean.length > MAX_ERROR_MESSAGE_CHARS ? `${capForTerminal(clean, MAX_ERROR_MESSAGE_CHARS)}…` : clean;
 }

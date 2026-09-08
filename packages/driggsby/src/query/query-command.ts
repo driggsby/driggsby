@@ -10,7 +10,7 @@ import {
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
 import { McpBroker } from "../dev/mcp-broker.ts";
-import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
+import { APP_TOOL_ALLOWLIST, SQL_TOOLS } from "../dev/tool-allowlist.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
 import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
 
@@ -27,7 +27,7 @@ export interface QueryCommandIo {
 // the caller gives none, this names the CLI rather than the dev preview.
 const QUERY_REASON = "Checking this tool's result shape from the driggsby CLI.";
 
-const SIGN_IN_AGAIN_MESSAGE =
+export const SIGN_IN_AGAIN_MESSAGE =
   "Your sign-in on this machine isn't valid anymore. Sign in again:\n  npx driggsby@latest login";
 
 function defaultQueryIo(): QueryCommandIo {
@@ -85,12 +85,16 @@ export async function runQuery(
 // PowerShell at once, so the line names the flags to repeat in the CLI's
 // own <placeholder> convention and stays copy-safe on every shell.
 function retryCommandFor(options: QueryCommandOptions): string {
-  const { sql, ...rest } = options.params;
   const parts = [`npx driggsby@latest query ${options.tool}`];
-  if (sql !== undefined) {
+  // Only the SQL tools take --sql; for every other tool a sql key is just
+  // another param, and naming --sql would hand back a command the parser
+  // refuses.
+  const sqlAsFlag = SQL_TOOLS.has(options.tool) && options.params.sql !== undefined;
+  if (sqlAsFlag) {
     parts.push("--sql <the same SQL>");
   }
-  if (Object.keys(rest).length > 0) {
+  const otherKeys = Object.keys(options.params).filter((key) => !(sqlAsFlag && key === "sql"));
+  if (otherKeys.length > 0) {
     parts.push("--params <the same JSON>");
   }
   return parts.join(" ");

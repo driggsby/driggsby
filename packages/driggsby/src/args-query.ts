@@ -6,13 +6,11 @@
 import { helpCommand, type ParsedCommand, unexpectedArgument } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
-import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
+import { APP_TOOL_ALLOWLIST, SQL_TOOLS } from "./dev/tool-allowlist.ts";
 import { QUERY_HELP, wrapNames } from "./help.ts";
-import { sanitizeForTerminal } from "./terminal-text.ts";
+import { quotedForTerminal } from "./terminal-text.ts";
 
-export const QUERY_USAGE = "Usage: npx driggsby@latest query <TOOL> [--sql <SQL>] [--params <JSON>]";
-
-const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql"]);
+const QUERY_USAGE = "Usage: npx driggsby@latest query <TOOL> [--sql <SQL>] [--params <JSON>]";
 
 export function parseQuery(argv: string[]): ParsedCommand {
   let tool: string | null = null;
@@ -41,7 +39,7 @@ export function parseQuery(argv: string[]): ParsedCommand {
       continue;
     }
     if (!optionsEnded && token === "--params") {
-      params = parseParams(requireFlagValue(argv, index, "--params"));
+      params = parseParams(requireFlagValue(argv, index, "--params", { allowBlank: true }));
       index += 1;
       continue;
     }
@@ -71,9 +69,17 @@ export function parseQuery(argv: string[]): ParsedCommand {
   return { kind: "query", tool, params: merged };
 }
 
-function requireFlagValue(argv: string[], index: number, flag: string): string {
+// A following flag is never a value: `--sql --params '{}'` is a missing SQL,
+// not SQL that reads "--params".
+function requireFlagValue(
+  argv: string[],
+  index: number,
+  flag: string,
+  options: { allowBlank?: boolean } = {},
+): string {
   const value = argv[index + 1];
-  if (value === undefined || value.trim() === "") {
+  const blank = value === undefined || value.startsWith("--") || (value.trim() === "" && options.allowBlank !== true);
+  if (blank) {
     throw missingFlagValue(flag);
   }
   return value;
@@ -103,7 +109,7 @@ function parseParams(rawValue: string): Record<string, unknown> {
 
 function invalidParams(): CliError {
   return new CliError(
-    `error: invalid value for '--params': '--params' must be a JSON object, like '{"history_type":"liabilities"}'\n\n` +
+    `error: invalid value for '--params':\n'--params' must be a JSON object, like '{"history_type":"liabilities"}'\n\n` +
       `${QUERY_USAGE}\n\nFor more information, try '--help'.`,
     2,
   );
@@ -120,7 +126,7 @@ function unknownTool(tool: string): CliError {
   const similar = didYouMean(tool, [...APP_TOOL_ALLOWLIST]);
   const tip = similar === undefined ? "" : `  tip: a similar tool exists: '${similar}'\n\n`;
   return new CliError(
-    `error: '${sanitizeForTerminal(tool)}' isn't a tool a Driggsby app can call.\n` +
+    `error: ${quotedForTerminal(tool, 60)} isn't a tool a Driggsby app can call.\n` +
       `Apps can watch these read-only tools:\n` +
       `${wrapNames([...APP_TOOL_ALLOWLIST], "  ")}\n\n${tip}${QUERY_USAGE}\n\nFor more information, try '--help'.`,
     2,
