@@ -5,7 +5,6 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
@@ -146,10 +145,11 @@ test("liveness: this process is alive, an absurd pid is not", () => {
 // child: with a proxy named in the environment, the probe must still reach
 // the loopback dev and never the proxy.
 test("the identity probe ignores a proxy named in the environment", async () => {
-  const devStatePath = fileURLToPath(new URL("./dev-state.ts", import.meta.url));
+  // A file URL, not a path: on Windows an absolute path is not importable.
+  const devStateUrl = new URL("./dev-state.ts", import.meta.url).href;
   const script = `
     import { createServer } from "node:http";
-    import { DEV_IDENTITY_PATH, devPidServing } from ${JSON.stringify(devStatePath)};
+    import { DEV_IDENTITY_PATH, devPidServing } from ${JSON.stringify(devStateUrl)};
     const server = createServer((request, response) => {
       response.writeHead(request.url === DEV_IDENTITY_PATH ? 200 : 404, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ pid: 4242 }));
