@@ -6,8 +6,8 @@
 // tool result shapes only in structure, so the scaffold's render functions
 // work unchanged when live data replaces them. The HTML ships a skeleton
 // of the final layout so the first paint — in every context, before any
-// script runs — is muted bars that the first render replaces, fading in
-// at the exact same size so nothing shifts.
+// script runs — is muted bars that the first render replaces at the exact
+// same size, dissolving one into the other, so nothing shifts or pops.
 
 export function indexHtml(slug: string): string {
   return `<!doctype html>
@@ -192,19 +192,6 @@ function element(tag, className, text) {
   return node;
 }
 
-// The page ships with a skeleton of this exact layout in its HTML — muted
-// bars where the numbers will be — so the very first paint is already the
-// final shape. The first render into a container replaces its skeleton and
-// fades in, so data arriving reads as the page settling, never as content
-// popping. classList.add is idempotent and re-adding a class never restarts
-// its animation, so later live updates repaint in place without re-fading.
-// aria-busy ships in the HTML so assistive tech hears "loading" until the
-// first real content lands.
-function revealOnce(container) {
-  container.classList.add("fade-in");
-  container.removeAttribute("aria-busy");
-}
-
 function renderOverview(result) {
   const rollups = (result && result.summary_rollups) || {};
   const container = document.getElementById("overview");
@@ -223,7 +210,9 @@ function renderOverview(result) {
     );
     container.append(stat);
   }
-  revealOnce(container);
+  // aria-busy ships in the HTML so assistive tech hears "loading" until
+  // the first content lands; every render clears it (harmless once gone).
+  container.removeAttribute("aria-busy");
 }
 
 function renderAccounts(result) {
@@ -233,7 +222,7 @@ function renderAccounts(result) {
   container.replaceChildren();
   if (accounts.length === 0) {
     container.append(element("div", "empty-row", "No linked accounts yet."));
-    revealOnce(container);
+    container.removeAttribute("aria-busy");
     return;
   }
   for (const account of accounts) {
@@ -264,7 +253,99 @@ function renderAccounts(result) {
     );
     container.append(row);
   }
-  revealOnce(container);
+  container.removeAttribute("aria-busy");
+}
+
+// ---------------------------------------------------------------------------
+// Settling in. The first data a section shows replaces its skeleton in a
+// dissolve: the browser snapshots the page, the paint lands, and old
+// crossfades into new (a View Transition — pixels that did not change
+// don't visibly change, so what reads as animating is the bars becoming
+// numbers). The skeleton and the data measure identical (see styles.css),
+// so the dissolve reads as the page coming into focus — never a blink, a
+// shift, or a pop. Where the browser has no View Transitions, or the
+// person prefers reduced motion, the swap is simply instant.
+//
+// The beat below covers sections whose data lands together (the common
+// case). A section whose first data trails in later gets its own beat and
+// its own dissolve; starting it skips whatever remained of the first one's
+// animation — the paints always land, only the crossfade is cut short.
+// ---------------------------------------------------------------------------
+
+// How long a section's first paint may wait so sections whose data lands
+// in the same beat dissolve in together instead of one by one.
+const SETTLE_TOGETHER_MS = 50;
+
+let pendingFirstPaints = [];
+let settleFlushScheduled = false;
+
+function settle(paint) {
+  const reducedMotion =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (typeof document.startViewTransition !== "function" || reducedMotion) {
+    paint();
+    return;
+  }
+  pendingFirstPaints.push(paint);
+  if (settleFlushScheduled) return; // this paint rides the beat already in flight
+  settleFlushScheduled = true;
+  setTimeout(() => {
+    // Collected inside the flush, which runs inside the transition
+    // callback, so a first result that lands between the beat ending and
+    // the snapshot being taken joins this dissolve instead of cutting it
+    // short with a second one.
+    const flush = () => {
+      const paints = pendingFirstPaints;
+      pendingFirstPaints = [];
+      settleFlushScheduled = false;
+      for (const apply of paints) {
+        // One section's render must never stop another's: the scaffold
+        // is meant to be edited, and a throw mid-edit stays that
+        // section's problem — it heals on its own next result.
+        try {
+          apply();
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    };
+    try {
+      const transition = document.startViewTransition(flush);
+      // A skipped transition (a hidden tab, a second dissolve starting)
+      // still runs flush; only the animation is dropped. Without this,
+      // the skip surfaces as an uncaught rejection in the console.
+      transition.ready.catch(() => {});
+    } catch (error) {
+      // If starting the transition itself threw, nothing will call
+      // flush; run it plain so the paints land and the beat resets.
+      console.error(error);
+      flush();
+    }
+  }, SETTLE_TOGETHER_MS);
+}
+
+// Wraps a render function for its watch: the first result goes through
+// settle() above, and only the latest result paints if more arrive while
+// that dissolve is still pending. Every later result repaints in place
+// with no animation at all.
+function settledRenderer(render) {
+  let hasSettled = false;
+  let firstPaintQueued = false;
+  let latestResult;
+  return (result) => {
+    if (hasSettled) {
+      render(result);
+      return;
+    }
+    latestResult = result;
+    if (firstPaintQueued) return;
+    firstPaintQueued = true;
+    settle(() => {
+      hasSettled = true;
+      render(latestResult);
+    });
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +356,7 @@ function renderAccounts(result) {
 // shows its own notice explaining that the page runs with real data only
 // inside Driggsby. Embedded, sample numbers never paint at all — the
 // shipped skeleton holds the layout until the first real results replace
-// it and fade in.
+// it in a dissolve (see "Settling in" above).
 // ---------------------------------------------------------------------------
 
 const standalone = window.parent === window;
@@ -286,12 +367,8 @@ if (standalone) {
 }
 
 if (window.driggsby) {
-  driggsby.watch("get_overview", {}, (result) => {
-    renderOverview(result);
-  });
-  driggsby.watch("list_accounts", {}, (result) => {
-    renderAccounts(result);
-  });
+  driggsby.watch("get_overview", {}, settledRenderer(renderOverview));
+  driggsby.watch("list_accounts", {}, settledRenderer(renderAccounts));
 }
 `;
 

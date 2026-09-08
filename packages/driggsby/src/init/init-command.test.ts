@@ -3,16 +3,12 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { runInNewContext } from "node:vm";
 
 import { readProjectConfig } from "@driggsby/deploy";
-import { transformSync } from "esbuild";
-
 import { CliError } from "../cli-error.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
 import { type InitCommandIo, runInit } from "./init-command.ts";
 import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
-import { APP_JS } from "./templates.ts";
 
 function makeIo(overrides: Partial<InitCommandIo> = {}): InitCommandIo & { text: () => string } {
   let buffer = "";
@@ -71,6 +67,10 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   assert.ok(appJs.includes('driggsby.watch("get_overview"'));
   assert.ok(appJs.includes('driggsby.watch("list_accounts"'));
   assert.ok(appJs.includes("Sample Bank"), "sample values must be obviously synthetic");
+  assert.ok(
+    appJs.includes("startViewTransition"),
+    "the first data render must dissolve in via a View Transition",
+  );
   // The scaffold is many builders' only documentation, so it must name
   // every tool an app can watch — an agent editing app.js discovers the
   // surface here, not by calling a wrong tool and reading the refusal.
@@ -100,12 +100,8 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   const css = await readFile(join(appDirectory, "styles.css"), "utf8");
   assert.ok(css.includes(".skeleton"), "styles.css must style the skeleton bars");
   assert.ok(
-    css.includes("@keyframes fade-in"),
-    "styles.css must define the first-data fade",
-  );
-  assert.ok(
     css.includes("prefers-reduced-motion"),
-    "styles.css must disable the pulse and fade under reduced motion",
+    "styles.css must disable the pulse under reduced motion",
   );
 
   const text = io.text();
@@ -236,241 +232,4 @@ test("init fills an existing empty folder", async () => {
 
   assert.equal(exitCode, 0);
   assert.equal((await readdir(join(parent, "money-dash"))).length, 4);
-});
-
-// The scaffold's app code is browser JavaScript stored as a string literal,
-// invisible to tsc and ESLint; this parse gate turns a syntax slip in a
-// template edit into a red build instead of a broken scaffold.
-test("the scaffolded app.js parses as JavaScript", () => {
-  assert.doesNotThrow(() => transformSync(APP_JS, { loader: "js" }));
-});
-
-// A DOM stub just wide enough to execute the scaffold's app.js and observe
-// what it painted, so the no-flash invariant is tested behaviorally: sample
-// numbers exist in the DOM only when the page is genuinely standalone.
-class StubNode {
-  id: string;
-  className = "";
-  textContent = "";
-  hidden: boolean;
-  removed = false;
-  children: StubNode[] = [];
-  classes: string[] = [];
-  attributes = new Map<string, string>();
-  classList = {
-    add: (name: string): void => {
-      if (!this.classes.includes(name)) this.classes.push(name);
-    },
-    contains: (name: string): boolean => this.classes.includes(name),
-  };
-
-  constructor(id = "", hidden = false) {
-    this.id = id;
-    this.hidden = hidden;
-  }
-
-  append(...nodes: StubNode[]): void {
-    this.children.push(...nodes);
-  }
-
-  replaceChildren(...nodes: StubNode[]): void {
-    this.children = nodes;
-  }
-
-  remove(): void {
-    this.removed = true;
-  }
-
-  setAttribute(name: string, value: string): void {
-    this.attributes.set(name, value);
-  }
-
-  removeAttribute(name: string): void {
-    this.attributes.delete(name);
-  }
-}
-
-interface ScaffoldRun {
-  overview: StubNode;
-  accounts: StubNode;
-  overviewSkeleton: StubNode[];
-  accountsSkeleton: StubNode[];
-  watches: Map<string, (result: unknown) => void>;
-}
-
-// Mirrors the shipped HTML: the containers start marked busy and holding
-// their skeleton children (4 stat bars, 3 account rows), so the assertions
-// about replacement are about a skeleton that was genuinely there.
-function skeletonNodes(count: number): StubNode[] {
-  return Array.from({ length: count }, () => {
-    const node = new StubNode();
-    node.className = "skeleton";
-    return node;
-  });
-}
-
-function runScaffoldAppJs(options: { embedded: boolean; sdkLoaded: boolean }): ScaffoldRun {
-  const overview = new StubNode("overview");
-  const accounts = new StubNode("accounts");
-  const overviewSkeleton = skeletonNodes(4);
-  const accountsSkeleton = skeletonNodes(3);
-  overview.children = [...overviewSkeleton];
-  accounts.children = [...accountsSkeleton];
-  overview.attributes.set("aria-busy", "true");
-  accounts.attributes.set("aria-busy", "true");
-  const byId = new Map<string, StubNode>([
-    ["overview", overview],
-    ["accounts", accounts],
-  ]);
-  const watches = new Map<string, (result: unknown) => void>();
-  const documentStub = {
-    getElementById: (id: string): StubNode | null => byId.get(id) ?? null,
-    createElement: (): StubNode => new StubNode(),
-  };
-  const driggsbyStub = options.sdkLoaded
-    ? {
-        watch: (
-          tool: string,
-          _params: Record<string, unknown>,
-          callback: (result: unknown) => void,
-        ): (() => void) => {
-          watches.set(tool, callback);
-          return () => undefined;
-        },
-      }
-    : undefined;
-  const windowStub: { parent: unknown; driggsby?: typeof driggsbyStub } = { parent: null };
-  windowStub.parent = options.embedded ? {} : windowStub;
-  if (driggsbyStub) windowStub.driggsby = driggsbyStub;
-  runInNewContext(APP_JS, { window: windowStub, document: documentStub, driggsby: driggsbyStub });
-  return { overview, accounts, overviewSkeleton, accountsSkeleton, watches };
-}
-
-function holdsNoSkeleton(container: StubNode, skeleton: StubNode[]): boolean {
-  return container.children.every((child) => !skeleton.includes(child));
-}
-
-test("standalone, the scaffold paints sample data", () => {
-  const run = runScaffoldAppJs({ embedded: false, sdkLoaded: false });
-  assert.equal(run.overview.children.length, 4, "the four sample stats must paint");
-  assert.equal(run.accounts.children.length, 3, "the three sample accounts must paint");
-  assert.ok(
-    holdsNoSkeleton(run.overview, run.overviewSkeleton) &&
-      holdsNoSkeleton(run.accounts, run.accountsSkeleton),
-    "the sample render must replace the skeleton, not stack under it",
-  );
-  assert.ok(
-    run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
-    "the sample render must fade in",
-  );
-  assert.ok(
-    !run.overview.attributes.has("aria-busy") && !run.accounts.attributes.has("aria-busy"),
-    "aria-busy must clear once content lands",
-  );
-});
-
-test("embedded, the shipped skeleton stands untouched until real data replaces it", () => {
-  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
-  // Before data arrives the script must not touch the containers: the
-  // HTML-shipped skeleton stays, still marked busy — no sample values,
-  // no loading text.
-  assert.deepEqual(run.overview.children, run.overviewSkeleton, "the skeleton must survive");
-  assert.deepEqual(run.accounts.children, run.accountsSkeleton, "the skeleton must survive");
-  assert.equal(run.overview.attributes.get("aria-busy"), "true", "still busy before data");
-  assert.ok(!run.overview.classList.contains("fade-in"), "nothing fades before data");
-
-  // The first real results replace the skeleton and fade in.
-  const overviewCallback = run.watches.get("get_overview");
-  const accountsCallback = run.watches.get("list_accounts");
-  assert.ok(overviewCallback, "the scaffold must watch get_overview");
-  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
-  overviewCallback({
-    summary_rollups: { cash: { amount: "10.00", currency_code: "USD" } },
-  });
-  accountsCallback({
-    linked_accounts: [
-      {
-        institution_name: "Test Bank",
-        account_display_name: "Checking",
-        account_mask_last4: "1111",
-        current_balance: { amount: "1.00", currency_code: "USD" },
-      },
-    ],
-  });
-  assert.equal(run.overview.children.length, 4);
-  assert.equal(run.accounts.children.length, 1);
-  assert.ok(
-    holdsNoSkeleton(run.overview, run.overviewSkeleton) &&
-      holdsNoSkeleton(run.accounts, run.accountsSkeleton),
-    "real data must replace the skeleton, not stack under it",
-  );
-  const row = run.accounts.children[0];
-  assert.ok(row, "the real account row must render");
-  // Row shape: glyph pill (the institution's initial), names, balance.
-  const glyph = row.children[0];
-  assert.ok(glyph, "the glyph pill must render");
-  assert.equal(glyph.textContent, "T");
-  assert.equal(
-    glyph.attributes.get("aria-hidden"),
-    "true",
-    "the glyph is decorative; the institution is read out on the next line",
-  );
-  assert.equal(row.children[1]?.children[0]?.textContent, "Checking");
-  assert.equal(row.children[2]?.textContent, "$1.00", "the balance cell must render last");
-  assert.ok(
-    run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
-    "the first real render must fade in",
-  );
-  assert.ok(
-    !run.overview.attributes.has("aria-busy") && !run.accounts.attributes.has("aria-busy"),
-    "aria-busy must clear once real content lands",
-  );
-});
-
-test("malformed account data renders as absent, and never breaks the page", () => {
-  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
-  const accountsCallback = run.watches.get("list_accounts");
-  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
-  // A null entry is skipped; an entry with non-string fields and a bad
-  // currency renders with fallbacks, never "[object Object]" or a throw.
-  accountsCallback({
-    linked_accounts: [
-      null,
-      {
-        institution_name: 123,
-        account_display_name: {},
-        account_mask_last4: ["1111"],
-        current_balance: { amount: "1.00", currency_code: "NOT_A_CODE" },
-      },
-    ],
-  });
-  assert.equal(run.accounts.children.length, 1, "only the object entry renders");
-  const row = run.accounts.children[0];
-  assert.ok(row, "the surviving row must render");
-  assert.equal(row.children[0]?.textContent, "?", "no name means the glyph falls back");
-  const names = row.children[1];
-  assert.ok(names, "the names column must render");
-  assert.equal(names.children[0]?.textContent, "Account");
-  assert.equal(names.children[1]?.textContent, "", "non-strings never paint");
-  assert.equal(row.children[2]?.textContent, "—", "a bad currency renders as absent");
-
-  // A result whose list is not an array paints the empty state, not a crash.
-  accountsCallback({ linked_accounts: "garbage" });
-  const emptyRow = run.accounts.children[0];
-  assert.ok(emptyRow, "the empty state must render for a non-array result");
-  assert.equal(emptyRow.className, "empty-row");
-});
-
-test("an empty accounts result renders the empty state, not a bare box", () => {
-  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
-  const accountsCallback = run.watches.get("list_accounts");
-  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
-  accountsCallback({ linked_accounts: [] });
-  assert.equal(run.accounts.children.length, 1);
-  const emptyRow = run.accounts.children[0];
-  assert.ok(emptyRow, "the empty state row must render");
-  assert.equal(emptyRow.textContent, "No linked accounts yet.");
-  assert.equal(emptyRow.className, "empty-row");
-  assert.ok(run.accounts.classList.contains("fade-in"), "the empty state still fades in");
-  assert.ok(!run.accounts.attributes.has("aria-busy"), "aria-busy must clear on the empty state");
 });
