@@ -1,6 +1,6 @@
 {
   "name": "@driggsby/sdk",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "The browser SDK for Driggsby apps: live financial data through driggsby.watch().",
   "license": "Apache-2.0",
   "repository": {
