@@ -13,8 +13,7 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
   color-scheme: dark;
   --bg-app: #000000;
   --bg-card: #0a0a0a;
-  --bg-glyph: #262626;
-  --bg-ghost: #262626;
+  --bg-mute: #262626;
   --hairline: rgba(255, 255, 255, 0.14);
   --text-primary: #fafafa;
   --text-secondary: #c4c4c4;
@@ -80,6 +79,8 @@ h2 {
 }
 
 .stat {
+  display: flex;
+  flex-direction: column;
   padding: 16px;
   background: var(--bg-card);
 }
@@ -132,12 +133,14 @@ h2 {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--bg-glyph);
+  background: var(--bg-mute);
   font-size: 16px;
   font-weight: 500;
 }
 
 .account-names {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
 }
@@ -157,18 +160,19 @@ h2 {
 }
 
 .account-balance {
-  margin-left: auto;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 /* The skeleton ships in the HTML so the first paint is the final layout as
    muted bars; the first render replaces it and fades in (see app.js). Each
-   bar's margins make it exactly the height of the text it stands in for,
-   so nothing shifts when data lands. */
+   bar's margins pad it to exactly the height of the text it stands in for,
+   and the columns holding stacked bars are flex so those margins never
+   collapse — the skeleton page and the data page measure identical, and
+   nothing shifts when data lands. */
 .skeleton {
   border-radius: var(--radius-bar);
-  background: var(--bg-ghost);
+  background: var(--bg-mute);
   animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 
@@ -206,7 +210,7 @@ h2 {
 .skeleton-balance {
   width: 72px;
   height: 14px;
-  margin: 3.5px 0 3.5px auto;
+  margin: 3.5px 0;
 }
 
 @keyframes skeleton-pulse {

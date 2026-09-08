@@ -414,3 +414,17 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
     "aria-busy must clear once real content lands",
   );
 });
+
+test("an empty accounts result renders the empty state, not a bare box", () => {
+  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
+  const accountsCallback = run.watches.get("list_accounts");
+  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
+  accountsCallback({ linked_accounts: [] });
+  assert.equal(run.accounts.children.length, 1);
+  const emptyRow = run.accounts.children[0];
+  assert.ok(emptyRow, "the empty state row must render");
+  assert.equal(emptyRow.textContent, "No linked accounts yet.");
+  assert.equal(emptyRow.className, "empty-row");
+  assert.ok(run.accounts.classList.contains("fade-in"), "the empty state still fades in");
+  assert.ok(!run.accounts.attributes.has("aria-busy"), "aria-busy must clear on the empty state");
+});

@@ -229,8 +229,11 @@ function renderAccounts(result) {
     const mask = account.account_mask_last4;
     const institution = account.institution_name || "";
     // The institution's initial on a round pill, the way Driggsby's own
-    // account rows draw it.
-    const initial = (institution || account.account_display_name || "?").trim().charAt(0).toUpperCase();
+    // account rows draw it. String() and Array.from keep a malformed or
+    // emoji-leading name from breaking the render (Array.from splits by
+    // whole character, not UTF-16 half).
+    const initialSource = String(institution || account.account_display_name || "").trim();
+    const initial = (Array.from(initialSource)[0] || "?").toUpperCase();
     names.append(
       element("div", "account-name", account.account_display_name || "Account"),
       element("div", "account-institution", institution + (mask ? " ····" + mask : ""))
