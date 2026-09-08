@@ -31,7 +31,7 @@ test("query parses a bare tool, --sql, and --params in either spelling", () => {
     tool: "get_history",
     params: { history_type: "liabilities" },
   });
-  // --sql overrides a sql key given in --params, whatever the argv order.
+  // --sql overrides a sql key given in --params; the merge runs after the loop, so argv order is irrelevant.
   assert.deepEqual(parseArgv(["query", "query_cash_sql", "--sql=SELECT 2", '--params={"sql":"SELECT 1"}']), {
     kind: "query",
     tool: "query_cash_sql",
@@ -72,6 +72,7 @@ test("query refuses --params that is not a JSON object, and a missing flag value
   assert.match(usageError(["query", "query_cash_sql", "--sql", " "]).message, /a value is required for '--sql'/);
   // A following flag is not a value.
   assert.match(usageError(["query", "query_cash_sql", "--sql", "--params", "{}"]).message, /a value is required for '--sql'/);
+  assert.match(usageError(["query", "query_cash_sql", "--sql", "-h"]).message, /a value is required for '--sql'/);
   assert.match(usageError(["query", "get_overview", "--params", " "]).message, /'--params' must be a JSON object/);
   assert.ok(notJson.message.split("\n").every((line) => line.length <= 80));
   assert.match(usageError(["query", "get_overview", "extra"]).message, /unexpected argument 'extra'/);

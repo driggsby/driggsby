@@ -6,6 +6,7 @@
 // help grew past the Rust CLI when login/logout landed; its fixture pins the
 // current text.
 import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
+import { wrapNames } from "./terminal-text.ts";
 
 export const ROOT_HELP = `Usage: npx driggsby@latest <COMMAND>
 
@@ -224,19 +225,3 @@ ${"          "}
   -h, --help
           Print help (see a summary with '-h')
 `;
-
-// Comma-separated names on indented lines that stay inside 80 columns.
-export function wrapNames(names: string[], indent: string): string {
-  const lines: string[] = [];
-  let line = indent;
-  for (const [index, name] of names.entries()) {
-    const piece = index === names.length - 1 ? `${name}.` : `${name},`;
-    if (line !== indent && line.length + 1 + piece.length > 80) {
-      lines.push(line);
-      line = indent;
-    }
-    line += line === indent ? piece : ` ${piece}`;
-  }
-  lines.push(line);
-  return lines.join("\n");
-}

@@ -10,8 +10,9 @@ import {
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
 import { McpBroker } from "../dev/mcp-broker.ts";
-import { APP_TOOL_ALLOWLIST, SQL_TOOLS } from "../dev/tool-allowlist.ts";
-import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
+import { SQL_TOOLS } from "../args-query.ts";
+import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
+import { deployFailure, requireDeploySession, SIGN_IN_AGAIN_MESSAGE } from "../deploy/api-session.ts";
 import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
 
 export interface QueryCommandOptions {
@@ -26,9 +27,6 @@ export interface QueryCommandIo {
 // The Driggsby endpoint requires a short reason on most read tools; when
 // the caller gives none, this names the CLI rather than the dev preview.
 const QUERY_REASON = "Checking this tool's result shape from the driggsby CLI.";
-
-export const SIGN_IN_AGAIN_MESSAGE =
-  "Your sign-in on this machine isn't valid anymore. Sign in again:\n  npx driggsby@latest login";
 
 function defaultQueryIo(): QueryCommandIo {
   return {
@@ -82,20 +80,20 @@ export async function runQuery(
 
 // The command to run again after a network blip. User values are never
 // rebuilt into a shell line: no quoting is right for sh, cmd.exe, and
-// PowerShell at once, so the line names the flags to repeat in the CLI's
-// own <placeholder> convention and stays copy-safe on every shell.
+// PowerShell at once, so the flags to repeat are named in a plain
+// sentence under the command instead.
 function retryCommandFor(options: QueryCommandOptions): string {
-  const parts = [`npx driggsby@latest query ${options.tool}`];
+  const command = `npx driggsby@latest query ${options.tool}`;
   // Only the SQL tools take --sql; for every other tool a sql key is just
-  // another param, and naming --sql would hand back a command the parser
+  // another param, and naming --sql would describe a command the parser
   // refuses.
   const sqlAsFlag = SQL_TOOLS.has(options.tool) && options.params.sql !== undefined;
-  if (sqlAsFlag) {
-    parts.push("--sql <the same SQL>");
-  }
   const otherKeys = Object.keys(options.params).filter((key) => !(sqlAsFlag && key === "sql"));
-  if (otherKeys.length > 0) {
-    parts.push("--params <the same JSON>");
+  const flags = [sqlAsFlag ? "--sql" : null, otherKeys.length > 0 ? "--params" : null].filter(
+    (flag): flag is string => flag !== null,
+  );
+  if (flags.length === 0) {
+    return command;
   }
-  return parts.join(" ");
+  return `${command}\n  with the same ${flags.join(" and ")} as before`;
 }

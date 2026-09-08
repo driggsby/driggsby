@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
+import { SIGN_IN_AGAIN_MESSAGE } from "../deploy/api-session.ts";
 import { capturedOut, makeEnvironment, TEST_TOKEN } from "../deploy/test-support/deploy-command-harness.ts";
 import { GENERIC_TOOL_TROUBLE } from "../dev/dev-servers.ts";
 import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
-import { runQuery, SIGN_IN_AGAIN_MESSAGE } from "./query-command.ts";
+import { runQuery } from "./query-command.ts";
 
 test("query prints the tool's result as JSON, exactly what a watch callback receives", async () => {
   const structured = { returned_row_count: 1, rows: [{ total: "12.50" }], truncated: false, notes: [] };
@@ -102,25 +104,49 @@ test("a stale sign-in and no sign-in each name the login command", async () => {
   }
 });
 
-test("a network failure names the flags to repeat without rebuilding the user's values", async () => {
-  const unreachable = await makeEnvironment("http://127.0.0.1:1");
+test("a refused connection names the host to allow and the flags to repeat, never the user's values", async () => {
+  const unreachable = await makeEnvironment(await closedLoopbackUrl());
   await assert.rejects(
     runQuery({ tool: "query_cash_sql", params: { sql: "SELECT 'it''s'", limit: 5 } }, unreachable, capturedOut()),
-    (error: unknown) =>
-      error instanceof CliError &&
-      error.message.includes("npx driggsby@latest query query_cash_sql --sql <the same SQL> --params <the same JSON>") &&
-      !error.message.includes("it''s"),
+    (error: unknown) => {
+      assert.ok(error instanceof CliError);
+      assert.match(error.message, /We couldn't reach 127\.0\.0\.1:\d+ from this machine\./);
+      assert.ok(error.message.includes("  npx driggsby@latest query query_cash_sql\n  with the same --sql and --params as before"));
+      assert.ok(!error.message.includes("it''s"));
+      assert.ok(error.message.split("\n").every((line) => line.length <= 80));
+      return true;
+    },
   );
-  // A sql key on a tool that takes no --sql stays a param, so the retry
-  // line is one the parser accepts.
+  // A sql key on a tool that takes no --sql stays a param.
   await assert.rejects(
     runQuery({ tool: "get_history", params: { sql: "SELECT 1" } }, unreachable, capturedOut()),
     (error: unknown) =>
       error instanceof CliError &&
-      error.message.includes("npx driggsby@latest query get_history --params <the same JSON>") &&
+      error.message.includes("  npx driggsby@latest query get_history\n  with the same --params as before") &&
       !error.message.includes("--sql"),
   );
+  await assert.rejects(
+    runQuery({ tool: "get_overview", params: {} }, unreachable, capturedOut()),
+    (error: unknown) => error instanceof CliError && error.message.endsWith("  npx driggsby@latest query get_overview"),
+  );
 });
+
+// A loopback port that was just bound and released: connecting to it is a
+// genuine ECONNREFUSED, the failure a sandboxed network produces.
+async function closedLoopbackUrl(): Promise<string> {
+  const server = createServer();
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== "string");
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+  return `http://127.0.0.1:${String(address.port)}`;
+}
 
 test("a refusal made only of invisible code points falls back to the generic message", async () => {
   const fake = await startFakeMcp((body) => ({

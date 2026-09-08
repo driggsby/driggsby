@@ -6,9 +6,13 @@
 import { helpCommand, type ParsedCommand, unexpectedArgument } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
-import { APP_TOOL_ALLOWLIST, SQL_TOOLS } from "./dev/tool-allowlist.ts";
-import { QUERY_HELP, wrapNames } from "./help.ts";
-import { quotedForTerminal } from "./terminal-text.ts";
+import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
+import { QUERY_HELP } from "./help.ts";
+import { quotedForTerminal, wrapNames } from "./terminal-text.ts";
+
+// The two tools that take SQL: --sql applies only to these, and a retry
+// line names --sql only for them.
+export const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql"]);
 
 const QUERY_USAGE = "Usage: npx driggsby@latest query <TOOL> [--sql <SQL>] [--params <JSON>]";
 
@@ -70,7 +74,8 @@ export function parseQuery(argv: string[]): ParsedCommand {
 }
 
 // A following flag is never a value: `--sql --params '{}'` is a missing SQL,
-// not SQL that reads "--params".
+// not SQL that reads "--params" (SQL that must start with "-" can use the
+// --sql= spelling).
 function requireFlagValue(
   argv: string[],
   index: number,
@@ -78,7 +83,8 @@ function requireFlagValue(
   options: { allowBlank?: boolean } = {},
 ): string {
   const value = argv[index + 1];
-  const blank = value === undefined || value.startsWith("--") || (value.trim() === "" && options.allowBlank !== true);
+  const looksLikeFlag = value !== undefined && value.length > 1 && value.startsWith("-");
+  const blank = value === undefined || looksLikeFlag || (value.trim() === "" && options.allowBlank !== true);
   if (blank) {
     throw missingFlagValue(flag);
   }

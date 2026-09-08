@@ -16,7 +16,3 @@ export const APP_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
   "search_cash_transactions",
   "search_investment_activity",
 ]);
-
-// The two tools that take SQL. `--sql` on the query command applies only to
-// these, and a retry line names --sql only for them.
-export const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql"]);
