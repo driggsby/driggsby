@@ -1,6 +1,6 @@
 {
   "name": "@driggsby/deploy",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Deploy static Driggsby apps: the deploy protocol client used by the driggsby CLI.",
   "license": "Apache-2.0",
   "repository": {
