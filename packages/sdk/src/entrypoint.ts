@@ -42,7 +42,8 @@ function showStandaloneNote(): void {
   // apps, so it cannot depend on any stylesheet.
   note.style.cssText =
     "position:fixed;left:16px;right:16px;bottom:16px;max-width:480px;margin:0 auto;" +
-    "padding:14px 18px;border-radius:12px;background:#1c1c1e;color:#f2f2f4;" +
+    "padding:14px 18px;border-radius:8px;background:#0a0a0a;color:#fafafa;" +
+    "border:1px solid rgba(255,255,255,0.14);" +
     "font:14px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,0.35);z-index:2147483647";
   note.textContent =
     "This dashboard shows your data when you open it from Driggsby. " +

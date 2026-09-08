@@ -21,11 +21,14 @@ test("the host page pins the app origin and keeps its script external", () => {
   assert.ok(!html.includes("<script>"));
 });
 
-test("the declared background paints the frame surround; none falls back to white", () => {
+test("the declared background paints the frame surround; none falls back to the dark ground", () => {
   const declared = hostPageHtml("money-dash-x7k2qf", "http://127.0.0.1:4574", "#0b0c0f");
   assert.ok(declared.includes("background: #0b0c0f;"));
   const undeclared = hostPageHtml("money-dash-x7k2qf", "http://127.0.0.1:4574", null);
-  assert.ok(undeclared.includes("background: #ffffff;"));
+  assert.ok(undeclared.includes("background: #000000;"));
+  // The chrome around the frame is the console's: black ground, light ink.
+  assert.ok(undeclared.includes("color-scheme: dark;"));
+  assert.ok(!undeclared.includes("#ffffff"));
 });
 
 // Behavioral coverage for the route sync: HOST_PAGE_JS is browser code in

@@ -51,8 +51,16 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   assert.equal(config.slug, "money-dash");
   assert.equal(config.serve, ".");
   // The template's own page background — kept in driggsby.json so
-  // Driggsby paints the same color while the app loads.
-  assert.equal(config.background, "#ffffff");
+  // Driggsby paints the same color while the app loads. It is the
+  // console's ground, so a fresh dashboard sits inside the dark chrome
+  // as one surface, and it must equal the ground styles.css paints.
+  assert.equal(config.background, "#000000");
+  const scaffoldCss = await readFile(join(appDirectory, "styles.css"), "utf8");
+  assert.ok(
+    scaffoldCss.includes(`--bg-app: ${config.background};`),
+    "driggsby.json's background must be the page ground styles.css paints",
+  );
+  assert.ok(scaffoldCss.includes("color-scheme: dark;"), "the scaffold is dark by default");
 
   const html = await readFile(join(appDirectory, "index.html"), "utf8");
   assert.ok(html.includes('src="/-/driggsby-sdk.js"'), "the page must load the Driggsby SDK");
@@ -273,6 +281,10 @@ class StubNode {
     this.removed = true;
   }
 
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
   removeAttribute(name: string): void {
     this.attributes.delete(name);
   }
@@ -394,7 +406,17 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
   );
   const row = run.accounts.children[0];
   assert.ok(row, "the real account row must render");
-  assert.equal(row.children[0]?.children[0]?.textContent, "Checking");
+  // Row shape: glyph pill (the institution's initial), names, balance.
+  const glyph = row.children[0];
+  assert.ok(glyph, "the glyph pill must render");
+  assert.equal(glyph.textContent, "T");
+  assert.equal(
+    glyph.attributes.get("aria-hidden"),
+    "true",
+    "the glyph is decorative; the institution is read out on the next line",
+  );
+  assert.equal(row.children[1]?.children[0]?.textContent, "Checking");
+  assert.equal(row.children[2]?.textContent, "$1.00", "the balance cell must render last");
   assert.ok(
     run.overview.classList.contains("fade-in") && run.accounts.classList.contains("fade-in"),
     "the first real render must fade in",
@@ -403,4 +425,52 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
     !run.overview.attributes.has("aria-busy") && !run.accounts.attributes.has("aria-busy"),
     "aria-busy must clear once real content lands",
   );
+});
+
+test("malformed account data renders as absent, and never breaks the page", () => {
+  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
+  const accountsCallback = run.watches.get("list_accounts");
+  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
+  // A null entry is skipped; an entry with non-string fields and a bad
+  // currency renders with fallbacks, never "[object Object]" or a throw.
+  accountsCallback({
+    linked_accounts: [
+      null,
+      {
+        institution_name: 123,
+        account_display_name: {},
+        account_mask_last4: ["1111"],
+        current_balance: { amount: "1.00", currency_code: "NOT_A_CODE" },
+      },
+    ],
+  });
+  assert.equal(run.accounts.children.length, 1, "only the object entry renders");
+  const row = run.accounts.children[0];
+  assert.ok(row, "the surviving row must render");
+  assert.equal(row.children[0]?.textContent, "?", "no name means the glyph falls back");
+  const names = row.children[1];
+  assert.ok(names, "the names column must render");
+  assert.equal(names.children[0]?.textContent, "Account");
+  assert.equal(names.children[1]?.textContent, "", "non-strings never paint");
+  assert.equal(row.children[2]?.textContent, "—", "a bad currency renders as absent");
+
+  // A result whose list is not an array paints the empty state, not a crash.
+  accountsCallback({ linked_accounts: "garbage" });
+  const emptyRow = run.accounts.children[0];
+  assert.ok(emptyRow, "the empty state must render for a non-array result");
+  assert.equal(emptyRow.className, "empty-row");
+});
+
+test("an empty accounts result renders the empty state, not a bare box", () => {
+  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
+  const accountsCallback = run.watches.get("list_accounts");
+  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
+  accountsCallback({ linked_accounts: [] });
+  assert.equal(run.accounts.children.length, 1);
+  const emptyRow = run.accounts.children[0];
+  assert.ok(emptyRow, "the empty state row must render");
+  assert.equal(emptyRow.textContent, "No linked accounts yet.");
+  assert.equal(emptyRow.className, "empty-row");
+  assert.ok(run.accounts.classList.contains("fade-in"), "the empty state still fades in");
+  assert.ok(!run.accounts.attributes.has("aria-busy"), "aria-busy must clear on the empty state");
 });
