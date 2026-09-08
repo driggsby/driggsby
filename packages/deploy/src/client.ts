@@ -245,6 +245,31 @@ export async function setLiveVersion(
   return parseFinalized(parsed);
 }
 
+export interface DeletedApp {
+  appName: string;
+}
+
+// Permanently removes the app and every deployed version. There is no
+// undo on the server side, so callers own the "are you sure" step — and
+// once the server answers success, NOTHING about the response body may
+// turn the completed delete into an error: a 204, an empty body, or a
+// missing display field all fall back to the slug the caller asked to
+// delete. This is deliberately looser than every other endpoint here,
+// because those parse state the caller acts on next; this one only
+// decorates a fact that is already irreversible.
+export async function deleteApp(api: DeployApi, slug: string): Promise<DeletedApp> {
+  const response = await rawRequest(api, "DELETE", `/deploy/apps/${encodeURIComponent(slug)}`, {});
+  if (response.status !== 200 && response.status !== 204) {
+    throw apiErrorFrom(response, await parseJsonBody(response));
+  }
+  const parsed = await parseJsonBody(response);
+  const name =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>).deleted_app_name
+      : undefined;
+  return { appName: typeof name === "string" && name !== "" ? name : slug };
+}
+
 interface RequestOptions {
   json?: unknown;
   rawBody?: Uint8Array;

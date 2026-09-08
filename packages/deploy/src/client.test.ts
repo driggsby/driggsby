@@ -6,6 +6,7 @@ import {
   createApp,
   createVersion,
   finalizeVersion,
+  deleteApp,
   listVersions,
   setLiveVersion,
   uploadBlob,
@@ -261,6 +262,46 @@ test("setLiveVersion posts the version number and returns the live result", asyn
     assert.ok(request !== undefined);
     assert.equal(request.path, "/deploy/apps/money-dash/live-version");
     assert.deepEqual(JSON.parse(request.body.toString("utf8")), { version_number: 1 });
+  } finally {
+    await server.close();
+  }
+});
+
+test("deleteApp sends the DELETE and parses the deleted names", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const bytes = Buffer.from("<h1>hi</h1>");
+    server.seedBlob(bytes);
+    const files = [{ path: "index.html", sha256: sha256Hex(bytes.toString()), byteSize: bytes.byteLength }];
+    const created = await createVersion(api(server.baseUrl), "money-dash", files);
+    await finalizeVersion(api(server.baseUrl), created.versionId, true);
+
+    const deleted = await deleteApp(api(server.baseUrl), "money-dash");
+    assert.equal(deleted.appName, "The money-dash app");
+
+    const request = server.requests.at(-1);
+    assert.ok(request !== undefined);
+    assert.equal(request.method, "DELETE");
+    assert.equal(request.path, "/deploy/apps/money-dash");
+    assert.equal(request.headers.authorization, `Bearer ${TOKEN}`);
+  } finally {
+    await server.close();
+  }
+});
+
+test("deleteApp falls back to the requested slug when display fields are absent", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    // The delete already happened on the server; a sparse response must
+    // not turn the completed operation into an error — nor may a bare
+    // 204 with no body at all.
+    server.injectResponse("DELETE", "/deploy/apps/money-dash", 200, {});
+    const sparse = await deleteApp(api(server.baseUrl), "money-dash");
+    assert.equal(sparse.appName, "money-dash");
+
+    server.injectResponse("DELETE", "/deploy/apps/money-dash", 204, null);
+    const bodyless = await deleteApp(api(server.baseUrl), "money-dash");
+    assert.equal(bodyless.appName, "money-dash");
   } finally {
     await server.close();
   }

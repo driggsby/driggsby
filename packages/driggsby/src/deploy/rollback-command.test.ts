@@ -193,7 +193,7 @@ test("rollback for a never-deployed app points at the first deploy", async () =>
       ),
       (error: unknown) => {
         assert.ok(error instanceof CliError);
-        assert.ok(error.message.includes("There's no app named money-dash"));
+        assert.ok(error.message.includes(`There's no app named "money-dash"`));
         assert.ok(error.message.includes("npx driggsby@latest deploy"));
         return true;
       },

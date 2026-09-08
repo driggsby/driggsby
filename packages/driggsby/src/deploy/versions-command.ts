@@ -79,21 +79,31 @@ export async function runVersions(
   }
 }
 
-// A 404 here means the app has never been deployed from this account, and
-// the fix is a deploy — not a retry.
-export async function fetchVersionList(api: DeployApi, slug: string): Promise<VersionList> {
+// A 404 here means the app isn't on this account. For versions and
+// rollback the fix is a deploy; a caller whose right next step differs
+// (delete) passes its own notFound shape. The slug is quoted and capped
+// either way — delete hands this an argv string, not only config values.
+export async function fetchVersionList(
+  api: DeployApi,
+  slug: string,
+  notFound: (slug: string) => CliError = firstDeployCreatesIt,
+): Promise<VersionList> {
   try {
     return await listVersions(api, slug);
   } catch (error) {
     if (error instanceof DeployApiError && error.status === 404) {
-      throw new CliError(
-        `${wrapProse(`There's no app named ${slug} on your Driggsby account yet. Its first deploy creates it:`)}\n` +
-          "  npx driggsby@latest deploy",
-        1,
-      );
+      throw notFound(slug);
     }
     throw error;
   }
+}
+
+function firstDeployCreatesIt(slug: string): CliError {
+  return new CliError(
+    `${wrapProse(`There's no app named ${quotedForTerminal(slug, MAX_SERVER_TEXT_CHARS)} on your Driggsby account yet. Its first deploy creates it:`)}\n` +
+      "  npx driggsby@latest deploy",
+    1,
+  );
 }
 
 export function renderVersionRows(list: VersionList): string {

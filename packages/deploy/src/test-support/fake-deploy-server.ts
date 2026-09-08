@@ -247,6 +247,27 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
       return;
     }
 
+    const deleteMatch = /^\/deploy\/apps\/([^/]+)$/.exec(path);
+    if (deleteMatch !== null && method === "DELETE") {
+      const slug = deleteMatch[1] ?? "";
+      const owned = [...versions.values()].filter((version) => version.slug === slug);
+      // Apps exist here once a deploy created a version for them (version
+      // posts auto-create, see above); an unknown name answers the same
+      // app_not_found the real API sends.
+      if (owned.length === 0) {
+        respondJson(response, 404, {
+          error: "app_not_found",
+          error_description: "There's no app with that name in your account.",
+        });
+        return;
+      }
+      for (const version of owned) versions.delete(version.id);
+      liveBySlug.delete(slug);
+      nextVersionNumberBySlug.delete(slug);
+      respondJson(response, 200, { deleted_app_slug: slug, deleted_app_name: `The ${slug} app` });
+      return;
+    }
+
     respondJson(response, 404, { error: "not_found", error_description: "No such route." });
   }
 
