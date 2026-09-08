@@ -89,13 +89,15 @@ files reload the page on save.
 
 While dev runs, the preview serves your financial data to this machine —
 other websites can't reach it, but anything running locally can, so stop
-it when you're done.
+it when you're done: press Ctrl+C, or run dev --stop from any terminal.
+It also stops on its own after 30 minutes with no page open.
 
 Sign in first with npx driggsby@latest login.
 
-Usage: npx driggsby@latest dev
+Usage: npx driggsby@latest dev [--stop]
 
 Options:
+      --stop  Stop the driggsby dev running on this machine.
   -h, --help  Print help
 `;
 

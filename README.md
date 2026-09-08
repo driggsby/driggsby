@@ -71,7 +71,9 @@ the same protocol — and reloads the page when you save a file. Your app
 token stays in the CLI process; it never appears in a page. While `dev`
 runs, the preview serves your financial data to this machine — other
 websites can't reach it, but anything running locally can, so stop it when
-you're done.
+you're done: press Ctrl+C, or from any terminal run
+`npx driggsby@latest dev --stop`. It also stops on its own after 30 minutes
+with no page open.
 
 ## Deploying an app
 

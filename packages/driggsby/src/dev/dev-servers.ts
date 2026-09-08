@@ -45,6 +45,9 @@ export interface DevServers {
   // Pushes a change event to every connected host page (served files
   // changed; the app should reload).
   notifyChange: () => void;
+  // How many host pages hold an open event stream right now; zero means no
+  // page is looking at the preview.
+  clientCount: () => number;
   close: () => Promise<void>;
 }
 
@@ -90,6 +93,7 @@ export async function startDevServers(options: DevServerOptions): Promise<DevSer
         client.write("event: change\ndata: files-changed\n\n");
       }
     },
+    clientCount: () => sseClients.size,
     close: async () => {
       for (const client of sseClients) {
         client.end();

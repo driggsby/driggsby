@@ -17,15 +17,23 @@ import {
 } from "../credentials/store.ts";
 import { requireDeploySession } from "../deploy/api-session.ts";
 import { tryOpenUrl } from "../login/open-url.ts";
-import { wrapProse } from "../terminal-text.ts";
+import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
 import { startDevServers, type DevServers } from "./dev-servers.ts";
+import { readLiveDevState, removeDevState, writeDevState } from "./dev-state.ts";
 import { McpBroker } from "./mcp-broker.ts";
 import { watchDirectory } from "./watcher.ts";
 
 export const DEV_HOST_PORT = 4111;
 export const DEV_APP_PORT = 4112;
+// A preview nobody has open for this long stops itself, so a dev started in
+// the background (often by an agent) does not keep serving live financial
+// data on this machine indefinitely.
+export const DEV_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const DEV_IDLE_CHECK_MS = 15 * 1000;
 
 const DEV_RETRY_COMMAND = "npx driggsby@latest dev";
+const DEV_STOP_COMMAND = "npx driggsby@latest dev --stop";
+const MAX_FOLDER_CHARS = 200;
 
 export interface DevCommandIo {
   out: (text: string) => void;
@@ -39,6 +47,9 @@ export interface DevCommandOptions {
   // Tests bind ephemeral ports; the real command uses the fixed dev ports.
   hostPort?: number;
   appPort?: number;
+  // Tests shorten the idle window; the real command uses the 30-minute one.
+  idleTimeoutMs?: number;
+  idleCheckMs?: number;
 }
 
 function defaultDevIo(): DevCommandIo {
@@ -92,27 +103,86 @@ export async function runDev(
       appPort: options.appPort ?? DEV_APP_PORT,
     });
   } catch (error) {
-    throw devStartFailure(error, baseUrl);
+    throw await devStartFailure(error, baseUrl, environment.homeDirectory);
   }
 
   const stopWatching = watchDirectory(config.serveDirectory, () => {
     servers.notifyChange();
   });
+  const idle = idleWatch(servers, options.idleTimeoutMs ?? DEV_IDLE_TIMEOUT_MS, options.idleCheckMs ?? DEV_IDLE_CHECK_MS);
 
   try {
+    await writeDevState(environment.homeDirectory, {
+      pid: process.pid,
+      folder: projectDirectory,
+      startedAt: new Date().toISOString(),
+      hostPort: servers.hostPort,
+      appPort: servers.appPort,
+    });
     const opened = await io.openUrl(servers.hostOrigin);
-    io.out(
-      `✓ Ready     ${config.slug} is running with your live Driggsby data${opened ? ", at:" : ":"}\n\n` +
-        `  ${servers.hostOrigin}\n\n` +
-        `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop.")}\n` +
-        "\nNext:\n  Put it live on driggsby.dev with npx driggsby@latest deploy\n",
-    );
-    await io.waitForShutdown();
+    io.out(readyText(config.slug, servers, opened));
+    const ending = await Promise.race([io.waitForShutdown().then(() => "shutdown" as const), idle.expired]);
+    if (ending === "idle") {
+      io.out(
+        `✓ Stopped   No page was open for ${idleWindowWords(options.idleTimeoutMs ?? DEV_IDLE_TIMEOUT_MS)}, so ` +
+          `driggsby dev stopped itself.\n\nStart it again with:\n  ${DEV_RETRY_COMMAND}\n`,
+      );
+    }
     return 0;
   } finally {
+    idle.cancel();
     stopWatching();
     await servers.close();
+    await removeDevState(environment.homeDirectory, process.pid);
   }
+}
+
+function readyText(slug: string, servers: DevServers, opened: boolean): string {
+  return (
+    `✓ Ready     ${slug} is running with your live Driggsby data${opened ? ", at:" : ":"}\n\n` +
+    `  ${servers.hostOrigin}\n\n` +
+    `${wrapProse(`That page embeds the app from ${servers.appOrigin}. Opened on its own, the app gets no Driggsby data, so use the address above.`)}\n\n` +
+    `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop, or from any terminal:")}\n` +
+    `  ${DEV_STOP_COMMAND}\n\n` +
+    `${wrapProse(`It stops on its own after ${idleWindowWords(DEV_IDLE_TIMEOUT_MS)} with no page open.`)}\n` +
+    "\nNext:\n  Put it live on driggsby.dev with npx driggsby@latest deploy\n"
+  );
+}
+
+function idleWindowWords(timeoutMs: number): string {
+  const minutes = Math.round(timeoutMs / 60_000);
+  return minutes >= 1 ? `${String(minutes)} minutes` : "a moment";
+}
+
+interface IdleWatch {
+  // Resolves once no host page has held its event stream for the whole window.
+  expired: Promise<"idle">;
+  cancel: () => void;
+}
+
+function idleWatch(servers: DevServers, timeoutMs: number, checkMs: number): IdleWatch {
+  let resolveExpired: (ending: "idle") => void = () => undefined;
+  const expired = new Promise<"idle">((resolve) => {
+    resolveExpired = resolve;
+  });
+  let idleSince = Date.now();
+  const timer = setInterval(() => {
+    if (servers.clientCount() > 0) {
+      idleSince = Date.now();
+      return;
+    }
+    if (Date.now() - idleSince >= timeoutMs) {
+      resolveExpired("idle");
+    }
+  }, checkMs);
+  // A pending check must never hold the process open once the run ends.
+  timer.unref();
+  return {
+    expired,
+    cancel: () => {
+      clearInterval(timer);
+    },
+  };
 }
 
 // The Driggsby SDK bundle ships inside @driggsby/sdk; dev serves it on the
@@ -124,13 +194,22 @@ async function loadSdkBundle(): Promise<string> {
   return await readFile(bundlePath, "utf8");
 }
 
-function devStartFailure(error: unknown, baseUrl: string): CliError {
+async function devStartFailure(error: unknown, baseUrl: string, homeDirectory: string): Promise<CliError> {
   if (error instanceof CliError) {
     return error;
   }
   if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
+    const running = await readLiveDevState(homeDirectory);
+    if (running !== null) {
+      return new CliError(
+        `driggsby dev is already running for the app in:\n  ${quotedForTerminal(running.folder, MAX_FOLDER_CHARS)}\n\n` +
+          `Only one can run at a time. Stop it first:\n  ${DEV_STOP_COMMAND}\n\n` +
+          `Then try again here:\n  ${DEV_RETRY_COMMAND}`,
+        1,
+      );
+    }
     return new CliError(
-      `${wrapProse(`Ports ${String(DEV_HOST_PORT)} and ${String(DEV_APP_PORT)} are how driggsby dev serves the preview, and something on this machine is already using one of them. Stop that program (often another driggsby dev) and try again:`)}\n` +
+      `${wrapProse(`Ports ${String(DEV_HOST_PORT)} and ${String(DEV_APP_PORT)} are how driggsby dev serves the preview, and something on this machine is already using one of them. Stop that program and try again:`)}\n` +
         `  ${DEV_RETRY_COMMAND}`,
       1,
     );
