@@ -23,6 +23,10 @@ const STATE_FILE_NAME = "dev.json";
 // record can be checked against the process actually holding the port.
 export const DEV_IDENTITY_PATH = "/-/dev-identity";
 const IDENTITY_TIMEOUT_MS = 1_000;
+// Whole-probe deadline: the socket timeout above resets on every byte, so a
+// port that dribbles bytes would otherwise hold the probe open for ever;
+// the abort surfaces as a request error, which reads as no answer.
+const IDENTITY_DEADLINE_MS = 2_000;
 const IDENTITY_ATTEMPTS = 2;
 const IDENTITY_RETRY_PAUSE_MS = 100;
 const IDENTITY_MAX_BYTES = 4_096;
@@ -117,7 +121,7 @@ export async function devPidServing(hostPort: number): Promise<number | null> {
 // 200 is no answer), and the body is read bounded, because whatever holds
 // that port is untrusted.
 function askIdentity(hostPort: number): Promise<number | null> {
-  return new Promise((resolve) => {
+  return new Promise((settle) => {
     const request = httpRequest(
       {
         host: "127.0.0.1",
@@ -125,12 +129,13 @@ function askIdentity(hostPort: number): Promise<number | null> {
         path: DEV_IDENTITY_PATH,
         method: "GET",
         timeout: IDENTITY_TIMEOUT_MS,
+        signal: AbortSignal.timeout(IDENTITY_DEADLINE_MS),
         agent: LOOPBACK_AGENT,
       },
       (response) => {
         if (response.statusCode !== 200) {
           response.resume();
-          resolve(null);
+          settle(null);
           return;
         }
         const chunks: Buffer[] = [];
@@ -139,16 +144,16 @@ function askIdentity(hostPort: number): Promise<number | null> {
           total += chunk.byteLength;
           if (total > IDENTITY_MAX_BYTES) {
             request.destroy();
-            resolve(null);
+            settle(null);
             return;
           }
           chunks.push(chunk);
         });
         response.on("end", () => {
-          resolve(pidFromIdentityBody(Buffer.concat(chunks).toString("utf8")));
+          settle(pidFromIdentityBody(Buffer.concat(chunks).toString("utf8")));
         });
         response.on("error", () => {
-          resolve(null);
+          settle(null);
         });
       },
     );
@@ -156,7 +161,7 @@ function askIdentity(hostPort: number): Promise<number | null> {
       request.destroy();
     });
     request.on("error", () => {
-      resolve(null);
+      settle(null);
     });
     request.end();
   });

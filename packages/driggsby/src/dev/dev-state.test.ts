@@ -136,6 +136,38 @@ test("the identity probe refuses an oversized body from whatever holds the port"
   }
 });
 
+test("the identity probe gives up on a port that dribbles bytes without ever finishing", async () => {
+  const timers: NodeJS.Timeout[] = [];
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    // Each write lands inside the socket's inactivity timeout, so only a
+    // whole-probe deadline can end this.
+    timers.push(
+      setInterval(() => {
+        response.write(" ");
+      }, 500),
+    );
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== "string");
+  try {
+    const startedAt = Date.now();
+    assert.equal(await devPidServing(address.port), null);
+    assert.ok(Date.now() - startedAt < 10_000);
+  } finally {
+    for (const timer of timers) clearInterval(timer);
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+  }
+});
+
 test("liveness: this process is alive, an absurd pid is not", () => {
   assert.equal(processIsAlive(process.pid), true);
   assert.equal(processIsAlive(2_147_483_646), false);

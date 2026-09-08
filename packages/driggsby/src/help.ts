@@ -91,8 +91,8 @@ files reload the page on save.
 While dev runs, the preview serves your financial data to this machine —
 other websites can't reach it, but anything running locally can, so stop
 it when you're done: press Ctrl+C, or from any terminal run
-npx driggsby@latest dev --stop. It also stops on its own after ${String(DEV_IDLE_MINUTES)}
-minutes with no page open.
+npx driggsby@latest dev --stop. It also stops on its own after
+${String(DEV_IDLE_MINUTES)} minutes with no page open.
 
 Sign in first with npx driggsby@latest login.
 
