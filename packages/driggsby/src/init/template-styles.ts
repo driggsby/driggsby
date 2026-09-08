@@ -177,12 +177,13 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
-/* The skeleton ships in the HTML so the first paint is the final layout as
-   muted bars; the first render replaces it and fades in (see app.js). Each
-   bar's margins pad it to exactly the height of the text it stands in for,
-   and the columns holding stacked bars are flex so those margins never
-   collapse — the skeleton page and the data page measure identical, and
-   nothing shifts when data lands. */
+/* The skeleton ships in the HTML so the first paint is the final layout
+   as muted bars; the first data render replaces it in a dissolve (see the
+   "Settling in" section of app.js). Each bar's margins pad it to exactly
+   the height of the text it stands in for, and the columns holding
+   stacked bars are flex so those margins never collapse — the skeleton
+   page and the data page measure identical, and nothing shifts when data
+   lands. */
 .skeleton {
   border-radius: var(--radius-bar);
   background: var(--bg-mute);
@@ -231,18 +232,10 @@ h2 {
   50% { opacity: 0.55; }
 }
 
-.fade-in {
-  animation: fade-in 200ms ease-out;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
+/* The skeleton-to-data dissolve itself is app.js's "Settling in" View
+   Transition; it needs no CSS here and already sits out reduced motion. */
 @media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .fade-in {
+  .skeleton {
     animation: none;
   }
 }
