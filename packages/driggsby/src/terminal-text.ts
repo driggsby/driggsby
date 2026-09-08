@@ -20,3 +20,19 @@ const TRAILING_RUST_WHITESPACE = new RegExp(`${RUST_WHITESPACE_CLASS}+$`);
 export function trimLikeRust(value: string): string {
   return value.replace(LEADING_RUST_WHITESPACE, "").replace(TRAILING_RUST_WHITESPACE, "");
 }
+
+// Comma-separated names on indented lines that stay inside 80 columns.
+export function wrapNames(names: string[], indent: string): string {
+  const lines: string[] = [];
+  let line = indent;
+  for (const [index, name] of names.entries()) {
+    const piece = index === names.length - 1 ? `${name}.` : `${name},`;
+    if (line !== indent && line.length + 1 + piece.length > 80) {
+      lines.push(line);
+      line = indent;
+    }
+    line += line === indent ? piece : ` ${piece}`;
+  }
+  lines.push(line);
+  return lines.join("\n");
+}

@@ -14,6 +14,9 @@ import {
 import { capForTerminal, wrapProse } from "../terminal-text.ts";
 
 const LOGIN_COMMAND = "npx driggsby@latest login";
+// The one wording for a saved sign-in the server no longer accepts.
+export const SIGN_IN_AGAIN_MESSAGE =
+  "Your sign-in on this machine isn't valid anymore. Sign in again:\n" + `  ${LOGIN_COMMAND}`;
 const MAX_ERROR_DESCRIPTION_CHARS = 300;
 
 // Server-supplied display strings go through capForTerminal (sanitize plus
@@ -97,11 +100,7 @@ function apiFailure(error: DeployApiError, retryCommand: string): CliError {
     );
   }
   if (error.status === 401) {
-    return new CliError(
-      "Your sign-in on this machine isn't valid anymore. Sign in again:\n" +
-        `  ${LOGIN_COMMAND}`,
-      1,
-    );
+    return new CliError(SIGN_IN_AGAIN_MESSAGE, 1);
   }
   if (error.code === "deploy_scope_required") {
     return new CliError(

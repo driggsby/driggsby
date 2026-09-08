@@ -5,7 +5,7 @@ TypeScript npm packages that set up supported AI clients to connect to the
 remote Driggsby MCP endpoint, scaffold and locally preview Driggsby apps,
 and deploy static apps to Driggsby's app hosting. `driggsby` is the CLI
 (`mcp setup`, `login`/`logout`, `init`, `dev`, `deploy`, `rollback`,
-`versions`); `@driggsby/deploy` is the deploy protocol library it depends
+`versions`, `query`); `@driggsby/deploy` is the deploy protocol library it depends
 on, which also ships a minimal standalone `driggsby-deploy` bin for
 sandboxed agents; `@driggsby/sdk` is the in-page SDK bundle that scaffolded
 apps load (`driggsby dev` serves it locally; deployed apps get it from the

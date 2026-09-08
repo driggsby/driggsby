@@ -2,75 +2,12 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { test } from "node:test";
 
+import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
 import { GENERIC_TOOL_TROUBLE } from "./dev-servers.ts";
 import { MAX_ERROR_MESSAGE_CHARS, McpBroker, SIGN_IN_AGAIN_MESSAGE } from "./mcp-broker.ts";
 
 // A synthetic token for the fake server; never a real credential.
 const FAKE_TOKEN = "dgb_at_synthetic_test_token";
-
-interface RecordedRequest {
-  headers: Record<string, string | string[] | undefined>;
-  body: unknown;
-}
-
-interface FakeMcp {
-  baseUrl: string;
-  requests: RecordedRequest[];
-  close: () => Promise<void>;
-}
-
-// A loopback fake of the Driggsby MCP endpoint. `respond` decides each
-// answer from the parsed JSON-RPC body.
-async function startFakeMcp(
-  respond: (body: Record<string, unknown>) => { status: number; payload: unknown },
-): Promise<FakeMcp> {
-  const requests: RecordedRequest[] = [];
-  const server: Server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-      requests.push({ headers: { ...request.headers }, body });
-      const answer = respond(body);
-      response.writeHead(answer.status, { "Content-Type": "application/json" });
-      response.end(JSON.stringify(answer.payload));
-    });
-  });
-  await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("no port");
-  }
-  return {
-    baseUrl: `http://127.0.0.1:${String(address.port)}`,
-    requests,
-    close: async () => {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => {
-        server.close(() => {
-          resolve();
-        });
-      });
-    },
-  };
-}
-
-function successEnvelope(body: Record<string, unknown>, structuredContent: unknown) {
-  return {
-    status: 200,
-    payload: {
-      jsonrpc: "2.0",
-      id: body.id,
-      result: {
-        structuredContent,
-        isError: false,
-        content: [{ type: "text", text: JSON.stringify(structuredContent) }],
-      },
-    },
-  };
-}
 
 test("a tool call sends the exact JSON-RPC shape and returns structuredContent", async () => {
   const fake = await startFakeMcp((body) => successEnvelope(body, { net_worth: "synthetic" }));
@@ -279,6 +216,18 @@ test("an unreachable server becomes the generic trouble message, never a rejecti
   });
   const result = await broker.runToolCall("get_overview", {});
   assert.deepEqual(result, { ok: false, error: { message: GENERIC_TOOL_TROUBLE } });
+});
+
+test("in throw mode an unreachable server rejects, so the caller can name the network", async () => {
+  const broker = new McpBroker({
+    baseUrl: "http://127.0.0.1:1",
+    token: FAKE_TOKEN,
+    timeoutMs: 2_000,
+    transportErrors: "throw",
+  });
+  await assert.rejects(broker.runToolCall("get_overview", {}));
+  // The queue drained: a second call is still accepted and rejects the same way.
+  await assert.rejects(broker.runToolCall("get_overview", {}));
 });
 
 test("the queue cap refuses overflow instead of piling up calls", async () => {

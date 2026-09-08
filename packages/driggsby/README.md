@@ -82,7 +82,10 @@ Every deploy after that uploads only the files that changed. Deploy with
 `--preview` to upload a version without
 changing what visitors see, `npx driggsby@latest versions` to list every
 kept version, and `npx driggsby@latest rollback` to switch which one is
-live — switching re-uploads nothing.
+live — switching re-uploads nothing. `npx driggsby@latest query <tool>`
+runs one read-only data tool and prints its result as JSON, the same
+shape a `driggsby.watch` callback receives, so you can see the data
+before writing any render code.
 
 The CLI is pure TypeScript and installs from the npm registry alone — no
 binary downloads, no install scripts — and runs on macOS, Linux, and Windows
