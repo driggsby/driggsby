@@ -167,10 +167,18 @@ function formatMoney(value) {
   if (!value || typeof value.amount !== "string") return "—";
   const number = Number(value.amount);
   if (!Number.isFinite(number)) return "—";
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: value.currency_code || "USD"
-  }).format(number);
+  const currency = value.currency_code === undefined ? "USD" : value.currency_code;
+  if (typeof currency !== "string") return "—";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: currency
+    }).format(number);
+  } catch (error) {
+    // An unknown currency code renders as absent, never as a guess in
+    // the wrong currency — and never takes the rest of the page down.
+    return "—";
+  }
 }
 
 function asText(value) {
@@ -219,7 +227,8 @@ function renderOverview(result) {
 }
 
 function renderAccounts(result) {
-  const accounts = (result && result.linked_accounts) || [];
+  const list = result && Array.isArray(result.linked_accounts) ? result.linked_accounts : [];
+  const accounts = list.filter((account) => account && typeof account === "object");
   const container = document.getElementById("accounts");
   container.replaceChildren();
   if (accounts.length === 0) {
@@ -240,9 +249,10 @@ function renderAccounts(result) {
     // breaking the render (it splits by whole character, not UTF-16 half).
     const initialSource = (institution || displayName).trim();
     const initial = (Array.from(initialSource)[0] || "?").toUpperCase();
+    const institutionLine = [institution, mask ? "····" + mask : ""].filter(Boolean).join(" ");
     names.append(
       element("div", "account-name", displayName || "Account"),
-      element("div", "account-institution", institution + (mask ? " ····" + mask : ""))
+      element("div", "account-institution", institutionLine)
     );
     const glyph = element("div", "account-glyph", initial);
     // Decorative: the institution's name is read out on the next line.

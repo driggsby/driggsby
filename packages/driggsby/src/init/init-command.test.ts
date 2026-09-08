@@ -427,6 +427,40 @@ test("embedded, the shipped skeleton stands untouched until real data replaces i
   );
 });
 
+test("malformed account data renders as absent, and never breaks the page", () => {
+  const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
+  const accountsCallback = run.watches.get("list_accounts");
+  assert.ok(accountsCallback, "the scaffold must watch list_accounts");
+  // A null entry is skipped; an entry with non-string fields and a bad
+  // currency renders with fallbacks, never "[object Object]" or a throw.
+  accountsCallback({
+    linked_accounts: [
+      null,
+      {
+        institution_name: 123,
+        account_display_name: {},
+        account_mask_last4: ["1111"],
+        current_balance: { amount: "1.00", currency_code: "NOT_A_CODE" },
+      },
+    ],
+  });
+  assert.equal(run.accounts.children.length, 1, "only the object entry renders");
+  const row = run.accounts.children[0];
+  assert.ok(row, "the surviving row must render");
+  assert.equal(row.children[0]?.textContent, "?", "no name means the glyph falls back");
+  const names = row.children[1];
+  assert.ok(names, "the names column must render");
+  assert.equal(names.children[0]?.textContent, "Account");
+  assert.equal(names.children[1]?.textContent, "", "non-strings never paint");
+  assert.equal(row.children[2]?.textContent, "—", "a bad currency renders as absent");
+
+  // A result whose list is not an array paints the empty state, not a crash.
+  accountsCallback({ linked_accounts: "garbage" });
+  const emptyRow = run.accounts.children[0];
+  assert.ok(emptyRow, "the empty state must render for a non-array result");
+  assert.equal(emptyRow.className, "empty-row");
+});
+
 test("an empty accounts result renders the empty state, not a bare box", () => {
   const run = runScaffoldAppJs({ embedded: true, sdkLoaded: true });
   const accountsCallback = run.watches.get("list_accounts");

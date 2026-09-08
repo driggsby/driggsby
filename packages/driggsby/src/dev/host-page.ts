@@ -50,7 +50,7 @@ export function hostPageHtml(slug: string, appOrigin: string, background: string
       border-bottom: 1px solid rgba(255, 255, 255, 0.14);
     }
     header .slug { font-weight: 500; }
-    header .mode { color: #a1a1a1; }
+    header .mode { color: #a1a1a1; font-size: 13px; }
     iframe {
       flex: 1;
       width: 100%;
