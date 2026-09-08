@@ -20,7 +20,7 @@ import {
   MAX_SERVER_TEXT_CHARS,
   requireDeploySession,
 } from "./api-session.ts";
-import { hasLiveAddress, liveAddressLines } from "./live-addresses.ts";
+import { hasLiveAddress, type LiveAddresses, liveAddresses, liveAddressLines } from "./live-addresses.ts";
 
 const DEPLOY_RETRY_COMMAND = "npx driggsby@latest deploy";
 
@@ -90,11 +90,12 @@ export async function runDeploy(
     const seconds = (io.now() - startedAt) / 1_000;
     io.out(`${changedNote(outcome)}\n`);
     io.out(`${uploadedLine(outcome, seconds)}\n`);
-    io.out(`${resultLine(outcome)}\n`);
+    const addresses = liveAddresses(outcome.url, outcome.consoleUrl, session.baseUrl);
+    io.out(`${resultLine(outcome, addresses)}\n`);
     // A preview has no address to open: the Driggsby page shows the live
     // version, which a preview leaves unchanged.
     if (outcome.live) {
-      io.out(liveAddressLines(outcome));
+      io.out(liveAddressLines(addresses));
     }
     if (collected.skippedNodeModules.length > 0) {
       io.out(
@@ -140,10 +141,10 @@ function uploadedLine(outcome: DeployOutcome, seconds: number): string {
   return `✓ Uploaded  ${formatBytes(outcome.uploadedBytes)} in ${formatSeconds(seconds)}`;
 }
 
-function resultLine(outcome: DeployOutcome): string {
+function resultLine(outcome: DeployOutcome, addresses: LiveAddresses): string {
   if (outcome.live) {
     // "at:" only when an address that line promises actually follows.
-    return hasLiveAddress(outcome)
+    return hasLiveAddress(addresses)
       ? `✓ Live      v${outcome.versionNumber}, at:`
       : `✓ Live      v${outcome.versionNumber}`;
   }

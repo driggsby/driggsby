@@ -55,3 +55,20 @@ export function resolveBaseUrl(env: NodeJS.ProcessEnv): string {
   }
   return trimmed;
 }
+
+// The Driggsby page address the server hands back after a deploy is printed
+// first and unquoted, as this tool's own word on where to go, so it is
+// accepted only on the origin this run is signed in to: an answer naming any
+// other host (a lookalike included) yields null, and the caller prints the
+// app's own address alone. Anything that does not parse as a URL is no
+// address either.
+export function consoleUrlOnOrigin(consoleUrl: string | null, baseUrl: string): string | null {
+  if (consoleUrl === null) {
+    return null;
+  }
+  try {
+    return new URL(consoleUrl).origin === new URL(baseUrl).origin ? consoleUrl : null;
+  } catch {
+    return null;
+  }
+}

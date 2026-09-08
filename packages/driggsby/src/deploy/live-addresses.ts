@@ -5,12 +5,21 @@
 // strings, sanitized and length-bounded before printing. A server that
 // predates the Driggsby page hands back only the app's own address, which
 // then prints alone, as it always did.
+import { consoleUrlOnOrigin } from "@driggsby/deploy";
+
 import { MAX_SERVER_URL_CHARS } from "./api-session.ts";
 import { capForTerminal, wrapProse } from "../terminal-text.ts";
 
 export interface LiveAddresses {
   url: string | null;
   consoleUrl: string | null;
+}
+
+// The Driggsby page is accepted only on the origin this run is signed in
+// to (see consoleUrlOnOrigin). Sanitizing happens at print time; a value
+// that sanitizes to nothing is no address.
+export function liveAddresses(url: string | null, consoleUrl: string | null, baseUrl: string): LiveAddresses {
+  return { url: printable(url), consoleUrl: consoleUrlOnOrigin(printable(consoleUrl), baseUrl) };
 }
 
 export function hasLiveAddress(addresses: LiveAddresses): boolean {
@@ -31,4 +40,8 @@ export function liveAddressLines(addresses: LiveAddresses): string {
       `  ${capForTerminal(addresses.url, MAX_SERVER_URL_CHARS)}\n`;
   }
   return text;
+}
+
+function printable(value: string | null): string | null {
+  return value !== null && capForTerminal(value, MAX_SERVER_URL_CHARS).trim() !== "" ? value : null;
 }

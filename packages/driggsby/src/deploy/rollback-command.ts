@@ -15,7 +15,7 @@ import {
   deployFailure,
   requireDeploySession,
 } from "./api-session.ts";
-import { hasLiveAddress, liveAddressLines } from "./live-addresses.ts";
+import { hasLiveAddress, liveAddresses, liveAddressLines } from "./live-addresses.ts";
 import { fetchVersionList, renderVersionRows } from "./versions-command.ts";
 
 const ROLLBACK_RETRY_COMMAND = "npx driggsby@latest rollback";
@@ -95,9 +95,10 @@ export async function runRollback(
     const result = await setLiveVersion(api, config.slug, target);
     const was = previousLive === null ? "" : ` (was v${previousLive})`;
     // "at:" only when an address that line promises actually follows.
-    const atSuffix = hasLiveAddress(result) ? ", at:" : "";
+    const addresses = liveAddresses(result.url, result.consoleUrl, session.baseUrl);
+    const atSuffix = hasLiveAddress(addresses) ? ", at:" : "";
     io.out(`✓ Live      v${result.versionNumber} is what visitors see now${was}${atSuffix}\n`);
-    io.out(liveAddressLines(result));
+    io.out(liveAddressLines(addresses));
     io.out(
       `\n${wrapProse(`Nothing re-uploaded — Driggsby already had v${result.versionNumber} in full.`)}\n` +
         "\nNext:\n  See every version with npx driggsby@latest versions\n",

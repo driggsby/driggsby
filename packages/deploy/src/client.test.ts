@@ -123,7 +123,7 @@ test("finalizeVersion publishes live with an empty JSON object body", async () =
     assert.equal(outcome.kind, "finalized");
     assert.equal(outcome.live, true);
     assert.equal(outcome.url, "https://money-dash.driggsby.dev");
-    assert.equal(outcome.consoleUrl, "https://app.driggsby.test/dashboards/money-dash");
+    assert.equal(outcome.consoleUrl, server.consoleUrlFor("money-dash"));
 
     const request = server.requests[1];
     assert.ok(request !== undefined);
@@ -254,7 +254,7 @@ test("setLiveVersion posts the version number and returns the live result", asyn
     assert.equal(result.versionNumber, 1);
     assert.equal(result.live, true);
     assert.equal(result.url, "https://money-dash.driggsby.dev");
-    assert.equal(result.consoleUrl, "https://app.driggsby.test/dashboards/money-dash");
+    assert.equal(result.consoleUrl, server.consoleUrlFor("money-dash"));
     assert.equal(server.liveVersionNumber("money-dash"), 1);
 
     const request = server.requests.at(-1);

@@ -5,7 +5,7 @@ export { DeployApiError, DeployError } from "./errors.ts";
 // The base-URL policy: which origin the token travels to, and what
 // DRIGGSBY_BASE_URL may override it with. One implementation for both this
 // package's bin and the driggsby CLI.
-export { PUBLIC_BASE_URL, isLoopbackBaseUrl, resolveBaseUrl } from "./base-url.ts";
+export { PUBLIC_BASE_URL, consoleUrlOnOrigin, isLoopbackBaseUrl, resolveBaseUrl } from "./base-url.ts";
 export {
   MAX_FILE_BYTES,
   MAX_FILE_COUNT,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isLoopbackBaseUrl, PUBLIC_BASE_URL, resolveBaseUrl } from "./base-url.ts";
+import { consoleUrlOnOrigin, isLoopbackBaseUrl, PUBLIC_BASE_URL, resolveBaseUrl } from "./base-url.ts";
 import { DeployError } from "./errors.ts";
 
 test("resolveBaseUrl defaults to the public Driggsby origin", () => {
@@ -41,4 +41,14 @@ test("isLoopbackBaseUrl is true only for this machine", () => {
   assert.equal(isLoopbackBaseUrl("https://app.driggsby.com"), false);
   // A hostname that merely contains a loopback address is not loopback.
   assert.equal(isLoopbackBaseUrl("https://127.0.0.1.nip.io"), false);
+});
+
+test("consoleUrlOnOrigin keeps a Driggsby page address only on the signed-in origin", () => {
+  const base = "https://app.driggsby.com";
+  assert.equal(consoleUrlOnOrigin(`${base}/dashboards/money-dash`, base), `${base}/dashboards/money-dash`);
+  assert.equal(consoleUrlOnOrigin("https://app.driggsby.com.evil.test/dashboards/money-dash", base), null);
+  assert.equal(consoleUrlOnOrigin("http://app.driggsby.com/dashboards/money-dash", base), null);
+  assert.equal(consoleUrlOnOrigin("/dashboards/money-dash", base), null);
+  assert.equal(consoleUrlOnOrigin(null, base), null);
+  assert.equal(consoleUrlOnOrigin("http://127.0.0.1:4111/dashboards/x", "http://127.0.0.1:4111"), "http://127.0.0.1:4111/dashboards/x");
 });

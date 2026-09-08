@@ -5,7 +5,7 @@
 // environments that can only run one command with an injected token.
 import { readFile } from "node:fs/promises";
 
-import { resolveBaseUrl } from "./base-url.ts";
+import { consoleUrlOnOrigin, resolveBaseUrl } from "./base-url.ts";
 import { deployProjectFiles } from "./deploy.ts";
 import { DeployApiError, DeployError } from "./errors.ts";
 import { collectDeployFiles, formatBytes } from "./manifest.ts";
@@ -104,9 +104,10 @@ export async function runDeployEntrypoint(io: EntrypointIo): Promise<number> {
     io.out(
       `Deployed ${quotedForTerminal(outcome.appSlug, 80)} (v${outcome.versionNumber}, ${uploadedNote}).\n`,
     );
-    // The Driggsby page for the app comes first when the server names it:
-    // that is where the app runs with the person's data.
-    const address = outcome.consoleUrl ?? outcome.url;
+    // The Driggsby page for the app comes first when the server names it on
+    // the origin this run signed in to: that is where the app runs with the
+    // person's data.
+    const address = consoleUrlOnOrigin(outcome.consoleUrl, baseUrl) ?? outcome.url;
     if (address !== null) {
       io.out(`Live at:\n\n  ${capForTerminal(address, 200)}\n`);
     }

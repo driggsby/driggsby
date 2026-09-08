@@ -44,7 +44,7 @@ test("deploys the current directory live and prints the URL", async () => {
     assert.equal(exitCode, 0);
     assert.ok(io.stdout().includes('Deployed "money-dash" (v1'));
     // The Driggsby page for the app, where it runs with the person's data.
-    assert.ok(io.stdout().includes("Live at:\n\n  https://app.driggsby.test/dashboards/money-dash"));
+    assert.ok(io.stdout().includes(`Live at:\n\n  ${server.consoleUrlFor("money-dash")}`));
     assert.equal(io.stderr(), "");
   } finally {
     await server.close();
