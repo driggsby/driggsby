@@ -76,7 +76,8 @@ test("a record whose port is not served by its pid is never signalled", async ()
   assert.equal(code, 0);
   assert.deepEqual(terminated, []);
   assert.ok(io.text().includes("No driggsby dev is running on this machine."));
-  assert.equal(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
+  // The record stays: the pid is alive, so it may be a dev that was busy.
+  assert.notEqual(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
 });
 
 test("a pid that vanished or belongs to someone else reads as nothing running", async () => {
@@ -97,6 +98,23 @@ test("a pid that vanished or belongs to someone else reads as nothing running", 
     assert.ok(io.text().includes("No driggsby dev is running on this machine."));
     assert.equal(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
   }
+  // Any other signalling failure surfaces and keeps the record: the dev may
+  // well still be running.
+  const homeDirectory = await home();
+  await writeDevState(homeDirectory, {
+    pid: 4242, folder: "/tmp/odd", startedAt: "2026-09-08T01:02:03.000Z", hostPort: 4111, appPort: 4112,
+  });
+  await assert.rejects(
+    runDevStop(homeDirectory, capturedOut(), {
+      ...alwaysServed(4242),
+      terminate: () => {
+        throw Object.assign(new Error("EINVAL"), { code: "EINVAL" });
+      },
+      waitMs: 10,
+    }),
+    /EINVAL/,
+  );
+  assert.notEqual(await readLiveDevState(homeDirectory, alwaysServed(4242)), null);
 });
 
 test("a dev that ignores the signal is reported, not hidden", async () => {

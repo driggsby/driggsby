@@ -54,9 +54,10 @@ export async function runDevStop(
   } catch (error) {
     // Gone between the check and the signal, or a pid that is not ours to
     // signal (another user's process): either way there is no dev to stop.
-    await removeDevState(homeDirectory, state.pid);
+    // Any other failure leaves the record, since the dev may well be running.
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ESRCH" || code === "EPERM") {
+      await removeDevState(homeDirectory, state.pid);
       io.out(nothingRunning());
       return 0;
     }

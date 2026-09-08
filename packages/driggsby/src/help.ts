@@ -89,8 +89,9 @@ files reload the page on save.
 
 While dev runs, the preview serves your financial data to this machine —
 other websites can't reach it, but anything running locally can, so stop
-it when you're done: press Ctrl+C, or run dev --stop from any terminal.
-It also stops on its own after 30 minutes with no page open.
+it when you're done: press Ctrl+C, or from any terminal run
+npx driggsby@latest dev --stop. It also stops on its own after 30 minutes
+with no page open.
 
 Sign in first with npx driggsby@latest login.
 

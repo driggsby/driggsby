@@ -45,17 +45,18 @@ test("a state file naming a dead process is stale: read as nothing and removed",
   await assert.rejects(readFile(devStatePath(home)));
 });
 
-test("a live pid whose port is served by something else is a recycled pid: stale", async () => {
+test("a live pid whose port is not served by it reads as nothing, and the record survives", async () => {
   const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
   await writeDevState(home, sampleState(4242));
 
+  // Nothing answering may be a busy dev; something else answering is a
+  // recycled pid. Neither is ours to signal, and neither may erase the
+  // record of a dev that might still be running.
   const nobodyServing: DevProbes = { isAlive: () => true, pidServing: () => Promise.resolve(null) };
   assert.equal(await readLiveDevState(home, nobodyServing), null);
-  await assert.rejects(readFile(devStatePath(home)));
-
-  await writeDevState(home, sampleState(4242));
   const anotherPidServing: DevProbes = { isAlive: () => true, pidServing: () => Promise.resolve(9999) };
   assert.equal(await readLiveDevState(home, anotherPidServing), null);
+  assert.deepEqual(await readLiveDevState(home, servedBy(4242)), sampleState(4242));
 });
 
 test("a missing, malformed, or non-positive-pid state file reads as nothing", async () => {
@@ -110,6 +111,27 @@ test("the identity probe reads the pid a dev host answers with, and nothing else
   }
   // A closed port answers nothing.
   assert.equal(await devPidServing(address.port), null);
+});
+
+test("the identity probe refuses an oversized body from whatever holds the port", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(`{"pid":4242,"padding":"${"x".repeat(10_000)}"}`);
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== "string");
+  try {
+    assert.equal(await devPidServing(address.port), null);
+  } finally {
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+  }
 });
 
 test("liveness: this process is alive, an absurd pid is not", () => {

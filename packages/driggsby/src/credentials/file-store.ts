@@ -5,11 +5,13 @@
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { writeOwnerOnlyFile } from "../owner-only-file.ts";
+import { driggsbyDirectory, writeOwnerOnlyFile } from "../owner-only-file.ts";
 import { type ClearOutcome } from "./clear-outcome.ts";
 
+const CREDENTIALS_FILE_NAME = "credentials.json";
+
 export function credentialsFilePath(homeDirectory: string): string {
-  return join(homeDirectory, ".driggsby", "credentials.json");
+  return join(driggsbyDirectory(homeDirectory), CREDENTIALS_FILE_NAME);
 }
 
 export async function readFileToken(homeDirectory: string): Promise<string | null> {
@@ -32,7 +34,7 @@ export async function readFileToken(homeDirectory: string): Promise<string | nul
 }
 
 export async function writeFileToken(homeDirectory: string, token: string): Promise<void> {
-  await writeOwnerOnlyFile(homeDirectory, "credentials.json", `${JSON.stringify({ app_token: token }, null, 2)}\n`);
+  await writeOwnerOnlyFile(homeDirectory, CREDENTIALS_FILE_NAME, `${JSON.stringify({ app_token: token }, null, 2)}\n`);
 }
 
 export async function clearFileToken(homeDirectory: string): Promise<ClearOutcome> {

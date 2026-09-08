@@ -22,6 +22,8 @@ const STATE_FILE_NAME = "dev.json";
 // record can be checked against the process actually holding the port.
 export const DEV_IDENTITY_PATH = "/-/dev-identity";
 const IDENTITY_TIMEOUT_MS = 1_000;
+const IDENTITY_ATTEMPTS = 2;
+const IDENTITY_MAX_BYTES = 4_096;
 
 export function devStatePath(homeDirectory: string): string {
   return join(driggsbyDirectory(homeDirectory), STATE_FILE_NAME);
@@ -47,8 +49,10 @@ export function defaultDevProbes(): DevProbes {
 // when its pid exists AND the recorded host port is served by that very
 // pid: a leftover file after a crash, a reboot, or a closed terminal can
 // name a pid the OS has since handed to something unrelated, and that
-// process must never be signalled. A stale or unparseable file is removed
-// so it can't mislead twice.
+// process must never be signalled. Only a dead pid or an unparseable file
+// gets the record removed: a port that fails to answer may be a live dev
+// on a busy machine, and deleting its record would leave that dev with
+// no way to be stopped from another terminal.
 export async function readLiveDevState(
   homeDirectory: string,
   probes: DevProbes = defaultDevProbes(),
@@ -61,16 +65,27 @@ export async function readLiveDevState(
     await rm(devStatePath(homeDirectory), { force: true });
     return null;
   }
-  if (!probes.isAlive(state.pid) || (await probes.pidServing(state.hostPort)) !== state.pid) {
+  if (!probes.isAlive(state.pid)) {
     await removeDevState(homeDirectory, state.pid);
     return null;
   }
-  return state;
+  return (await probes.pidServing(state.hostPort)) === state.pid ? state : null;
 }
 
 // Asks the host origin on `hostPort` which pid serves it; null when nothing
-// answers, or whatever answers is not a driggsby dev.
+// answers, or whatever answers is not a driggsby dev. One retry covers a
+// dev that was busy for the first attempt.
 export async function devPidServing(hostPort: number): Promise<number | null> {
+  for (let attempt = 0; attempt < IDENTITY_ATTEMPTS; attempt += 1) {
+    const pid = await askIdentity(hostPort);
+    if (pid !== null) {
+      return pid;
+    }
+  }
+  return null;
+}
+
+async function askIdentity(hostPort: number): Promise<number | null> {
   try {
     const response = await fetch(`http://127.0.0.1:${String(hostPort)}${DEV_IDENTITY_PATH}`, {
       signal: AbortSignal.timeout(IDENTITY_TIMEOUT_MS),
@@ -79,12 +94,40 @@ export async function devPidServing(hostPort: number): Promise<number | null> {
     if (!response.ok) {
       return null;
     }
-    const payload: unknown = await response.json();
+    // Whatever holds that port is untrusted: read a bounded body, never
+    // buffer what it chooses to send.
+    const body = await readBounded(response, IDENTITY_MAX_BYTES);
+    if (body === null) {
+      return null;
+    }
+    const payload: unknown = JSON.parse(body);
     const pid = typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>).pid : null;
     return isPid(pid) ? pid : null;
   } catch {
     return null;
   }
+}
+
+async function readBounded(response: Response, maxBytes: number): Promise<string | null> {
+  if (response.body === null) {
+    return null;
+  }
+  const reader: ReadableStreamDefaultReader<Uint8Array> = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // Removes the file only if it still names `pid`: a dev that ends must never

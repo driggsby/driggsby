@@ -170,7 +170,10 @@ function readyText(slug: string, servers: DevServers, opened: boolean, recorded:
 
 function idleWindowWords(timeoutMs: number): string {
   const minutes = Math.round(timeoutMs / 60_000);
-  return minutes >= 1 ? `${String(minutes)} minutes` : "a moment";
+  if (minutes < 1) {
+    return "a moment";
+  }
+  return minutes === 1 ? "1 minute" : `${String(minutes)} minutes`;
 }
 
 interface IdleWatch {
