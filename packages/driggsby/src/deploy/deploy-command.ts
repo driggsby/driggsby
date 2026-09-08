@@ -6,6 +6,10 @@ import {
   type DeployOutcome,
   deployProjectFiles,
   formatBytes,
+  hasLiveAddress,
+  type LiveAddresses,
+  liveAddresses,
+  liveAddressLines,
   readProjectConfig,
 } from "@driggsby/deploy";
 
@@ -14,11 +18,10 @@ import {
   type CredentialEnvironment,
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
-import { capForTerminal, quotedForTerminal, wrapProse } from "../terminal-text.ts";
+import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
 import {
   deployFailure,
   MAX_SERVER_TEXT_CHARS,
-  MAX_SERVER_URL_CHARS,
   requireDeploySession,
 } from "./api-session.ts";
 
@@ -90,9 +93,12 @@ export async function runDeploy(
     const seconds = (io.now() - startedAt) / 1_000;
     io.out(`${changedNote(outcome)}\n`);
     io.out(`${uploadedLine(outcome, seconds)}\n`);
-    io.out(`${resultLine(outcome)}\n`);
-    if (outcome.url !== null) {
-      io.out(`\n  ${capForTerminal(outcome.url, MAX_SERVER_URL_CHARS)}\n`);
+    const addresses = liveAddresses(outcome.url, outcome.consoleUrl, session.baseUrl);
+    io.out(`${resultLine(outcome, addresses)}\n`);
+    // A preview has no address to open: the Driggsby page shows the live
+    // version, which a preview leaves unchanged.
+    if (outcome.live) {
+      io.out(liveAddressLines(addresses));
     }
     if (collected.skippedNodeModules.length > 0) {
       io.out(
@@ -138,12 +144,12 @@ function uploadedLine(outcome: DeployOutcome, seconds: number): string {
   return `✓ Uploaded  ${formatBytes(outcome.uploadedBytes)} in ${formatSeconds(seconds)}`;
 }
 
-function resultLine(outcome: DeployOutcome): string {
+function resultLine(outcome: DeployOutcome, addresses: LiveAddresses): string {
   if (outcome.live) {
-    // "at:" only when the URL that line promises actually follows.
-    return outcome.url === null
-      ? `✓ Live      v${outcome.versionNumber}`
-      : `✓ Live      v${outcome.versionNumber}, at:`;
+    // "at:" only when an address that line promises actually follows.
+    return hasLiveAddress(addresses)
+      ? `✓ Live      v${outcome.versionNumber}, at:`
+      : `✓ Live      v${outcome.versionNumber}`;
   }
   return `✓ Ready     v${outcome.versionNumber} is uploaded but not live — what visitors see is unchanged`;
 }

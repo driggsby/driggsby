@@ -2,7 +2,14 @@
 // re-uploads — the switch is a pointer change on Driggsby's side. With --to N
 // it acts directly; without it, it shows the choices and asks (or, when not
 // attached to a person, explains how to re-run with --to).
-import { setLiveVersion, readProjectConfig, type VersionList } from "@driggsby/deploy";
+import {
+  hasLiveAddress,
+  liveAddresses,
+  liveAddressLines,
+  readProjectConfig,
+  setLiveVersion,
+  type VersionList,
+} from "@driggsby/deploy";
 
 import { apiBaseUrl } from "../api/base-url.ts";
 import { CliError } from "../cli-error.ts";
@@ -10,10 +17,9 @@ import {
   type CredentialEnvironment,
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
-import { capForTerminal, wrapProse } from "../terminal-text.ts";
+import { wrapProse } from "../terminal-text.ts";
 import {
   deployFailure,
-  MAX_SERVER_URL_CHARS,
   requireDeploySession,
 } from "./api-session.ts";
 import { fetchVersionList, renderVersionRows } from "./versions-command.ts";
@@ -94,13 +100,11 @@ export async function runRollback(
     const previousLive = list.liveVersionNumber;
     const result = await setLiveVersion(api, config.slug, target);
     const was = previousLive === null ? "" : ` (was v${previousLive})`;
-    // "at:" only when the URL that line promises actually follows; the URL
-    // is a server-supplied string, sanitized before printing.
-    const atSuffix = result.url === null ? "" : ", at:";
+    // "at:" only when an address that line promises actually follows.
+    const addresses = liveAddresses(result.url, result.consoleUrl, session.baseUrl);
+    const atSuffix = hasLiveAddress(addresses) ? ", at:" : "";
     io.out(`✓ Live      v${result.versionNumber} is what visitors see now${was}${atSuffix}\n`);
-    if (result.url !== null) {
-      io.out(`\n  ${capForTerminal(result.url, MAX_SERVER_URL_CHARS)}\n`);
-    }
+    io.out(liveAddressLines(addresses));
     io.out(
       `\n${wrapProse(`Nothing re-uploaded — Driggsby already had v${result.versionNumber} in full.`)}\n` +
         "\nNext:\n  See every version with npx driggsby@latest versions\n",

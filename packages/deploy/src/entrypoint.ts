@@ -9,6 +9,7 @@ import { resolveBaseUrl } from "./base-url.ts";
 import { deployProjectFiles } from "./deploy.ts";
 import { DeployApiError, DeployError } from "./errors.ts";
 import { collectDeployFiles, formatBytes } from "./manifest.ts";
+import { hasLiveAddress, liveAddresses, liveAddressLines } from "./live-addresses.ts";
 import { readProjectConfig } from "./project-config.ts";
 import { capForTerminal, quotedForTerminal, wrapProse } from "./terminal-text.ts";
 
@@ -104,8 +105,11 @@ export async function runDeployEntrypoint(io: EntrypointIo): Promise<number> {
     io.out(
       `Deployed ${quotedForTerminal(outcome.appSlug, 80)} (v${outcome.versionNumber}, ${uploadedNote}).\n`,
     );
-    if (outcome.url !== null) {
-      io.out(`Live at:\n\n  ${capForTerminal(outcome.url, 200)}\n`);
+    // The Driggsby page for the app first, where it runs with the person's
+    // data, then the app's own address: the same lines the driggsby CLI prints.
+    const addresses = liveAddresses(outcome.url, outcome.consoleUrl, baseUrl);
+    if (hasLiveAddress(addresses)) {
+      io.out(`Live at:\n${liveAddressLines(addresses)}`);
     }
     return 0;
   } catch (error) {

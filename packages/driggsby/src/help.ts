@@ -106,10 +106,12 @@ Options:
 export const DEPLOY_HELP = `Deploy the app in this directory to Driggsby.
 
 This reads driggsby.json next to your app files, uploads only what changed,
-and makes the new version live at your app's driggsby.dev address. The
-first deploy creates the app: Driggsby assigns its address (your name plus
-a unique ending) and saves it back into driggsby.json. With --preview, the
-version is uploaded and kept ready without changing what's live.
+and makes the new version live. It prints the app's page in Driggsby, where
+it runs with your data, then the app's own driggsby.dev address, which
+shows no Driggsby data when opened directly. The first deploy creates the
+app: Driggsby assigns its address (your name plus a unique ending) and
+saves it back into driggsby.json. With --preview, the version is uploaded
+and kept ready without changing what's live.
 
 Sign in first with npx driggsby@latest login.
 

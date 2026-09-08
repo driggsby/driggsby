@@ -33,6 +33,8 @@ export interface DeployOutcome {
   versionNumber: number;
   live: boolean;
   url: string | null;
+  // The Driggsby page for this app, where it runs with the person's data.
+  consoleUrl: string | null;
   fileCount: number;
   // Blobs actually sent this deploy (deduplicated by content hash).
   uploadedBlobCount: number;
@@ -150,6 +152,7 @@ export async function deployCollectedFiles(
     versionNumber: outcome.versionNumber,
     live: outcome.live,
     url: outcome.url,
+    consoleUrl: outcome.consoleUrl,
     fileCount: collected.files.length,
     uploadedBlobCount: uploadedShas.size,
     uploadedBytes,

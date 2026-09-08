@@ -43,6 +43,9 @@ export interface FakeDeployServer {
     headers?: Record<string, string>,
   ): void;
   liveVersionNumber(slug: string): number | null;
+  // The Driggsby page address the fake hands back for an app, on its own
+  // origin, as the real server does.
+  consoleUrlFor(slug: string): string;
   close(): Promise<void>;
 }
 
@@ -54,6 +57,9 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
   const versions = new Map<string, FakeVersion>();
   const liveBySlug = new Map<string, number>();
   const nextVersionNumberBySlug = new Map<string, number>();
+  // Known once the server is listening; every request arrives after that.
+  let baseUrl = "";
+  const consoleUrlFor = (slug: string): string => `${baseUrl}/dashboards/${slug}`;
 
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const chunks: Buffer[] = [];
@@ -185,6 +191,7 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
         version_number: version.number,
         live: nowLive,
         url: nowLive ? `https://${version.slug}.driggsby.dev` : null,
+        console_url: consoleUrlFor(version.slug),
       });
       return;
     }
@@ -235,6 +242,7 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
         version_number: target.number,
         live: true,
         url: `https://${slug}.driggsby.dev`,
+        console_url: consoleUrlFor(slug),
       });
       return;
     }
@@ -250,8 +258,10 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
     throw new Error("fake deploy server has no port");
   }
 
+  baseUrl = `http://127.0.0.1:${address.port}`;
+
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl,
     requests,
     seedBlob(bytes: Buffer) {
       blobs.set(createHash("sha256").update(bytes).digest("hex"), bytes);
@@ -268,6 +278,7 @@ export async function startFakeDeployServer(): Promise<FakeDeployServer> {
     liveVersionNumber(slug: string) {
       return liveBySlug.get(slug) ?? null;
     },
+    consoleUrlFor,
     close: () => closeServer(server),
   };
 }
