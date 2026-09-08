@@ -161,6 +161,7 @@ ${QUERY_TOOL_LINES}
 
 Options:
       --sql <SQL>      The SQL for query_cash_sql or query_investment_sql.
+                       Overrides a sql key given in --params.
       --params <JSON>  Other params as a JSON object, for example
                        '{"history_type":"liabilities"}'.
   -h, --help           Print help
@@ -168,7 +169,8 @@ Options:
 Examples:
   npx driggsby@latest query get_overview
   npx driggsby@latest query list_recurring_transactions
-  npx driggsby@latest query query_cash_sql --sql "SELECT * FROM cash_transactions"
+  npx driggsby@latest query query_cash_sql \\
+    --sql "SELECT * FROM cash_transactions"
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.
@@ -225,7 +227,7 @@ ${"          "}
 `;
 
 // Comma-separated names on indented lines that stay inside 80 columns.
-function wrapNames(names: string[], indent: string): string {
+export function wrapNames(names: string[], indent: string): string {
   const lines: string[] = [];
   let line = indent;
   for (const [index, name] of names.entries()) {

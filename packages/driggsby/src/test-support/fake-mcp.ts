@@ -21,7 +21,14 @@ export async function startFakeMcp(
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      } catch {
+        response.writeHead(400, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "not json" }));
+        return;
+      }
       requests.push({ headers: { ...request.headers }, body });
       const answer = respond(body);
       response.writeHead(answer.status, { "Content-Type": "application/json" });
@@ -49,7 +56,10 @@ export async function startFakeMcp(
   };
 }
 
-export function successEnvelope(body: Record<string, unknown>, structuredContent: unknown) {
+export function successEnvelope(
+  body: Record<string, unknown>,
+  structuredContent: unknown,
+): { status: number; payload: unknown } {
   return {
     status: 200,
     payload: {

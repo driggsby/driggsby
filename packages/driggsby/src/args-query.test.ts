@@ -26,10 +26,17 @@ test("query parses a bare tool, --sql, and --params in either spelling", () => {
     tool: "query_cash_sql",
     params: { sql: "SELECT 1" },
   });
-  assert.deepEqual(
-    parseArgv(["query", "get_history", '--params={"history_type":"liabilities"}', "--sql=SELECT 2"]),
-    { kind: "query", tool: "get_history", params: { history_type: "liabilities", sql: "SELECT 2" } },
-  );
+  assert.deepEqual(parseArgv(["query", "get_history", '--params={"history_type":"liabilities"}']), {
+    kind: "query",
+    tool: "get_history",
+    params: { history_type: "liabilities" },
+  });
+  // --sql overrides a sql key given in --params, whatever the argv order.
+  assert.deepEqual(parseArgv(["query", "query_cash_sql", "--sql=SELECT 2", '--params={"sql":"SELECT 1"}']), {
+    kind: "query",
+    tool: "query_cash_sql",
+    params: { sql: "SELECT 2" },
+  });
 });
 
 test("query prints its help on -h and --help", () => {
@@ -48,6 +55,9 @@ test("query without a tool, or with a tool apps cannot call, is a usage error na
   assert.match(unknown.message, /'email_me' isn't a tool a Driggsby app can call/);
   assert.match(unknown.message, /get_overview/);
   assert.match(unknown.message, /search_investment_activity/);
+  assert.ok(unknown.message.split("\n").every((line) => line.length <= 80));
+  assert.ok(!unknown.message.includes("tip:"));
+  assert.match(usageError(["query", "get_overvie"]).message, /tip: a similar tool exists: 'get_overview'/);
   // The echoed name is sanitized like every other argv echo.
   assert.ok(!usageError(["query", "get_\u001b[31moverview"]).message.includes("\u001b"));
 });
@@ -59,4 +69,7 @@ test("query refuses --params that is not a JSON object, and a missing flag value
   assert.match(usageError(["query", "get_overview", "--params", "[1]"]).message, /'--params' must be a JSON object/);
   assert.match(usageError(["query", "get_overview", "--sql"]).message, /a value is required for '--sql'/);
   assert.match(usageError(["query", "get_overview", "extra"]).message, /unexpected argument 'extra'/);
+  const sqlMisuse = usageError(["query", "get_overview", "--sql", "SELECT 1"]);
+  assert.equal(sqlMisuse.exitCode, 2);
+  assert.match(sqlMisuse.message, /'--sql' only applies to query_cash_sql or query_investment_sql/);
 });

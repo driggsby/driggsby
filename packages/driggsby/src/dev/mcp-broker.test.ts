@@ -218,6 +218,18 @@ test("an unreachable server becomes the generic trouble message, never a rejecti
   assert.deepEqual(result, { ok: false, error: { message: GENERIC_TOOL_TROUBLE } });
 });
 
+test("in throw mode an unreachable server rejects, so the caller can name the network", async () => {
+  const broker = new McpBroker({
+    baseUrl: "http://127.0.0.1:1",
+    token: FAKE_TOKEN,
+    timeoutMs: 2_000,
+    transportErrors: "throw",
+  });
+  await assert.rejects(broker.runToolCall("get_overview", {}));
+  // The queue drained: a second call is still accepted and rejects the same way.
+  await assert.rejects(broker.runToolCall("get_overview", {}));
+});
+
 test("the queue cap refuses overflow instead of piling up calls", async () => {
   // A server that never answers until released, so calls stack up.
   let releaseAll: () => void = () => undefined;

@@ -56,6 +56,30 @@ test("a tool refusal prints the tool's own message and exits 1", async () => {
   }
 });
 
+test("a refusal's text is stripped of terminal control and bidi bytes and wrapped", async () => {
+  const hostile = `sql error\u001b[2K\rALL GOOD \u202e${"x".repeat(120)}`;
+  const fake = await startFakeMcp((body) => ({
+    status: 200,
+    payload: { jsonrpc: "2.0", id: body.id, result: { isError: true, content: [{ type: "text", text: hostile }] } },
+  }));
+  try {
+    await assert.rejects(
+      runQuery({ tool: "query_cash_sql", params: { sql: "SELECT 1" } }, await makeEnvironment(fake.baseUrl), capturedOut()),
+      (error: unknown) => {
+        assert.ok(error instanceof CliError);
+        assert.ok(!error.message.includes("\u001b"));
+        assert.ok(!error.message.includes("\r"));
+        assert.ok(!error.message.includes("\u202e"));
+        assert.ok(error.message.startsWith("sql error[2K ALL GOOD"));
+        assert.ok(error.message.split("\n").every((line) => line.length <= 80));
+        return true;
+      },
+    );
+  } finally {
+    await fake.close();
+  }
+});
+
 test("a stale sign-in and no sign-in each name the login command", async () => {
   const fake = await startFakeMcp(() => ({ status: 401, payload: { error: "invalid_token" } }));
   try {

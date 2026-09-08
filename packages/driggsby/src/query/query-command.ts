@@ -10,7 +10,9 @@ import {
   defaultCredentialEnvironment,
 } from "../credentials/store.ts";
 import { McpBroker } from "../dev/mcp-broker.ts";
+import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
+import { sanitizeForTerminal, wrapProse } from "../terminal-text.ts";
 
 export interface QueryCommandOptions {
   tool: string;
@@ -41,8 +43,14 @@ export async function runQuery(
   environment: CredentialEnvironment = defaultCredentialEnvironment(),
   io: QueryCommandIo = defaultQueryIo(),
 ): Promise<number> {
+  // The parser already rejects a tool apps cannot call; re-checking here keeps
+  // the read-only guarantee (and the echoed retry command) from hanging on
+  // one distant caller.
+  if (!APP_TOOL_ALLOWLIST.has(options.tool)) {
+    throw new CliError(`'${options.tool}' isn't a tool a Driggsby app can call.`, 2);
+  }
   const baseUrl = apiBaseUrl(environment.env);
-  const retryCommand = `npx driggsby@latest query ${options.tool}`;
+  const retryCommand = retryCommandFor(options);
   try {
     const session = await requireDeploySession(environment);
     const broker = new McpBroker({
@@ -57,12 +65,36 @@ export async function runQuery(
     const outcome = await broker.runToolCall(options.tool, options.params);
     if (!outcome.ok) {
       // The tool's own message (a SQL error, a refused param) is the
-      // answer the caller needs; it is already capped and sanitized.
-      throw new CliError(outcome.error.message, 1);
+      // answer the caller needs. The broker sanitized and capped it to one
+      // line; wrapping bounds its width. The sign-in-again message is ours
+      // and keeps its own line breaks.
+      const message = outcome.error.message === SIGN_IN_AGAIN_MESSAGE
+        ? outcome.error.message
+        : wrapProse(outcome.error.message);
+      throw new CliError(message, 1);
     }
     io.out(`${JSON.stringify(outcome.result, null, 2)}\n`);
     return 0;
   } catch (error) {
     throw deployFailure(error, baseUrl, retryCommand);
   }
+}
+
+// The exact command to run again, flags included, so a retry after a
+// network blip is the same query and not one the server refuses for a
+// missing sql. Values are the user's own argv, quoted for a POSIX shell.
+function retryCommandFor(options: QueryCommandOptions): string {
+  const { sql, ...rest } = options.params;
+  const parts = [`npx driggsby@latest query ${options.tool}`];
+  if (typeof sql === "string") {
+    parts.push(`--sql ${shellQuoted(sql)}`);
+  }
+  if (Object.keys(rest).length > 0) {
+    parts.push(`--params ${shellQuoted(JSON.stringify(rest))}`);
+  }
+  return parts.join(" ");
+}
+
+function shellQuoted(value: string): string {
+  return `'${sanitizeForTerminal(value).replaceAll("'", "'\\''")}'`;
 }

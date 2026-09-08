@@ -4,12 +4,15 @@
 // allowlist here so a typo is a usage error naming the twelve, not a
 // server round trip.
 import { helpCommand, type ParsedCommand, unexpectedArgument } from "./args-shared.ts";
+import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
 import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
-import { QUERY_HELP } from "./help.ts";
+import { QUERY_HELP, wrapNames } from "./help.ts";
 import { sanitizeForTerminal } from "./terminal-text.ts";
 
 export const QUERY_USAGE = "Usage: npx driggsby@latest query <TOOL> [--sql <SQL>] [--params <JSON>]";
+
+const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql"]);
 
 export function parseQuery(argv: string[]): ParsedCommand {
   let tool: string | null = null;
@@ -54,6 +57,9 @@ export function parseQuery(argv: string[]): ParsedCommand {
   }
   if (!APP_TOOL_ALLOWLIST.has(tool)) {
     throw unknownTool(tool);
+  }
+  if (sql !== null && !SQL_TOOLS.has(tool)) {
+    throw sqlForNonSqlTool(tool);
   }
   const merged: Record<string, unknown> = { ...(params ?? {}) };
   if (sql !== null) {
@@ -104,9 +110,21 @@ function missingTool(): CliError {
 }
 
 function unknownTool(tool: string): CliError {
+  const similar = didYouMean(tool, [...APP_TOOL_ALLOWLIST]);
+  const tip = similar === undefined ? "" : `  tip: a similar tool exists: '${similar}'\n\n`;
   return new CliError(
-    `error: '${sanitizeForTerminal(tool)}' isn't a tool a Driggsby app can call. Apps can watch these read-only tools:\n` +
-      `  ${[...APP_TOOL_ALLOWLIST].join(", ")}\n\n${QUERY_USAGE}\n\nFor more information, try '--help'.`,
+    `error: '${sanitizeForTerminal(tool)}' isn't a tool a Driggsby app can call.\n` +
+      `Apps can watch these read-only tools:\n` +
+      `${wrapNames([...APP_TOOL_ALLOWLIST], "  ")}\n\n${tip}${QUERY_USAGE}\n\nFor more information, try '--help'.`,
+    2,
+  );
+}
+
+function sqlForNonSqlTool(tool: string): CliError {
+  return new CliError(
+    `error: '--sql' only applies to query_cash_sql or query_investment_sql;\n` +
+      `'${tool}' takes no SQL.\n\n` +
+      `${QUERY_USAGE}\n\nFor more information, try '--help'.`,
     2,
   );
 }
