@@ -6,6 +6,10 @@ import {
   type DeployOutcome,
   deployProjectFiles,
   formatBytes,
+  hasLiveAddress,
+  type LiveAddresses,
+  liveAddresses,
+  liveAddressLines,
   readProjectConfig,
 } from "@driggsby/deploy";
 
@@ -20,7 +24,6 @@ import {
   MAX_SERVER_TEXT_CHARS,
   requireDeploySession,
 } from "./api-session.ts";
-import { hasLiveAddress, type LiveAddresses, liveAddresses, liveAddressLines } from "./live-addresses.ts";
 
 const DEPLOY_RETRY_COMMAND = "npx driggsby@latest deploy";
 

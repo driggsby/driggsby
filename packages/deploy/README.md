@@ -25,7 +25,10 @@ npx @driggsby/deploy
 ```
 
 This reads `driggsby.json` in the current directory, deploys the `serve`
-folder, and makes it live. A first deploy creates the app and saves its
+folder, and makes it live. It prints two addresses: the app's page in
+Driggsby first, where it runs with the person's data, then the app's own
+`driggsby.dev` address, which shows no Driggsby data when opened
+directly. A first deploy creates the app and saves its
 assigned address back into `driggsby.json` — keep (commit) that updated
 file, because it is the only record of the app's address; a checkout that
 discards it makes the next deploy create a second app at a new address.

@@ -189,7 +189,7 @@ test("first live deploy walks through every step and prints the URL", async () =
     const consoleAt = text.indexOf(server.consoleUrlFor("money-dash"));
     const ownAt = text.indexOf("https://money-dash.driggsby.dev");
     assert.ok(consoleAt !== -1 && ownAt !== -1 && consoleAt < ownAt);
-    assert.ok(text.includes("The app's own address, which gets no Driggsby data"));
+    assert.ok(text.includes("The app's own address, which shows no Driggsby data"));
     assert.ok(text.includes("Next:"));
     assert.ok(text.includes("npx driggsby@latest rollback"));
     assertFitsTerminal(text);
@@ -333,7 +333,7 @@ test("a Driggsby page address off the signed-in origin is dropped, and a hostile
     assert.ok(!lookalike.text().includes("own address"));
 
     // On the right origin but carrying terminal control and bidi bytes: it
-    // prints on one line with those bytes gone.
+    // prints on one line as a parsed URL, those bytes percent-encoded.
     server.injectResponse("POST", "/finalize", 200, {
       app_slug: "money-dash",
       version_number: 2,
@@ -348,8 +348,8 @@ test("a Driggsby page address off the signed-in origin is dropped, and a hostile
     );
     const text = hostile.text();
     assert.ok(!text.includes("\u001b") && !text.includes("\r") && !text.includes("\u202e"));
-    assert.ok(text.includes(`\n  ${server.baseUrl}/dashboards/money-dash[2K ok\n`));
-    assert.ok(text.includes("The app's own address, which gets no Driggsby data"));
+    assert.ok(text.includes(`\n  ${server.baseUrl}/dashboards/money-dash%1B[2K%E2%80%AEok\n`));
+    assert.ok(text.includes("The app's own address, which shows no Driggsby data"));
     assertFitsTerminal(text);
   } finally {
     await server.close();

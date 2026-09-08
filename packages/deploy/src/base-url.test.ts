@@ -51,4 +51,8 @@ test("consoleUrlOnOrigin keeps a Driggsby page address only on the signed-in ori
   assert.equal(consoleUrlOnOrigin("/dashboards/money-dash", base), null);
   assert.equal(consoleUrlOnOrigin(null, base), null);
   assert.equal(consoleUrlOnOrigin("http://127.0.0.1:4111/dashboards/x", "http://127.0.0.1:4111"), "http://127.0.0.1:4111/dashboards/x");
+  // Userinfo reads as another host; a control byte in the path comes back encoded.
+  assert.equal(consoleUrlOnOrigin("https://evil.test@app.driggsby.com/dashboards/x", base), null);
+  assert.equal(consoleUrlOnOrigin("https://app.driggsby.com\t@evil.test/x", base), null);
+  assert.equal(consoleUrlOnOrigin(`${base}/dashboards/x\u001b[2K`, base), `${base}/dashboards/x%1B[2K`);
 });

@@ -5,10 +5,11 @@
 // environments that can only run one command with an injected token.
 import { readFile } from "node:fs/promises";
 
-import { consoleUrlOnOrigin, resolveBaseUrl } from "./base-url.ts";
+import { resolveBaseUrl } from "./base-url.ts";
 import { deployProjectFiles } from "./deploy.ts";
 import { DeployApiError, DeployError } from "./errors.ts";
 import { collectDeployFiles, formatBytes } from "./manifest.ts";
+import { hasLiveAddress, liveAddresses, liveAddressLines } from "./live-addresses.ts";
 import { readProjectConfig } from "./project-config.ts";
 import { capForTerminal, quotedForTerminal, wrapProse } from "./terminal-text.ts";
 
@@ -104,12 +105,11 @@ export async function runDeployEntrypoint(io: EntrypointIo): Promise<number> {
     io.out(
       `Deployed ${quotedForTerminal(outcome.appSlug, 80)} (v${outcome.versionNumber}, ${uploadedNote}).\n`,
     );
-    // The Driggsby page for the app comes first when the server names it on
-    // the origin this run signed in to: that is where the app runs with the
-    // person's data.
-    const address = consoleUrlOnOrigin(outcome.consoleUrl, baseUrl) ?? outcome.url;
-    if (address !== null) {
-      io.out(`Live at:\n\n  ${capForTerminal(address, 200)}\n`);
+    // The Driggsby page for the app first, where it runs with the person's
+    // data, then the app's own address: the same lines the driggsby CLI prints.
+    const addresses = liveAddresses(outcome.url, outcome.consoleUrl, baseUrl);
+    if (hasLiveAddress(addresses)) {
+      io.out(`Live at:\n${liveAddressLines(addresses)}`);
     }
     return 0;
   } catch (error) {

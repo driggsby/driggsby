@@ -2,7 +2,14 @@
 // re-uploads — the switch is a pointer change on Driggsby's side. With --to N
 // it acts directly; without it, it shows the choices and asks (or, when not
 // attached to a person, explains how to re-run with --to).
-import { setLiveVersion, readProjectConfig, type VersionList } from "@driggsby/deploy";
+import {
+  hasLiveAddress,
+  liveAddresses,
+  liveAddressLines,
+  readProjectConfig,
+  setLiveVersion,
+  type VersionList,
+} from "@driggsby/deploy";
 
 import { apiBaseUrl } from "../api/base-url.ts";
 import { CliError } from "../cli-error.ts";
@@ -15,7 +22,6 @@ import {
   deployFailure,
   requireDeploySession,
 } from "./api-session.ts";
-import { hasLiveAddress, liveAddresses, liveAddressLines } from "./live-addresses.ts";
 import { fetchVersionList, renderVersionRows } from "./versions-command.ts";
 
 const ROLLBACK_RETRY_COMMAND = "npx driggsby@latest rollback";

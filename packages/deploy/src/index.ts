@@ -44,6 +44,15 @@ export {
   deployCollectedFiles,
   deployProjectFiles,
 } from "./deploy.ts";
+// The addresses a deploy or rollback prints, shared by this package's bin
+// and the driggsby CLI so both say the same thing.
+export {
+  type LiveAddresses,
+  MAX_LIVE_ADDRESS_CHARS,
+  hasLiveAddress,
+  liveAddresses,
+  liveAddressLines,
+} from "./live-addresses.ts";
 // Terminal-safety helpers for anything that echoes untrusted text (file
 // names, server strings) into CLI output. See terminal-text.ts for what the
 // sanitizer strips and the deliberate boundary of that defense.

@@ -43,9 +43,37 @@ test("deploys the current directory live and prints the URL", async () => {
     const exitCode = await runDeployEntrypoint(io);
     assert.equal(exitCode, 0);
     assert.ok(io.stdout().includes('Deployed "money-dash" (v1'));
-    // The Driggsby page for the app, where it runs with the person's data.
-    assert.ok(io.stdout().includes(`Live at:\n\n  ${server.consoleUrlFor("money-dash")}`));
+    // The Driggsby page for the app first, where it runs with the person's
+    // data, then the app's own address, labeled.
+    assert.ok(io.stdout().includes(`Live at:\n\n  ${server.consoleUrlFor("money-dash")}\n`));
+    assert.ok(io.stdout().includes("shows no Driggsby data when opened directly:\n\n  https://money-dash.driggsby.dev\n"));
     assert.equal(io.stderr(), "");
+  } finally {
+    await server.close();
+  }
+});
+
+test("without a Driggsby page, or with one off the signed-in origin, the app's own address prints alone", async () => {
+  const server = await startFakeDeployServer();
+  try {
+    const directory = await mkdtemp(join(tmpdir(), "driggsby-entrypoint-"));
+    await writeFile(join(directory, "driggsby.json"), '{ "slug": "money-dash" }');
+    await writeFile(join(directory, "index.html"), "<h1>hi</h1>");
+    const env = { DRIGGSBY_TOKEN: "dgb_at_test_token_3333", DRIGGSBY_BASE_URL: server.baseUrl };
+    for (const consoleUrl of [undefined, "https://app.driggsby.com.evil.test/dashboards/money-dash"]) {
+      server.injectResponse("POST", "/finalize", 200, {
+        app_slug: "money-dash",
+        version_number: 1,
+        live: true,
+        url: "https://money-dash.driggsby.dev",
+        ...(consoleUrl === undefined ? {} : { console_url: consoleUrl }),
+      });
+      const io = capturedIo(directory, env);
+      assert.equal(await runDeployEntrypoint(io), 0);
+      assert.ok(io.stdout().includes("Live at:\n\n  https://money-dash.driggsby.dev\n"));
+      assert.ok(!io.stdout().includes("evil.test"));
+      assert.ok(!io.stdout().includes("own address"));
+    }
   } finally {
     await server.close();
   }

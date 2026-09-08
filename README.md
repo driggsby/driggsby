@@ -89,8 +89,8 @@ you picked plus a unique ending, like
 `your-app-name-x7k2qf.driggsby.dev` — and saves the assigned name back
 into `driggsby.json`, so any readable name works and names never collide.
 `deploy` prints the Driggsby page for the app first; that is where it runs
-with your data. The `driggsby.dev` address is the app on its own, where it
-gets no Driggsby data.
+with your data. The `driggsby.dev` address is the app on its own, which
+shows no Driggsby data when opened directly.
 Every deploy after that uploads only the files that changed. Related
 commands:
 
