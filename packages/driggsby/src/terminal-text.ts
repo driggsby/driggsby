@@ -36,3 +36,18 @@ export function wrapNames(names: string[], indent: string): string {
   lines.push(line);
   return lines.join("\n");
 }
+
+// JSON.stringify escapes C0 controls but passes C1 controls, bidi
+// overrides, and invisible code points through raw; server data is hostile
+// (a counterparty's name comes from a bank), so escape those too, the same
+// class sanitizeForTerminal strips from prose. They can only sit inside JSON
+// strings, so the output stays valid JSON that parses to the same value.
+// Each UTF-16 unit is escaped on its own, so an astral code point (a tag
+// character) becomes a valid surrogate-pair escape.
+const TERMINAL_UNSAFE_IN_JSON = /[\u007f-\u009f\u2028\u2029\ufff9-\ufffb]|\p{Default_Ignorable_Code_Point}/gu;
+
+export function terminalSafeJson(value: unknown): string {
+  return JSON.stringify(value ?? null, null, 2).replace(TERMINAL_UNSAFE_IN_JSON, (match) =>
+    Array.from({ length: match.length }, (_, index) => `\\u${match.charCodeAt(index).toString(16).padStart(4, "0")}`).join(""),
+  );
+}
