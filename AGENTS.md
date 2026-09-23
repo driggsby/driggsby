@@ -254,6 +254,23 @@ node packages/driggsby/bin/driggsby.js mcp setup codex --print
 For workflow changes, run `actionlint .github/workflows/*.yml` when available
 and `bash scripts/check_github_action_pins.sh`.
 
+A repository ruleset on `main` requires these seven checks, all from GitHub
+Actions, to pass before a pull request merges: `verify (ubuntu-latest)`,
+`verify (macos-latest)`, `verify (windows-latest)`, `built CLI runs on Node
+18`, and `npm publish surface` (CI), plus `npm-audit` and
+`release-surface-smoke` (PR Security). So:
+
+- Both workflows run on every pull request. Never give either one a
+  `paths`, `paths-ignore`, or `branches` filter: a required check that a
+  filter skips never reports, and the pull request stays blocked. Never give
+  their jobs an `if:` either: a job skipped by `if:` counts as passing.
+- Adding, renaming, or removing a job or matrix entry in either workflow
+  needs the same change to the ruleset. A renamed check leaves the old
+  required name unreported, which blocks every pull request, admins
+  included.
+- When `npm-audit` fails on an advisory with no upstream fix, the fixing pull
+  request adds an `overrides` entry in `package.json`.
+
 ## CLI Output Rules
 
 - CLI output should be calm, explicit, and easy for humans and agents to act on.
