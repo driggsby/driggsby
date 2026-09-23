@@ -254,6 +254,11 @@ node packages/driggsby/bin/driggsby.js mcp setup codex --print
 For workflow changes, run `actionlint .github/workflows/*.yml` when available
 and `bash scripts/check_github_action_pins.sh`.
 
+`main` requires every CI and PR Security check to pass before a pull request
+merges, so both workflows run on every pull request. Never add a path filter
+to either: a required check that a filter skips never reports, and the pull
+request stays blocked.
+
 ## CLI Output Rules
 
 - CLI output should be calm, explicit, and easy for humans and agents to act on.
