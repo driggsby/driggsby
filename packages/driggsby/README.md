@@ -100,6 +100,17 @@ with Node.js 18 or newer.
 See the [GitHub repo](https://github.com/driggsby/driggsby) for
 tools, examples, and full documentation.
 
+## Transaction rules
+
+`npx driggsby@latest rules` reads and changes your transaction rules — your
+standing corrections to how Driggsby reads your transactions: a category, a
+counterparty's name, or tags on a set of transactions. `rules describe`
+prints the rule format and the process. `rules preview` shows exactly what a
+rule would change and returns the confirm token `rules save` needs, so
+nothing changes without a preview first. `rules delete` needs `--yes`. Every
+action prints JSON. If you signed in with an earlier version of the CLI,
+run `npx driggsby@latest login` once more to use rules.
+
 ## License
 
 Apache-2.0
