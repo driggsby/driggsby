@@ -61,9 +61,9 @@ Options:
 export const LOGIN_HELP = `Sign in to Driggsby and save an app token on this machine.
 
 This opens a Driggsby approval page in your browser. Approving it issues an
-app token that lets this machine read your Driggsby data and deploy Driggsby
-apps. The token is saved locally for other driggsby commands and is never
-printed.
+app token that lets this machine read your Driggsby data, deploy Driggsby
+apps, and manage your transaction rules. The token is saved locally for
+other driggsby commands and is never printed.
 
 Usage: npx driggsby@latest login
 
