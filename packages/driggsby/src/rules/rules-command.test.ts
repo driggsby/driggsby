@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer, type Server } from "node:http";
 import { test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
@@ -7,6 +8,7 @@ import { capturedOut, makeEnvironment } from "../deploy/test-support/deploy-comm
 import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
 import { RULES_REASON, runRules } from "./rules-command.ts";
 import { RULES_NOT_AVAILABLE_MESSAGE } from "./rules-rpc.ts";
+import { GENERIC_TOOL_TROUBLE } from "../dev/dev-servers.ts";
 
 function sentArguments(fake: { requests: { body: unknown }[] }): Record<string, unknown> {
   const body = fake.requests[0]?.body as Record<string, unknown>;
@@ -144,4 +146,109 @@ test("without a sign-in nothing is sent", async () => {
   } finally {
     await fake.close();
   }
+});
+
+async function listen(server: Server): Promise<string> {
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== "string");
+  return `http://127.0.0.1:${String(address.port)}`;
+}
+
+async function closeServer(server: Server): Promise<void> {
+  server.closeAllConnections();
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+}
+
+test("a redirecting /mcp response is refused; the sign-in never follows it", async () => {
+  let targetHits = 0;
+  const target = createServer((_request, response) => {
+    targetHits += 1;
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { structuredContent: {}, isError: false } }));
+  });
+  const targetUrl = await listen(target);
+  const redirecting = createServer((_request, response) => {
+    response.writeHead(307, { Location: `${targetUrl}/mcp` });
+    response.end();
+  });
+  const redirectingUrl = await listen(redirecting);
+  try {
+    const io = capturedOut();
+    await assert.rejects(
+      runRules({ action: "list", params: {} }, await makeEnvironment(redirectingUrl), io),
+      (error: unknown) => error instanceof CliError && error.exitCode === 1,
+    );
+    assert.equal(targetHits, 0, "the redirect target must never be contacted");
+    assert.equal(io.text(), "");
+  } finally {
+    await closeServer(redirecting);
+    await closeServer(target);
+  }
+});
+
+test("a server error or a non-JSON answer is the generic trouble message, with nothing on stdout", async () => {
+  for (const answer of [
+    { status: 500, contentType: "application/json", body: "{}" },
+    { status: 200, contentType: "text/html", body: "<html>oops</html>" },
+  ]) {
+    const server = createServer((_request, response) => {
+      response.writeHead(answer.status, { "Content-Type": answer.contentType });
+      response.end(answer.body);
+    });
+    const url = await listen(server);
+    try {
+      const io = capturedOut();
+      await assert.rejects(
+        runRules({ action: "tags", params: {} }, await makeEnvironment(url), io),
+        (error: unknown) => error instanceof CliError && error.message === GENERIC_TOOL_TROUBLE,
+      );
+      assert.equal(io.text(), "");
+    } finally {
+      await closeServer(server);
+    }
+  }
+});
+
+test("a refusal without an error string falls back to its text content", async () => {
+  const fake = await startFakeMcp((body) => ({
+    status: 200,
+    payload: { jsonrpc: "2.0", id: body.id, result: { isError: true, content: [{ type: "text", text: "Not now." }] } },
+  }));
+  try {
+    const io = capturedOut();
+    await assert.rejects(
+      runRules({ action: "list", params: {} }, await makeEnvironment(fake.baseUrl), io),
+      (error: unknown) => error instanceof CliError && error.message === "Not now.",
+    );
+    assert.equal(io.text(), "null\n");
+  } finally {
+    await fake.close();
+  }
+});
+
+test("a refused connection names the command to repeat, never the params", async () => {
+  const closed = createServer();
+  const url = await listen(closed);
+  await closeServer(closed);
+  const unreachable = await makeEnvironment(url);
+  await assert.rejects(
+    runRules({ action: "delete", params: { rule_ref: "rule_secret_1" } }, unreachable, capturedOut()),
+    (error: unknown) => {
+      assert.ok(error instanceof CliError);
+      assert.ok(error.message.includes("  npx driggsby@latest rules delete --yes\n  with the same params as before"));
+      assert.ok(!error.message.includes("rule_secret_1"));
+      return true;
+    },
+  );
+  await assert.rejects(
+    runRules({ action: "tags", params: {} }, unreachable, capturedOut()),
+    (error: unknown) => error instanceof CliError && error.message.endsWith("  npx driggsby@latest rules tags"),
+  );
 });

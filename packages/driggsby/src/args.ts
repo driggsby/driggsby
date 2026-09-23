@@ -218,19 +218,15 @@ function unknownLongFlagAtLevel(
   }
   // clap's cross-level fallback: when a LATER argv token names one of this
   // level's subcommands and that subcommand has a similar flag, point the
-  // user at the flag's real home ("tip: 'setup --print' exists").
-  for (const subcommand of level.subcommandFlags) {
-    if (!remainingArgs.includes(subcommand.name)) {
-      continue;
-    }
-    const subcommandSimilar = didYouMean(flagName, subcommand.longFlags);
-    if (subcommandSimilar !== undefined) {
-      return unexpectedArgument(
-        shown,
-        level.usage,
-        `  tip: '${subcommand.name} --${subcommandSimilar}' exists`,
-      );
-    }
+  // user at the flag's real home ("tip: 'setup --print' exists"). Unlike
+  // clap, which walks its subcommand list in declaration order, the home is
+  // the first subcommand actually typed: `--yes rules delete` must never be
+  // pointed at the app-deleting `delete --yes`.
+  const typed = remainingArgs.find((argument) => level.subcommands.includes(argument));
+  const subcommand = level.subcommandFlags.find((entry) => entry.name === typed);
+  const subcommandSimilar = subcommand === undefined ? undefined : didYouMean(flagName, subcommand.longFlags);
+  if (subcommand !== undefined && subcommandSimilar !== undefined) {
+    return unexpectedArgument(shown, level.usage, `  tip: '${subcommand.name} --${subcommandSimilar}' exists`);
   }
   return unexpectedArgument(shown, level.usage);
 }

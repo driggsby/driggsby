@@ -106,10 +106,11 @@ tools, examples, and full documentation.
 standing corrections to how Driggsby reads your transactions: a category, a
 counterparty's name, or tags on a set of transactions. `rules describe`
 prints the rule format and the process. `rules preview` shows exactly what a
-rule would change and returns the confirm token `rules save` needs, so
-nothing changes without a preview first. `rules delete` needs `--yes`. Every
-action prints JSON. If you signed in with an earlier version of the CLI,
-run `npx driggsby@latest login` once more to use rules.
+new or changed rule would do and returns the confirm token `rules save`
+needs to apply it; renaming, pausing, or resuming a rule needs only its
+`rule_ref`. `rules delete` needs `--yes`. Every action prints JSON. If you
+signed in with an earlier version of the CLI, run
+`npx driggsby@latest login` once more to use rules.
 
 ## License
 

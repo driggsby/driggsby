@@ -8,7 +8,7 @@ import { apiBaseUrl } from "../api/base-url.ts";
 import { CliError } from "../cli-error.ts";
 import { type CredentialEnvironment, defaultCredentialEnvironment } from "../credentials/store.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
-import { RULE_ACTION_TOOLS, type RuleAction } from "./rule-actions.ts";
+import { RULE_ACTION_TOOLS, RULE_ACTIONS, type RuleAction, type RuleToolAction } from "./rule-actions.ts";
 import { callRuleTool, listRuleTools, type RuleToolDescription, terminalSafeJson } from "./rules-rpc.ts";
 
 export interface RulesCommandOptions {
@@ -63,17 +63,27 @@ export async function runRules(
 
 // What describe prints: the tools' own descriptions, plus the CLI command
 // that runs each tool the descriptions name.
+// Each action's flags, keyed by action so a new action can't be left out.
+const ACTION_FLAGS: Record<RuleToolAction, string> = {
+  list: " [--params <JSON>]",
+  tags: "",
+  preview: " --params <JSON>",
+  save: " --params <JSON>",
+  delete: " --params <JSON> --yes",
+};
+
 export function describePayload(tools: RuleToolDescription[]): Record<string, unknown> {
+  const howToRun: Record<string, string> = {};
+  for (const action of RULE_ACTIONS) {
+    if (action !== "describe") {
+      howToRun[RULE_ACTION_TOOLS[action]] = `npx driggsby@latest rules ${action}${ACTION_FLAGS[action]}`;
+    }
+  }
+  // The two read tools the rule descriptions send an agent to first.
+  howToRun.search_cash_transactions = "npx driggsby@latest query search_cash_transactions --params <JSON>";
+  howToRun.query_cash_sql = "npx driggsby@latest query query_cash_sql --sql <SQL>";
   return {
-    how_to_run: {
-      list_transaction_rules: "npx driggsby@latest rules list [--params <JSON>]",
-      list_transaction_tags: "npx driggsby@latest rules tags",
-      preview_transaction_rule: "npx driggsby@latest rules preview --params <JSON>",
-      save_transaction_rule: "npx driggsby@latest rules save --params <JSON>",
-      delete_transaction_rule: "npx driggsby@latest rules delete --params <JSON> --yes",
-      search_cash_transactions: "npx driggsby@latest query search_cash_transactions --params <JSON>",
-      query_cash_sql: "npx driggsby@latest query query_cash_sql --sql <SQL>",
-    },
+    how_to_run: howToRun,
     notes: [
       "--params is the tool's arguments object as JSON; --params-file <PATH> reads the same object from a file.",
       "The CLI fills in reason when you leave it out.",

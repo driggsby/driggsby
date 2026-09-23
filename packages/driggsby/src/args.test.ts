@@ -198,6 +198,27 @@ test("clap's cross-level tip points a mistyped mcp flag at setup", () => {
   }
 });
 
+test("a misplaced root flag's tip names the subcommand actually typed, never another one", () => {
+  // rules delete and the root delete both take --yes; the root delete removes a
+  // deployed app, so a tip must never send a rules call there.
+  for (const [argv, tip] of [
+    [["--yes", "rules", "delete", "--params", "{}"], "  tip: 'rules --yes' exists"],
+    [["--yes", "delete"], "  tip: 'delete --yes' exists"],
+    [["--params", "{}", "query", "get_overview"], "  tip: 'query --params' exists"],
+  ] as const) {
+    try {
+      parseArgv([...argv]);
+      assert.fail("expected a CliError");
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.ok(error.message.includes(tip), `${argv.join(" ")}: ${error.message}`);
+      if (argv[1] === "rules") {
+        assert.ok(!error.message.includes("'delete --yes'"));
+      }
+    }
+  }
+});
+
 test("a value attached to --help or --version errors at every level", () => {
   const cases: [string[], string, string][] = [
     [["--help=x"], "'x' for '--help'", "Usage: npx driggsby@latest --help <COMMAND>"],

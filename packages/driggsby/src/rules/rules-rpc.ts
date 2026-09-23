@@ -99,9 +99,16 @@ export function interpretToolCall(payload: unknown): RuleToolOutcome {
   }
   const structured: unknown = result.structuredContent ?? null;
   if (result.isError === true) {
-    return { kind: "refused", message: serverMessage(asRecord(structured)?.error), details: structured };
+    const message = asRecord(structured)?.error ?? firstText(result.content);
+    return { kind: "refused", message: serverMessage(message), details: structured };
   }
   return { kind: "ok", result: structured };
+}
+
+// A refusal's message lives in structuredContent.error; the MCP text
+// content is the fallback, the same one the dev preview's broker reads.
+function firstText(content: unknown): unknown {
+  return Array.isArray(content) ? asRecord(content[0] as unknown)?.text : undefined;
 }
 
 // JSON.stringify escapes C0 controls but passes C1 controls, bidi
