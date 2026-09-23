@@ -3,20 +3,11 @@ name: PR Security
 env:
   ACTIONLINT_VERSION: "1.7.12"
 
+# Every pull request, with no path filter: main requires these checks, and
+# a required check that a filter skipped would never report, leaving the
+# pull request blocked.
 on:
   pull_request:
-    paths:
-      - ".github/workflows/**"
-      - "Justfile"
-      - "LICENSE"
-      - "README.md"
-      - "eslint.config.mjs"
-      - "package-lock.json"
-      - "package.json"
-      - "packages/**"
-      - "scripts/**"
-      - "tsconfig.base.json"
-      - "tsconfig.json"
 
 permissions:
   contents: read
