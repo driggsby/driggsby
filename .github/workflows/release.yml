@@ -129,13 +129,15 @@ jobs:
       # publish is skipped when that exact version is already on the
       # registry, so a re-run of a release that failed between publishes
       # completes instead of dying on the version conflict. npm takes a few
-      # minutes to make a fresh publish visible, so a re-run inside that
-      # window can miss it on the check and then be refused with "Cannot
-      # publish over previously published/staged version"; that refusal only
-      # ever means this exact version already went out, so it counts as done.
-      # Note: npm trusted publishing is configured per package on npmjs.com,
-      # so each package needs its trusted publisher set up there before the
-      # first release that includes it.
+      # minutes to serve a fresh publish, so a re-run inside that window can
+      # miss it here and be refused with "Cannot publish over previously
+      # staged version". That refusal is deliberately NOT treated as done:
+      # npm uses it for versions that never went live (a held stage, an npm
+      # bug), and publishing the CLI on top of one would ship an exact pin
+      # nobody can install. Wait a few minutes and re-run. Note: npm trusted
+      # publishing is configured per package on npmjs.com, so each package
+      # needs its trusted publisher set up there before the first release
+      # that includes it.
       - name: Publish npm packages
         shell: bash
         run: |
@@ -145,25 +147,21 @@ jobs:
               echo "${package}@${version} is already on the registry; skipping its publish."
               continue
             fi
-            if ! output="$(npm publish --workspace "$package" --access public --provenance --ignore-scripts 2>&1)"; then
-              echo "$output"
-              if grep -q "Cannot publish over previously" <<< "$output"; then
-                echo "${package}@${version} was already published and npm is still processing it; treating it as done."
-                continue
-              fi
-              exit 1
-            fi
-            echo "$output"
+            npm publish --workspace "$package" --access public --provenance --ignore-scripts
           done
 
-  # The release's public record on GitHub: which npm packages went out and
-  # what changed since the previous release. It runs only after every
-  # package published, so it never announces a version npm doesn't have,
-  # and a re-run finds the release already there and stops.
+  # The release's public record on GitHub: the npm packages it published and
+  # the changes since the previous shipped release. It runs only after every
+  # package published, waits until npm actually serves all three (npm takes
+  # a few minutes to process a publish), and fails rather than announce a
+  # version nobody can install. It is marked Latest only when this is the
+  # newest release tag, and a re-run finds the release already there and
+  # stops.
   github-release:
     needs:
       - publish-npm
     runs-on: "ubuntu-22.04"
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -171,6 +169,22 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Wait until npm serves every package
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#driggsby-v}"
+          for package in "@driggsby/deploy" "@driggsby/sdk" "driggsby"; do
+            url="https://registry.npmjs.org/${package/\//%2f}/${version}"
+            for attempt in $(seq 1 40); do
+              if [[ "$(curl -s -o /dev/null -w '%{http_code}' "$url")" == "200" ]]; then
+                echo "${package}@${version} is live on npm."
+                continue 2
+              fi
+              sleep 30
+            done
+            echo "${package}@${version} is still not served by npm after 20 minutes; not announcing the release." >&2
+            exit 1
+          done
       - name: Create the GitHub Release
         shell: bash
         env:
@@ -181,8 +195,26 @@ jobs:
             echo "The GitHub Release for ${GITHUB_REF_NAME} already exists."
             exit 0
           fi
+          # The tag must still point at the commit this run built and published.
+          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "$GITHUB_SHA"
           version="${GITHUB_REF_NAME#driggsby-v}"
-          previous="$(git describe --tags --abbrev=0 --match 'driggsby-v*' "${GITHUB_REF_NAME}^")"
+          # The changes start at the previous tag that became a release, so a
+          # tag whose publish failed never hides its changes from the notes.
+          previous=""
+          for tag in $(git tag --merged "${GITHUB_SHA}^" -l 'driggsby-v*' --sort=-v:refname); do
+            if gh release view "$tag" > /dev/null 2>&1; then
+              previous="$tag"
+              break
+            fi
+          done
+          latest=false
+          if [[ "$(git tag -l 'driggsby-v*' --sort=-v:refname | head -n 1)" == "$GITHUB_REF_NAME" ]]; then
+            latest=true
+          fi
           notes="Published to npm: [driggsby@${version}](https://www.npmjs.com/package/driggsby/v/${version}), [@driggsby/deploy@${version}](https://www.npmjs.com/package/@driggsby/deploy/v/${version}), [@driggsby/sdk@${version}](https://www.npmjs.com/package/@driggsby/sdk/v/${version})."
+          start_args=()
+          if [[ -n "$previous" ]]; then
+            start_args=(--notes-start-tag "$previous")
+          fi
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
-            --notes "$notes" --generate-notes --notes-start-tag "$previous" --latest
+            --notes "${notes}"$'\n' --generate-notes "${start_args[@]}" --latest="$latest"

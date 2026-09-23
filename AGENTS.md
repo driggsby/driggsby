@@ -309,7 +309,12 @@ verifies on all three OSes, validates the packed npm package surface, and
 publishes `@driggsby/deploy`, then `@driggsby/sdk`, then `driggsby` with
 `--provenance` through the `npm-publish` environment, skipping any package
 whose exact version is already on the registry so a partially-failed
-release can be re-run.
+release can be re-run. Once npm serves all three packages, it creates the
+tag's GitHub Release (links to the three npm packages plus the generated
+change list since the previous release), marked Latest only when it is the
+newest release tag. npm takes a few minutes to serve a fresh publish; a
+re-run inside that window is refused with "Cannot publish over previously
+staged version". Wait and re-run; never treat that refusal as published.
 
 The npm trusted publisher must match the public repository, release workflow
 file, and `npm-publish` environment, and is configured per package on
