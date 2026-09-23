@@ -212,15 +212,21 @@ jobs:
             echo "The GitHub Release for ${GITHUB_REF_NAME} already exists."
             exit 0
           fi
-          # The tag must still point at the commit this run built and
-          # published: read it from GitHub again, not the job-start copy.
-          git fetch --quiet --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          test "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" = "$GITHUB_SHA"
+          # Read the tags from GitHub again, not the job-start copy: this tag
+          # must still point at the commit this run built and published, and
+          # a newer tag pushed during the wait must count for Latest.
+          git fetch --quiet --force --tags origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          if [[ "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" != "$GITHUB_SHA" ]]; then
+            echo "${GITHUB_REF_NAME} no longer points at the commit this run published; not creating the release." >&2
+            exit 1
+          fi
           version="${GITHUB_REF_NAME#driggsby-v}"
+          merged_tags="$(git tag --merged "${GITHUB_SHA}^" -l 'driggsby-v*' --sort=-v:refname)"
+          all_tags="$(git tag -l 'driggsby-v*' --sort=-v:refname)"
           # The changes start at the previous tag that became a release, so a
           # tag whose publish failed never hides its changes from the notes.
           previous=""
-          for tag in $(git tag --merged "${GITHUB_SHA}^" -l 'driggsby-v*' --sort=-v:refname); do
+          for tag in $merged_tags; do
             if grep -qxF "$tag" <<<"$releases"; then
               previous="$tag"
               break
@@ -229,7 +235,7 @@ jobs:
           # Latest unless a newer tag already has a release: a stray tag (a
           # typo, a release that failed) never takes the badge.
           latest=true
-          for tag in $(git tag -l 'driggsby-v*' --sort=-v:refname); do
+          for tag in $all_tags; do
             if [[ "$tag" == "$GITHUB_REF_NAME" ]]; then
               break
             fi

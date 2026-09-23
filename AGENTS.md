@@ -315,9 +315,10 @@ the tag. Once npm serves all three packages, built from the tagged commit,
 it creates the tag's GitHub Release (links to the three npm packages plus
 the generated change list since the previous release), marked Latest unless
 a newer tag already has a release. npm takes a few minutes to serve a fresh
-publish; a re-run inside that window is refused with "Cannot publish over
-previously staged version". Wait and re-run; never treat that refusal as
-published.
+publish; a re-run inside that window can be refused with "Cannot publish
+over previously staged version". Wait and re-run; never treat that refusal
+as published. If the GitHub Release job gives up after 20 minutes of
+waiting for npm, re-run it once npm serves all three packages.
 
 The npm trusted publisher must match the public repository, release workflow
 file, and `npm-publish` environment, and is configured per package on
