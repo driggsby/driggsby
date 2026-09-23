@@ -128,10 +128,14 @@ jobs:
       # exist on the registry before the CLI that requires it does. Each
       # publish is skipped when that exact version is already on the
       # registry, so a re-run of a release that failed between publishes
-      # completes instead of dying on the version conflict. Note: npm trusted
-      # publishing is configured per package on npmjs.com, so each package
-      # needs its trusted publisher set up there before the first release
-      # that includes it.
+      # completes instead of dying on the version conflict. npm takes a few
+      # minutes to make a fresh publish visible, so a re-run inside that
+      # window can miss it on the check and then be refused with "Cannot
+      # publish over previously published/staged version"; that refusal only
+      # ever means this exact version already went out, so it counts as done.
+      # Note: npm trusted publishing is configured per package on npmjs.com,
+      # so each package needs its trusted publisher set up there before the
+      # first release that includes it.
       - name: Publish npm packages
         shell: bash
         run: |
@@ -141,5 +145,44 @@ jobs:
               echo "${package}@${version} is already on the registry; skipping its publish."
               continue
             fi
-            npm publish --workspace "$package" --access public --provenance --ignore-scripts
+            if ! output="$(npm publish --workspace "$package" --access public --provenance --ignore-scripts 2>&1)"; then
+              echo "$output"
+              if grep -q "Cannot publish over previously" <<< "$output"; then
+                echo "${package}@${version} was already published and npm is still processing it; treating it as done."
+                continue
+              fi
+              exit 1
+            fi
+            echo "$output"
           done
+
+  # The release's public record on GitHub: which npm packages went out and
+  # what changed since the previous release. It runs only after every
+  # package published, so it never announces a version npm doesn't have,
+  # and a re-run finds the release already there and stops.
+  github-release:
+    needs:
+      - publish-npm
+    runs-on: "ubuntu-22.04"
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "The GitHub Release for ${GITHUB_REF_NAME} already exists."
+            exit 0
+          fi
+          version="${GITHUB_REF_NAME#driggsby-v}"
+          previous="$(git describe --tags --abbrev=0 --match 'driggsby-v*' "${GITHUB_REF_NAME}^")"
+          notes="Published to npm: [driggsby@${version}](https://www.npmjs.com/package/driggsby/v/${version}), [@driggsby/deploy@${version}](https://www.npmjs.com/package/@driggsby/deploy/v/${version}), [@driggsby/sdk@${version}](https://www.npmjs.com/package/@driggsby/sdk/v/${version})."
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes "$notes" --generate-notes --notes-start-tag "$previous" --latest
