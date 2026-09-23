@@ -115,6 +115,18 @@ Dotfiles, symlinks, and node_modules never upload, and the folder must stay
 within 52.4 MB across at most 2,000 files (26.2 MB per file) — the same
 figures the CLI quotes when a deploy is over a limit.
 
+## Transaction rules
+
+`npx driggsby@latest rules` reads and changes your transaction rules — your
+standing corrections to how Driggsby reads your transactions: a category, a
+counterparty's name, or tags on a set of transactions. `rules describe`
+prints the rule format and the process. `rules preview` shows exactly what a
+new or changed rule would do and returns the confirm token `rules save`
+needs to apply it; renaming, pausing, or resuming a rule needs its
+`rule_ref` and no preview. `rules delete` needs `--yes`. Every action prints JSON. If you
+signed in with an earlier version of the CLI, run
+`npx driggsby@latest login` once more to use rules.
+
 ## Tools
 
 Includes tools like:

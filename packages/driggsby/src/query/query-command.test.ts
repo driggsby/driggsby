@@ -162,3 +162,16 @@ test("a refusal made only of invisible code points falls back to the generic mes
     await fake.close();
   }
 });
+
+test("bank text with hidden or direction-changing characters prints escaped, as the same JSON", async () => {
+  const result = { transactions: [{ merchant_name: "Coffee\u202eeerht\u200b\u009b31m" }] };
+  const fake = await startFakeMcp((body) => successEnvelope(body, result));
+  try {
+    const io = capturedOut();
+    await runQuery({ tool: "search_cash_transactions", params: {} }, await makeEnvironment(fake.baseUrl), io);
+    assert.ok(!/[\u007f-\u009f]|\p{Default_Ignorable_Code_Point}/u.test(io.text()));
+    assert.deepEqual(JSON.parse(io.text()), result);
+  } finally {
+    await fake.close();
+  }
+});

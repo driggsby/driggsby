@@ -11,6 +11,7 @@ Commands:
   versions  List your deployed app's versions.
   delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
+  rules     Create, change, and delete your transaction rules.
 
 Options:
   -h, --help     Print help
@@ -26,3 +27,4 @@ Examples:
   npx driggsby@latest dev
   npx driggsby@latest deploy
   npx driggsby@latest query get_overview
+  npx driggsby@latest rules describe

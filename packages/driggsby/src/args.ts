@@ -4,13 +4,15 @@
 // you mean" tips (via the ported Jaro similarity in clap-suggestions.ts),
 // "--" end-of-options, and short-flag cluster dispatch. Newer commands
 // (login, logout) keep the same behavior and exit codes without chasing
-// clap's byte-level quirks.
+// clap's byte-level quirks. One deliberate difference: a misplaced flag's
+// cross-level tip names only the subcommand actually typed.
 import { parseDeploy, parseRollback, parseVersions } from "./args-deploy.ts";
 import { parseDev } from "./args-dev.ts";
 import { parseDelete } from "./args-delete.ts";
 import { parseInit } from "./args-init.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
+import { parseRules } from "./args-rules.ts";
 import {
   type ParsedCommand,
   removeDashesTip,
@@ -47,7 +49,7 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query"],
+  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "rules"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
@@ -60,6 +62,7 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "versions", longFlags: ["help"] },
     { name: "delete", longFlags: ["yes", "help"] },
     { name: "query", longFlags: ["sql", "params", "help"] },
+    { name: "rules", longFlags: ["params", "params-file", "yes", "help"] },
   ],
   usagePrefix: "npx driggsby@latest",
   hasVersion: true,
@@ -137,6 +140,8 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseVersions(rest);
     case "query":
       return parseQuery(rest);
+    case "rules":
+      return parseRules(rest);
     case "setup":
       return parseMcpSetup(rest);
     default:
@@ -214,21 +219,24 @@ function unknownLongFlagAtLevel(
   }
   // clap's cross-level fallback: when a LATER argv token names one of this
   // level's subcommands and that subcommand has a similar flag, point the
-  // user at the flag's real home ("tip: 'setup --print' exists").
-  for (const subcommand of level.subcommandFlags) {
-    if (!remainingArgs.includes(subcommand.name)) {
-      continue;
-    }
-    const subcommandSimilar = didYouMean(flagName, subcommand.longFlags);
-    if (subcommandSimilar !== undefined) {
-      return unexpectedArgument(
-        shown,
-        level.usage,
-        `  tip: '${subcommand.name} --${subcommandSimilar}' exists`,
-      );
-    }
+  // user at the flag's real home ("tip: 'setup --print' exists"). The home
+  // is only ever the first subcommand actually typed (a flag's value never
+  // counts), so `--yes rules delete` is never pointed at the app-deleting
+  // `delete --yes`.
+  const typed = firstTypedSubcommand(level, remainingArgs);
+  const subcommand = level.subcommandFlags.find((entry) => entry.name === typed);
+  const subcommandSimilar = subcommand === undefined ? undefined : didYouMean(flagName, subcommand.longFlags);
+  if (subcommand !== undefined && subcommandSimilar !== undefined) {
+    return unexpectedArgument(shown, level.usage, `  tip: '${subcommand.name} --${subcommandSimilar}' exists`);
   }
   return unexpectedArgument(shown, level.usage);
+}
+
+// Flags anywhere in the tree whose next token is their value, not a word.
+const VALUE_FLAGS: ReadonlySet<string> = new Set(["--params", "--params-file", "--sql", "--to", "-s", "--scope"]);
+
+function firstTypedSubcommand(level: CommandLevel, args: readonly string[]): string | undefined {
+  return args.find((argument, index) => level.subcommands.includes(argument) && !VALUE_FLAGS.has(args[index - 1] ?? ""));
 }
 
 function unrecognizedSubcommand(level: CommandLevel, subcommand: string): CliError {

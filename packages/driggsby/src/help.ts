@@ -22,6 +22,7 @@ Commands:
   versions  List your deployed app's versions.
   delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
+  rules     Create, change, and delete your transaction rules.
 
 Options:
   -h, --help     Print help
@@ -37,6 +38,7 @@ Examples:
   npx driggsby@latest dev
   npx driggsby@latest deploy
   npx driggsby@latest query get_overview
+  npx driggsby@latest rules describe
 `;
 
 export const INIT_HELP = `Create a new Driggsby app in a new folder.
@@ -61,9 +63,9 @@ Options:
 export const LOGIN_HELP = `Sign in to Driggsby and save an app token on this machine.
 
 This opens a Driggsby approval page in your browser. Approving it issues an
-app token that lets this machine read your Driggsby data and deploy Driggsby
-apps. The token is saved locally for other driggsby commands and is never
-printed.
+app token that lets this machine read your Driggsby data, deploy Driggsby
+apps, and manage your transaction rules. The token is saved locally for
+other driggsby commands and is never printed.
 
 Usage: npx driggsby@latest login
 
@@ -192,6 +194,46 @@ Examples:
   npx driggsby@latest query get_overview
   npx driggsby@latest query list_recurring_transactions
   npx driggsby@latest query query_cash_sql --sql "SELECT 1"
+`;
+
+export const RULES_HELP = `Create, change, and delete your transaction rules.
+
+A transaction rule is your standing correction to how Driggsby reads your
+transactions: a category, a counterparty's name, or tags on a set of
+transactions. Each action runs one Driggsby rule tool and prints its result
+as JSON; the JSON goes to stdout and nothing else does. Start with describe:
+it prints the rule format, the process, and worked examples.
+
+Sign in first with npx driggsby@latest login.
+
+Usage: npx driggsby@latest rules <ACTION> [--params <JSON>] [--yes]
+
+Actions:
+  describe  Print the rule format, the process, and examples.
+  list      List your rules. With {"rule_ref":"..."}, one rule in full.
+  tags      List your transaction tags.
+  preview   Show exactly what a rule would change. Saves nothing; returns
+            the confirm_token that save needs.
+  save      Create or change a rule with a preview's confirm_token, or
+            rename, pause, or resume one by rule_ref.
+  delete    Delete a rule by rule_ref. There is no undo; needs --yes.
+
+Options:
+      --params <JSON>       The action's params as a JSON object, like
+                            '{"rule_ref":"rule_..."}'.
+      --params-file <PATH>  Read the params object from a JSON file instead.
+      --yes                 Confirm a delete.
+  -h, --help                Print help
+
+If Driggsby refuses a change with details to act on (a question to answer,
+an overlapping rule), stdout carries those details as JSON. Any failure puts
+its message on stderr and exits 1.
+
+Examples:
+  npx driggsby@latest rules describe
+  npx driggsby@latest rules list
+  npx driggsby@latest rules tags
+  npx driggsby@latest rules save --params-file answers.json
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.

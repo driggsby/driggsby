@@ -76,7 +76,7 @@ const CREATED_BODY = {
   expires_in: 600,
 };
 
-test("createClaimRequest sends the deploy-scope claim and parses the response", async () => {
+test("createClaimRequest sends the CLI-scope claim and parses the response", async () => {
   const server = await startFakeServer();
   server.respondWith(201, CREATED_BODY);
 
@@ -93,7 +93,7 @@ test("createClaimRequest sends the deploy-scope claim and parses the response", 
   assert.equal(request.method, "POST");
   assert.equal(request.url, "/app-tokens/claim-requests");
   assert.ok(request.contentType.startsWith("application/json"));
-  assert.deepEqual(request.body, { app_name: "Driggsby CLI", scope: "driggsby.app_deploy" });
+  assert.deepEqual(request.body, { app_name: "Driggsby CLI", scope: "driggsby.cli" });
 });
 
 test("createClaimRequest surfaces the server's error_description verbatim", async () => {

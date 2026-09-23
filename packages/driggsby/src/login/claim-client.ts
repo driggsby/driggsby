@@ -6,7 +6,8 @@
 import { CliError } from "../cli-error.ts";
 import { sanitizeForTerminal } from "../terminal-text.ts";
 
-const CLAIM_SCOPE = "driggsby.app_deploy";
+// The CLI's own sign-in: read, deploy, and the transaction-rule tools.
+const CLAIM_SCOPE = "driggsby.cli";
 const CLAIM_APP_NAME = "Driggsby CLI";
 const REQUEST_TIMEOUT_MS = 15_000;
 // The server names its own claim lifetime; this cap keeps a buggy or hostile
