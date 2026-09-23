@@ -127,8 +127,18 @@ jobs:
       # @driggsby/sdk at the exact lockstep version, so each dependency must
       # exist on the registry before the CLI that requires it does. Each
       # publish is skipped when that exact version is already on the
-      # registry, so a re-run of a release that failed between publishes
-      # completes instead of dying on the version conflict. Note: npm trusted
+      # registry from this tag's commit (npm records it as gitHead), so a
+      # re-run of a release that failed between publishes completes instead
+      # of dying on the version conflict. A version already published from
+      # any other commit (a re-pushed tag, a manual publish) fails the
+      # release instead: skipping it would mix commits across packages that
+      # pin each other exactly. Bump the version. npm takes a few
+      # minutes to serve a fresh publish, so a re-run inside that window can
+      # miss it here and be refused with "Cannot publish over previously
+      # staged version". That refusal is deliberately NOT treated as done:
+      # npm uses it for versions that never went live (a held stage, an npm
+      # bug), and publishing the CLI on top of one would ship an exact pin
+      # nobody can install. Wait a few minutes and re-run. Note: npm trusted
       # publishing is configured per package on npmjs.com, so each package
       # needs its trusted publisher set up there before the first release
       # that includes it.
@@ -138,8 +148,106 @@ jobs:
           version="${GITHUB_REF_NAME#driggsby-v}"
           for package in "@driggsby/deploy" "@driggsby/sdk" "driggsby"; do
             if npm view "${package}@${version}" version > /dev/null 2>&1; then
-              echo "${package}@${version} is already on the registry; skipping its publish."
+              published_from="$(npm view "${package}@${version}" gitHead)"
+              if [[ "$published_from" != "$GITHUB_SHA" ]]; then
+                echo "${package}@${version} is already on the registry, built from a different commit; release a new version instead." >&2
+                exit 1
+              fi
+              echo "${package}@${version} is already on the registry from this commit; skipping its publish."
               continue
             fi
             npm publish --workspace "$package" --access public --provenance --ignore-scripts
           done
+
+  # The release's public record on GitHub: the npm packages it published and
+  # the changes since the previous shipped release. It runs only after every
+  # package published, waits until npm's registry serves all three (npm
+  # takes a few minutes to process a publish), and fails rather than
+  # announce a version nobody can install or one npm built from a different
+  # commit. It is marked Latest unless a newer tag already has a release,
+  # and a re-run finds the release already there and stops.
+  github-release:
+    needs:
+      - publish-npm
+    runs-on: "ubuntu-22.04"
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Wait until npm serves every package
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#driggsby-v}"
+          deadline=$((SECONDS + 1200))
+          for package in "@driggsby/deploy" "@driggsby/sdk" "driggsby"; do
+            url="https://registry.npmjs.org/${package/\//%2f}/${version}"
+            until body="$(curl -fsS --max-time 20 "$url")"; do
+              if (( SECONDS >= deadline )); then
+                echo "${package}@${version} is still not served by npm after 20 minutes; not announcing the release." >&2
+                exit 1
+              fi
+              sleep 30
+            done
+            published_from="$(jq -r '.gitHead // ""' <<<"$body")"
+            if [[ "$published_from" != "$GITHUB_SHA" ]]; then
+              echo "${package}@${version} on npm was built from a different commit; not announcing the release." >&2
+              exit 1
+            fi
+            echo "${package}@${version} is live on npm, built from this commit."
+          done
+      - name: Create the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Every published release's tag, in one call: an API error fails the
+          # job rather than skip a release or pick the wrong previous one.
+          releases="$(gh release list --exclude-drafts --limit 1000 --json tagName --jq '.[].tagName')"
+          if grep -qxF "$GITHUB_REF_NAME" <<<"$releases"; then
+            echo "The GitHub Release for ${GITHUB_REF_NAME} already exists."
+            exit 0
+          fi
+          # Read the tags from GitHub again, not the job-start copy: this tag
+          # must still point at the commit this run built and published, and
+          # a newer tag pushed during the wait must count for Latest.
+          git fetch --quiet --force --tags origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          if [[ "$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")" != "$GITHUB_SHA" ]]; then
+            echo "${GITHUB_REF_NAME} no longer points at the commit this run published; not creating the release." >&2
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#driggsby-v}"
+          merged_tags="$(git tag --merged "${GITHUB_SHA}^" -l 'driggsby-v*' --sort=-v:refname)"
+          all_tags="$(git tag -l 'driggsby-v*' --sort=-v:refname)"
+          # The changes start at the previous tag that became a release, so a
+          # tag whose publish failed never hides its changes from the notes.
+          previous=""
+          for tag in $merged_tags; do
+            if grep -qxF "$tag" <<<"$releases"; then
+              previous="$tag"
+              break
+            fi
+          done
+          # Latest unless a newer tag already has a release: a stray tag (a
+          # typo, a release that failed) never takes the badge.
+          latest=true
+          for tag in $all_tags; do
+            if [[ "$tag" == "$GITHUB_REF_NAME" ]]; then
+              break
+            fi
+            if grep -qxF "$tag" <<<"$releases"; then
+              latest=false
+              break
+            fi
+          done
+          notes="Published to npm: [driggsby@${version}](https://www.npmjs.com/package/driggsby/v/${version}), [@driggsby/deploy@${version}](https://www.npmjs.com/package/@driggsby/deploy/v/${version}), [@driggsby/sdk@${version}](https://www.npmjs.com/package/@driggsby/sdk/v/${version})."
+          start_args=()
+          if [[ -n "$previous" ]]; then
+            start_args=(--notes-start-tag "$previous")
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes "${notes}"$'\n' --generate-notes "${start_args[@]}" --latest="$latest"
