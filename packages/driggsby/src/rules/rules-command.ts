@@ -8,12 +8,16 @@ import { apiBaseUrl } from "../api/base-url.ts";
 import { CliError } from "../cli-error.ts";
 import { type CredentialEnvironment, defaultCredentialEnvironment } from "../credentials/store.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
+import { terminalSafeJson } from "../terminal-text.ts";
 import { RULE_ACTION_TOOLS, RULE_ACTIONS, type RuleAction, type RuleToolAction } from "./rule-actions.ts";
-import { callRuleTool, listRuleTools, type RuleToolDescription, terminalSafeJson } from "./rules-rpc.ts";
+import { callRuleTool, listRuleTools, type RuleToolDescription } from "./rules-rpc.ts";
 
 export interface RulesCommandOptions {
   action: RuleAction;
   params: Record<string, unknown>;
+  // The delete confirmation. The parser already requires it; runRules
+  // checks it again so the guarantee doesn't hang on one distant caller.
+  yes?: boolean;
 }
 
 export interface RulesCommandIo {
@@ -38,6 +42,9 @@ export async function runRules(
   io: RulesCommandIo = defaultRulesIo(),
 ): Promise<number> {
   const { action, params } = options;
+  if (action === "delete" && options.yes !== true) {
+    throw new CliError("Deleting a rule can't be undone, so it needs --yes.", 2);
+  }
   const baseUrl = apiBaseUrl(environment.env);
   const retryCommand = retryCommandFor(options);
   try {
@@ -61,8 +68,6 @@ export async function runRules(
   }
 }
 
-// What describe prints: the tools' own descriptions, plus the CLI command
-// that runs each tool the descriptions name.
 // Each action's flags, keyed by action so a new action can't be left out.
 const ACTION_FLAGS: Record<RuleToolAction, string> = {
   list: " [--params <JSON>]",
@@ -72,6 +77,8 @@ const ACTION_FLAGS: Record<RuleToolAction, string> = {
   delete: " --params <JSON> --yes",
 };
 
+// What describe prints: the tools' own descriptions, plus the CLI command
+// that runs each tool the descriptions name.
 export function describePayload(tools: RuleToolDescription[]): Record<string, unknown> {
   const howToRun: Record<string, string> = {};
   for (const action of RULE_ACTIONS) {

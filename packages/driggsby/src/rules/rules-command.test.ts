@@ -9,6 +9,8 @@ import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
 import { RULES_REASON, runRules } from "./rules-command.ts";
 import { RULES_NOT_AVAILABLE_MESSAGE } from "./rules-rpc.ts";
 import { GENERIC_TOOL_TROUBLE } from "../dev/dev-servers.ts";
+import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
+import { RULE_ACTION_TOOLS } from "./rule-actions.ts";
 
 function sentArguments(fake: { requests: { body: unknown }[] }): Record<string, unknown> {
   const body = fake.requests[0]?.body as Record<string, unknown>;
@@ -239,7 +241,7 @@ test("a refused connection names the command to repeat, never the params", async
   await closeServer(closed);
   const unreachable = await makeEnvironment(url);
   await assert.rejects(
-    runRules({ action: "delete", params: { rule_ref: "rule_secret_1" } }, unreachable, capturedOut()),
+    runRules({ action: "delete", params: { rule_ref: "rule_secret_1" }, yes: true }, unreachable, capturedOut()),
     (error: unknown) => {
       assert.ok(error instanceof CliError);
       assert.ok(error.message.includes("  npx driggsby@latest rules delete --yes\n  with the same params as before"));
@@ -251,4 +253,26 @@ test("a refused connection names the command to repeat, never the params", async
     runRules({ action: "tags", params: {} }, unreachable, capturedOut()),
     (error: unknown) => error instanceof CliError && error.message.endsWith("  npx driggsby@latest rules tags"),
   );
+});
+
+test("a delete without --yes is refused before anything is sent, whoever calls runRules", async () => {
+  const fake = await startFakeMcp((body) => successEnvelope(body, { deleted: true }));
+  try {
+    await assert.rejects(
+      runRules({ action: "delete", params: { rule_ref: "rule_1" } }, await makeEnvironment(fake.baseUrl), capturedOut()),
+      (error: unknown) => error instanceof CliError && error.exitCode === 2 && error.message.includes("--yes"),
+    );
+    assert.equal(fake.requests.length, 0);
+  } finally {
+    await fake.close();
+  }
+});
+
+test("the dev preview's allowlist never includes a rule tool", () => {
+  // A CLI sign-in can call the rule tools; the local preview runs untrusted
+  // app code on the same sign-in, so its read-only allowlist must stay the
+  // only list it serves.
+  for (const tool of Object.values(RULE_ACTION_TOOLS)) {
+    assert.ok(!APP_TOOL_ALLOWLIST.has(tool), tool);
+  }
 });

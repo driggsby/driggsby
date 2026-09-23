@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { interpretToolCall, terminalSafeJson } from "./rules-rpc.ts";
+import { terminalSafeJson } from "../terminal-text.ts";
+import { interpretToolCall } from "./rules-rpc.ts";
 
 test("terminalSafeJson escapes C1 controls, bidi overrides, and invisible code points, and stays valid JSON", () => {
   const value = { name: "Rent\u009b31m\u202eevil\u2066x\u200by\u{e0041}z" };
@@ -27,4 +28,9 @@ test("a success is the structured content", () => {
     kind: "ok",
     result: { rules: [] },
   });
+});
+
+test("a message cut at the cap says so", () => {
+  const outcome = interpretToolCall({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "x".repeat(5_000) } });
+  assert.ok(outcome.kind === "error" && outcome.message.length === 1_000 && outcome.message.endsWith("…"));
 });

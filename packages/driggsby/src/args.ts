@@ -4,7 +4,8 @@
 // you mean" tips (via the ported Jaro similarity in clap-suggestions.ts),
 // "--" end-of-options, and short-flag cluster dispatch. Newer commands
 // (login, logout) keep the same behavior and exit codes without chasing
-// clap's byte-level quirks.
+// clap's byte-level quirks. One deliberate difference: a misplaced flag's
+// cross-level tip names only the subcommand actually typed.
 import { parseDeploy, parseRollback, parseVersions } from "./args-deploy.ts";
 import { parseDev } from "./args-dev.ts";
 import { parseDelete } from "./args-delete.ts";
@@ -218,17 +219,24 @@ function unknownLongFlagAtLevel(
   }
   // clap's cross-level fallback: when a LATER argv token names one of this
   // level's subcommands and that subcommand has a similar flag, point the
-  // user at the flag's real home ("tip: 'setup --print' exists"). Unlike
-  // clap, which walks its subcommand list in declaration order, the home is
-  // the first subcommand actually typed: `--yes rules delete` must never be
-  // pointed at the app-deleting `delete --yes`.
-  const typed = remainingArgs.find((argument) => level.subcommands.includes(argument));
+  // user at the flag's real home ("tip: 'setup --print' exists"). The home
+  // is only ever the first subcommand actually typed (a flag's value never
+  // counts), so `--yes rules delete` is never pointed at the app-deleting
+  // `delete --yes`.
+  const typed = firstTypedSubcommand(level, remainingArgs);
   const subcommand = level.subcommandFlags.find((entry) => entry.name === typed);
   const subcommandSimilar = subcommand === undefined ? undefined : didYouMean(flagName, subcommand.longFlags);
   if (subcommand !== undefined && subcommandSimilar !== undefined) {
     return unexpectedArgument(shown, level.usage, `  tip: '${subcommand.name} --${subcommandSimilar}' exists`);
   }
   return unexpectedArgument(shown, level.usage);
+}
+
+// Flags anywhere in the tree whose next token is their value, not a word.
+const VALUE_FLAGS: ReadonlySet<string> = new Set(["--params", "--params-file", "--sql", "--to", "-s", "--scope"]);
+
+function firstTypedSubcommand(level: CommandLevel, args: readonly string[]): string | undefined {
+  return args.find((argument, index) => level.subcommands.includes(argument) && !VALUE_FLAGS.has(args[index - 1] ?? ""));
 }
 
 function unrecognizedSubcommand(level: CommandLevel, subcommand: string): CliError {

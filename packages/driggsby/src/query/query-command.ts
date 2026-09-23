@@ -13,7 +13,7 @@ import { McpBroker } from "../dev/mcp-broker.ts";
 import { SQL_TOOLS } from "../args-query.ts";
 import { APP_TOOL_ALLOWLIST } from "../dev/tool-allowlist.ts";
 import { deployFailure, requireDeploySession, SIGN_IN_AGAIN_MESSAGE } from "../deploy/api-session.ts";
-import { quotedForTerminal, wrapProse } from "../terminal-text.ts";
+import { quotedForTerminal, terminalSafeJson, wrapProse } from "../terminal-text.ts";
 
 export interface QueryCommandOptions {
   tool: string;
@@ -71,7 +71,7 @@ export async function runQuery(
         : wrapProse(outcome.error.message);
       throw new CliError(message, 1);
     }
-    io.out(`${JSON.stringify(outcome.result, null, 2)}\n`);
+    io.out(`${terminalSafeJson(outcome.result)}\n`);
     return 0;
   } catch (error) {
     throw deployFailure(error, baseUrl, retryCommand);

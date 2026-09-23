@@ -4,7 +4,7 @@
 // too quote-heavy for a shell line. Usage errors exit 2; echoed argv is
 // sanitized by the shared builders. Help, the action, and the flag rules
 // are all checked before any params are parsed or any file is read.
-import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
 
 import { helpCommand, type ParsedCommand, unexpectedArgument, unexpectedFlagValue } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
@@ -81,7 +81,7 @@ export function parseRules(argv: string[]): ParsedCommand {
   if (action !== "delete" && yes) {
     throw usageError("error: '--yes' only applies to rules delete");
   }
-  return { kind: "rules", action, params: source === null ? {} : resolveParams(source) };
+  return { kind: "rules", action, params: source === null ? {} : resolveParams(source), yes };
 }
 
 // "--params", "--params=…", "--params-file", "--params-file=…" → the flag.
@@ -124,7 +124,8 @@ function parseParamsObject(rawValue: string, flag: string, hint: string): Record
 // back. The read is bounded by bytes actually read, not by the size stat
 // reports (pseudo-files report 0, and a file can grow between stat and
 // read). Special files are refused before they are opened, since opening a
-// FIFO blocks.
+// FIFO blocks; on POSIX the open is also non-blocking, so a FIFO swapped in
+// after the check is refused by the fstat instead of hanging.
 function readParamsFile(path: string): string {
   let bytes: Buffer;
   try {
@@ -144,7 +145,7 @@ function readParamsFile(path: string): string {
 class ParamsFileProblem extends Error {}
 
 function readAtMost(path: string, limit: number): Buffer {
-  const descriptor = openSync(path, "r");
+  const descriptor = openSync(path, process.platform === "win32" ? "r" : constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     if (!fstatSync(descriptor).isFile()) {
       throw new ParamsFileProblem("the path isn't a regular file");

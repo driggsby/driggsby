@@ -26,7 +26,7 @@ async function withDirectory(run: (directory: string) => Promise<void>): Promise
 }
 
 test("rules list parses with empty params", () => {
-  assert.deepEqual(parseArgv(["rules", "list"]), { kind: "rules", action: "list", params: {} });
+  assert.deepEqual(parseArgv(["rules", "list"]), { kind: "rules", action: "list", params: {}, yes: false });
 });
 
 test("--params is the tool's arguments object, in both spellings", () => {
@@ -34,11 +34,13 @@ test("--params is the tool's arguments object, in both spellings", () => {
     kind: "rules",
     action: "preview",
     params: { rule: { version: 1 } },
+    yes: false,
   });
   assert.deepEqual(parseArgv(["rules", "list", '--params={"rule_ref":"rule_1"}']), {
     kind: "rules",
     action: "list",
     params: { rule_ref: "rule_1" },
+    yes: false,
   });
 });
 
@@ -46,7 +48,7 @@ test("--params-file reads the params from a file, in both spellings", async () =
   await withDirectory(async (directory) => {
     const path = join(directory, "save.json");
     await writeFile(path, '{"rule_ref":"rule_1","status":"paused"}');
-    const expected = { kind: "rules", action: "save", params: { rule_ref: "rule_1", status: "paused" } };
+    const expected = { kind: "rules", action: "save", params: { rule_ref: "rule_1", status: "paused" }, yes: false };
     assert.deepEqual(parseArgv(["rules", "save", "--params-file", path]), expected);
     assert.deepEqual(parseArgv(["rules", "save", `--params-file=${path}`]), expected);
   });
@@ -64,6 +66,7 @@ test("--params-file reads a file saved with a byte-order mark or as UTF-16", asy
         kind: "rules",
         action: "list",
         params: { rule_ref: "rule_1" },
+        yes: false,
       });
     }
   });
@@ -104,6 +107,7 @@ test("delete needs --yes, and --yes belongs to delete alone", () => {
     kind: "rules",
     action: "delete",
     params: { rule_ref: "rule_1" },
+    yes: true,
   });
   usageError(["rules", "list", "--yes"], /only applies to rules delete/);
 });
@@ -129,4 +133,17 @@ test("help wins wherever it appears", () => {
   assert.deepEqual(parseArgv(["rules", "list", "-h"]), help);
   assert.deepEqual(parseArgv(["rules", "lsit", "--help"]), help);
   assert.deepEqual(parseArgv(["rules", "save", "--params-file", "/no/such/file.json", "--help"]), help);
+});
+
+test("-- ends the options: a word after it is the action, a flag after it is an argument", () => {
+  assert.deepEqual(parseArgv(["rules", "--", "list"]), { kind: "rules", action: "list", params: {}, yes: false });
+  usageError(["rules", "list", "--", "--yes"], /unexpected argument '--yes'/);
+});
+
+test("a flag's value never becomes the tip's subcommand", () => {
+  assert.throws(
+    () => parseArgv(["--yes", "--params-file", "delete", "rules", "delete"]),
+    (error: unknown) =>
+      error instanceof CliError && error.message.includes("'rules --yes' exists") && !error.message.includes("'delete --yes'"),
+  );
 });

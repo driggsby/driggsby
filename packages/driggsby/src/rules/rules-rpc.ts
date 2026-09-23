@@ -5,7 +5,7 @@
 import { CliError } from "../cli-error.ts";
 import { type DeploySession, SIGN_IN_AGAIN_MESSAGE } from "../deploy/api-session.ts";
 import { GENERIC_TOOL_TROUBLE } from "../dev/dev-servers.ts";
-import { capForTerminal } from "../terminal-text.ts";
+import { capForTerminal, sanitizeForTerminal } from "../terminal-text.ts";
 import { RULE_ACTION_TOOLS } from "./rule-actions.ts";
 
 // A preview replays the person's posted history; give it longer than a
@@ -111,21 +111,6 @@ function firstText(content: unknown): unknown {
   return Array.isArray(content) ? asRecord(content[0] as unknown)?.text : undefined;
 }
 
-// JSON.stringify escapes C0 controls but passes C1 controls, bidi
-// overrides, and invisible code points through raw; server data is hostile
-// (a counterparty's name comes from a bank), so escape those too, the same
-// class sanitizeForTerminal strips from prose. They can only sit inside JSON
-// strings, so the output stays valid JSON that parses to the same value.
-// Each UTF-16 unit is escaped on its own, so an astral code point (a tag
-// character) becomes a valid surrogate-pair escape.
-const TERMINAL_UNSAFE_IN_JSON = /[\u007f-\u009f\u2028\u2029\ufff9-\ufffb]|\p{Default_Ignorable_Code_Point}/gu;
-
-export function terminalSafeJson(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2).replace(TERMINAL_UNSAFE_IN_JSON, (match) =>
-    Array.from({ length: match.length }, (_, index) => `\\u${match.charCodeAt(index).toString(16).padStart(4, "0")}`).join(""),
-  );
-}
-
 async function postMcp(session: DeploySession, body: Record<string, unknown>): Promise<unknown> {
   // Bare headers on purpose: the Driggsby endpoint refuses anything that
   // looks like a browser call (an Origin or Sec-Fetch-Site header), and
@@ -160,8 +145,11 @@ function serverMessage(value: unknown): string {
   if (typeof value !== "string") {
     return GENERIC_TOOL_TROUBLE;
   }
-  const clean = capForTerminal(value, MAX_SERVER_MESSAGE_CHARS).trim();
-  return clean === "" ? GENERIC_TOOL_TROUBLE : clean;
+  const clean = sanitizeForTerminal(value).trim();
+  if (clean === "") {
+    return GENERIC_TOOL_TROUBLE;
+  }
+  return clean.length > MAX_SERVER_MESSAGE_CHARS ? `${capForTerminal(clean, MAX_SERVER_MESSAGE_CHARS - 1)}…` : clean;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

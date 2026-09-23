@@ -225,8 +225,9 @@ Options:
       --yes                 Confirm a delete.
   -h, --help                Print help
 
-When Driggsby refuses a change, stdout carries the refusal's details as JSON
-and the exit code is 1.
+If Driggsby refuses a change with details to act on (a question to answer,
+an overlapping rule), stdout carries those details as JSON. Any failure puts
+its message on stderr and exits 1.
 
 Examples:
   npx driggsby@latest rules describe

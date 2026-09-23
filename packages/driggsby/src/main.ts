@@ -52,7 +52,7 @@ async function run(argv: string[]): Promise<number> {
     case "query":
       return await runQuery({ tool: command.tool, params: command.params });
     case "rules":
-      return await runRules({ action: command.action, params: command.params });
+      return await runRules({ action: command.action, params: command.params, yes: command.yes });
   }
 }
 
