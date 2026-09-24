@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +14,9 @@ import {
   devStatePath,
   type DevState,
   processIsAlive,
-  readLiveDevState,
+  pruneDevStatesForPorts,
+  readDevStates,
+  readLiveDevStates,
   removeDevState,
   writeDevState,
 } from "./dev-state.ts";
@@ -32,10 +34,10 @@ test("the state file round-trips, sits under ~/.driggsby, and is owner-only", as
   const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
   await writeDevState(home, sampleState(process.pid));
 
-  assert.equal(devStatePath(home), join(home, ".driggsby", "dev.json"));
-  assert.deepEqual(await readLiveDevState(home, servedBy(process.pid)), sampleState(process.pid));
+  assert.equal(devStatePath(home, process.pid), join(home, ".driggsby", `dev-${String(process.pid)}.json`));
+  assert.deepEqual(await readLiveDevStates(home, servedBy(process.pid)), [sampleState(process.pid)]);
   if (process.platform !== "win32") {
-    assert.equal((await stat(devStatePath(home))).mode & 0o777, 0o600);
+    assert.equal((await stat(devStatePath(home, process.pid))).mode & 0o777, 0o600);
   }
 });
 
@@ -43,37 +45,141 @@ test("a state file naming a dead process is stale: read as nothing and removed",
   const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
   await writeDevState(home, sampleState(4242));
 
-  assert.equal(await readLiveDevState(home, { isAlive: () => false, pidServing: () => Promise.resolve(4242) }), null);
-  await assert.rejects(readFile(devStatePath(home)));
+  assert.deepEqual(await readLiveDevStates(home, { isAlive: () => false, pidServing: () => Promise.resolve(4242) }), []);
+  await assert.rejects(readFile(devStatePath(home, 4242)));
 });
 
-test("a live pid whose port is not served by it reads as nothing, and the record survives", async () => {
+test("two previews keep two records, each read and removed on its own", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  const first = { ...sampleState(4242), folder: "/tmp/first", hostPort: 4111, appPort: 4112 };
+  const second = { ...sampleState(4343), folder: "/tmp/second", hostPort: 4113, appPort: 4114 };
+  await writeDevState(home, first);
+  await writeDevState(home, second);
+  const byPort: Record<number, number> = { 4111: 4242, 4113: 4343 };
+  const probes: DevProbes = {
+    isAlive: (pid) => pid === 4242 || pid === 4343,
+    pidServing: (port) => Promise.resolve(byPort[port] ?? null),
+  };
+
+  const both = await readLiveDevStates(home, probes);
+  assert.deepEqual(both.map((state) => state.folder).sort(), ["/tmp/first", "/tmp/second"]);
+
+  await removeDevState(home, 4242);
+  assert.deepEqual(await readLiveDevStates(home, probes), [second]);
+});
+
+test("a record whose port answers as a different dev is a leftover: removed", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  await writeDevState(home, sampleState(4242));
+  // The pid is alive (the OS reused it), but port 4111 now belongs to
+  // another dev, so this record's dev is not there.
+  const probes: DevProbes = { isAlive: () => true, pidServing: () => Promise.resolve(4343) };
+
+  assert.deepEqual(await readDevStates(home, probes), []);
+  await assert.rejects(readFile(devStatePath(home, 4242)));
+});
+
+test("a dev that has bound its ports clears other records naming them", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  await writeDevState(home, { ...sampleState(4242), hostPort: 4111, appPort: 4112 });
+  await writeDevState(home, { ...sampleState(4343), hostPort: 4113, appPort: 4114 });
+  await writeDevState(home, { ...sampleState(4444), hostPort: 4115, appPort: 4111 });
+  await writeFile(join(home, ".driggsby", "dev.json"), JSON.stringify({ ...sampleState(4545), hostPort: 4112, appPort: 4199 }));
+
+  await pruneDevStatesForPorts(home, 5000, 4111, 4112);
+
+  await assert.rejects(readFile(devStatePath(home, 4242)));
+  await assert.rejects(readFile(devStatePath(home, 4444)));
+  await assert.rejects(readFile(join(home, ".driggsby", "dev.json")));
+  assert.ok((await readFile(devStatePath(home, 4343), "utf8")).includes("4343"));
+});
+
+test("an entry named like a record that is not a regular file is skipped, never fatal", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  await writeDevState(home, sampleState(4343));
+  await mkdir(devStatePath(home, 4242));
+
+  assert.deepEqual(await readLiveDevStates(home, servedBy(4343)), [sampleState(4343)]);
+  assert.ok((await stat(devStatePath(home, 4242))).isDirectory());
+});
+
+test("a folder filter probes only that folder's records", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  await writeDevState(home, { ...sampleState(4242), folder: "/tmp/first", hostPort: 4111 });
+  await writeDevState(home, { ...sampleState(4343), folder: "/tmp/second", hostPort: 4113 });
+  const probed: number[] = [];
+  const probes: DevProbes = {
+    isAlive: () => true,
+    pidServing: (port) => {
+      probed.push(port);
+      return Promise.resolve(port === 4111 ? 4242 : 4343);
+    },
+  };
+
+  const reads = await readDevStates(home, probes, "/tmp/first");
+  assert.deepEqual(reads.map((read) => read.state.folder), ["/tmp/first"]);
+  assert.deepEqual(probed, [4111]);
+});
+
+test("a record an earlier version wrote to dev.json is still read and removed", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  await writeDevState(home, sampleState(4242));
+  const legacy = join(home, ".driggsby", "dev.json");
+  await writeFile(legacy, JSON.stringify(sampleState(4545)));
+  const probes: DevProbes = { isAlive: () => true, pidServing: (port) => Promise.resolve(port === 4111 ? 4545 : null) };
+
+  // Both records name port 4111 here, and it answers as the legacy pid, so
+  // the other record is a leftover and is removed.
+  assert.deepEqual(await readLiveDevStates(home, probes), [sampleState(4545)]);
+  await removeDevState(home, 4545);
+  await assert.rejects(readFile(legacy));
+});
+
+test("a record whose file name and pid disagree is not ours: read as nothing and removed", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  const mislabeled = devStatePath(home, 4242);
+  await writeDevState(home, sampleState(4343));
+  await writeFile(mislabeled, JSON.stringify(sampleState(4343)));
+
+  assert.deepEqual(await readLiveDevStates(home, servedBy(4343)), [sampleState(4343)]);
+  await assert.rejects(readFile(mislabeled));
+});
+
+test("a live pid whose port does not answer reads as not live, and the record survives", async () => {
   const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
   await writeDevState(home, sampleState(4242));
 
-  // Nothing answering may be a busy dev; something else answering is a
-  // recycled pid. Neither is ours to signal, and neither may erase the
-  // record of a dev that might still be running.
+  // Nothing answering may be a busy dev: not ours to signal, and its record
+  // must survive so it can still be stopped once it answers. (A port that
+  // answers as another dev is a leftover; see below.)
   const nobodyServing: DevProbes = { isAlive: () => true, pidServing: () => Promise.resolve(null) };
-  assert.equal(await readLiveDevState(home, nobodyServing), null);
-  const anotherPidServing: DevProbes = { isAlive: () => true, pidServing: () => Promise.resolve(9999) };
-  assert.equal(await readLiveDevState(home, anotherPidServing), null);
-  assert.deepEqual(await readLiveDevState(home, servedBy(4242)), sampleState(4242));
+  assert.deepEqual(await readLiveDevStates(home, nobodyServing), []);
+  assert.deepEqual(await readLiveDevStates(home, servedBy(4242)), [sampleState(4242)]);
 });
 
 test("a missing, malformed, or non-positive-pid state file reads as nothing", async () => {
   const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
-  assert.equal(await readLiveDevState(home, servedBy(process.pid)), null);
+  assert.deepEqual(await readLiveDevStates(home, servedBy(process.pid)), []);
 
   await writeDevState(home, sampleState(process.pid));
-  await writeFile(devStatePath(home), "{not json");
-  assert.equal(await readLiveDevState(home, servedBy(process.pid)), null);
+  await writeFile(devStatePath(home, process.pid), "{not json");
+  assert.deepEqual(await readLiveDevStates(home, servedBy(process.pid)), []);
+  await assert.rejects(readFile(devStatePath(home, process.pid)));
 
   // pid 0 and negatives name process groups to kill(2); never a dev.
   for (const pid of [0, -1]) {
-    await writeFile(devStatePath(home), JSON.stringify(sampleState(pid)));
-    assert.equal(await readLiveDevState(home, servedBy(pid)), null);
+    await writeFile(devStatePath(home, process.pid), JSON.stringify(sampleState(pid)));
+    assert.deepEqual(await readLiveDevStates(home, servedBy(pid)), []);
   }
+});
+
+test("a record with a relative folder is malformed: read as nothing and removed", async () => {
+  const home = await mkdtemp(join(tmpdir(), "driggsby-home-"));
+  await mkdir(join(home, ".driggsby"));
+  await writeFile(devStatePath(home, 4242), JSON.stringify({ ...sampleState(4242), folder: "." }), { mode: 0o600 });
+
+  assert.deepEqual(await readDevStates(home, servedBy(4242), process.cwd()), []);
+  await assert.rejects(readFile(devStatePath(home, 4242)));
 });
 
 test("removal is scoped to the pid that wrote the file", async () => {
@@ -81,10 +187,10 @@ test("removal is scoped to the pid that wrote the file", async () => {
   await writeDevState(home, sampleState(process.pid));
 
   await removeDevState(home, process.pid + 1);
-  assert.deepEqual(await readLiveDevState(home, servedBy(process.pid)), sampleState(process.pid));
+  assert.deepEqual(await readLiveDevStates(home, servedBy(process.pid)), [sampleState(process.pid)]);
 
   await removeDevState(home, process.pid);
-  assert.equal(await readLiveDevState(home, servedBy(process.pid)), null);
+  assert.deepEqual(await readLiveDevStates(home, servedBy(process.pid)), []);
 });
 
 test("the identity probe reads the pid a dev host answers with, and nothing else", async () => {

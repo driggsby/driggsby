@@ -20,13 +20,16 @@ import { tryOpenUrl } from "../login/open-url.ts";
 import { wrapProse } from "../terminal-text.ts";
 import { DEV_IDLE_MINUTES, DEV_START_COMMAND, DEV_STOP_COMMAND } from "./dev-commands.ts";
 import { startDevServers, type DevServers } from "./dev-servers.ts";
-import { readLiveDevState, removeDevState, writeDevState } from "./dev-state.ts";
-import { displayFolder } from "./display-folder.ts";
+import { pruneDevStatesForPorts, readDevStates, removeDevState, writeDevState } from "./dev-state.ts";
 import { McpBroker } from "./mcp-broker.ts";
 import { watchDirectory } from "./watcher.ts";
 
 export const DEV_HOST_PORT = 4111;
 export const DEV_APP_PORT = 4112;
+// Previews for other folders can already hold the default pair (a person
+// often runs several agents at once), so dev moves up two ports at a time,
+// 4111/4112, then 4113/4114, and so on, through this many pairs.
+export const DEV_PORT_PAIRS = 10;
 const DEV_IDLE_TIMEOUT_MS = DEV_IDLE_MINUTES * 60 * 1000;
 const DEV_IDLE_CHECK_MS = 15 * 1000;
 
@@ -39,12 +42,14 @@ export interface DevCommandIo {
 
 export interface DevCommandOptions {
   projectDirectory?: string;
-  // Tests bind ephemeral ports; the real command uses the fixed dev ports.
+  // Tests bind ephemeral ports; the real command starts at the default pair.
   hostPort?: number;
   appPort?: number;
   // Tests shorten the idle window; the real command uses the 30-minute one.
   idleTimeoutMs?: number;
   idleCheckMs?: number;
+  // Tests try fewer port pairs; the real command tries DEV_PORT_PAIRS.
+  portPairs?: number;
 }
 
 function defaultDevIo(): DevCommandIo {
@@ -90,22 +95,36 @@ export async function runDev(
     );
   }
   const session = await requireDeploySession(environment);
+  await refuseSecondPreview(environment.homeDirectory, projectDirectory);
   const sdkBundle = await loadSdkBundle();
   const broker = new McpBroker({ baseUrl: session.baseUrl, token: session.token });
 
-  let servers: DevServers;
-  try {
-    servers = await startDevServers({
-      slug: config.slug,
-      background: config.background,
-      serveDirectory: config.serveDirectory,
-      sdkBundle,
-      runToolCall: (tool, argumentsObject) => broker.runToolCall(tool, argumentsObject),
-      hostPort: options.hostPort ?? DEV_HOST_PORT,
-      appPort: options.appPort ?? DEV_APP_PORT,
-    });
-  } catch (error) {
-    throw await devStartFailure(error, baseUrl, environment.homeDirectory);
+  const hostPort = options.hostPort ?? DEV_HOST_PORT;
+  const appPort = options.appPort ?? DEV_APP_PORT;
+  const pairs = options.portPairs ?? DEV_PORT_PAIRS;
+  // Ephemeral ports (0, in tests) are never in use, so they never move.
+  const fixedPorts = hostPort !== 0 && appPort !== 0;
+  let servers: DevServers | null = null;
+  for (let pair = 0; servers === null; pair += 1) {
+    try {
+      servers = await startDevServers({
+        slug: config.slug,
+        background: config.background,
+        serveDirectory: config.serveDirectory,
+        sdkBundle,
+        runToolCall: (tool, argumentsObject) => broker.runToolCall(tool, argumentsObject),
+        hostPort: shiftedPort(hostPort, pair),
+        appPort: shiftedPort(appPort, pair),
+      });
+    } catch (error) {
+      // A pair already in use (another folder's preview, most often) moves
+      // the run to the next pair; startDevServers has released the port it
+      // did bind.
+      if (portUnavailable(error) && pair + 1 < pairs && fixedPorts) {
+        continue;
+      }
+      throw devStartFailure(error, baseUrl, { hostPort, appPort, pairs });
+    }
   }
 
   const stopWatching = watchDirectory(config.serveDirectory, () => {
@@ -147,6 +166,8 @@ export async function runDev(
 
 async function tryWriteDevState(homeDirectory: string, folder: string, servers: DevServers): Promise<boolean> {
   try {
+    // Records a dev left behind on these ports can't be live: they're ours now.
+    await pruneDevStatesForPorts(homeDirectory, process.pid, servers.hostPort, servers.appPort);
     await writeDevState(homeDirectory, {
       pid: process.pid,
       folder,
@@ -162,7 +183,7 @@ async function tryWriteDevState(homeDirectory: string, folder: string, servers: 
 
 function readyText(slug: string, servers: DevServers, opened: boolean, recorded: boolean, idleTimeoutMs: number): string {
   const stopLine = recorded
-    ? `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop, or from any terminal:")}\n  ${DEV_STOP_COMMAND}\n`
+    ? `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop, or run this in the app's folder:")}\n  ${DEV_STOP_COMMAND}\n`
     : `${wrapProse("Edit the app's files and the page reloads on save. Press Ctrl+C to stop.")}\n`;
   return (
     `✓ Ready     ${slug} is running with your live Driggsby data${opened ? ", at:" : ":"}\n\n` +
@@ -222,23 +243,49 @@ async function loadSdkBundle(): Promise<string> {
   return await readFile(bundlePath, "utf8");
 }
 
-async function devStartFailure(error: unknown, baseUrl: string, homeDirectory: string): Promise<CliError> {
+function shiftedPort(port: number, pair: number): number {
+  return port === 0 ? 0 : port + pair * 2;
+}
+
+// In use, or reserved (Windows can exclude port ranges for Hyper-V and
+// WinNAT, which reads as access denied).
+function portUnavailable(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === "EADDRINUSE" || code === "EACCES";
+}
+
+// One preview per folder: a second would only compete with the first for
+// the same files, so dev points at the one already running instead.
+async function refuseSecondPreview(homeDirectory: string, projectDirectory: string): Promise<void> {
+  const reads = await readDevStates(homeDirectory, undefined, projectDirectory);
+  const running = reads.find((read) => read.status === "live")?.state;
+  if (running === undefined) {
+    return;
+  }
+  throw new CliError(
+    `driggsby dev is already running for this app, at:\n  http://127.0.0.1:${String(running.hostPort)}\n\n` +
+      `${wrapProse("Open that address, or stop it and start again:")}\n  ${DEV_STOP_COMMAND}\n  ${DEV_START_COMMAND}`,
+    1,
+  );
+}
+
+interface PortRange {
+  hostPort: number;
+  appPort: number;
+  pairs: number;
+}
+
+function devStartFailure(error: unknown, baseUrl: string, ports: PortRange): CliError {
   if (error instanceof CliError) {
     return error;
   }
-  if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
-    const running = await readLiveDevState(homeDirectory);
-    if (running !== null) {
-      return new CliError(
-        `driggsby dev is already running for the app in:\n  ${displayFolder(running.folder)}\n\n` +
-          `Only one can run at a time. Stop it first:\n  ${DEV_STOP_COMMAND}\n\n` +
-          `Then try again here:\n  ${DEV_START_COMMAND}`,
-        1,
-      );
-    }
+  if (portUnavailable(error)) {
+    const first = Math.min(ports.hostPort, ports.appPort);
+    const last = Math.max(shiftedPort(ports.hostPort, ports.pairs - 1), shiftedPort(ports.appPort, ports.pairs - 1));
     return new CliError(
-      `${wrapProse(`Ports ${String(DEV_HOST_PORT)} and ${String(DEV_APP_PORT)} are how driggsby dev serves the preview, and something on this machine is already using one of them. Stop that program and try again:`)}\n` +
-        `  ${DEV_START_COMMAND}`,
+      `${wrapProse(`driggsby dev serves previews in pairs of ports from ${String(first)} to ${String(last)}, and none of those pairs is free on this machine. Stop a preview you're done with, in its app's folder:`)}\n` +
+        `  ${DEV_STOP_COMMAND}\n\n` +
+        `Then try again here:\n  ${DEV_START_COMMAND}`,
       1,
     );
   }

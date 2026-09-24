@@ -60,8 +60,9 @@ This runs the app locally, embedded exactly the way Driggsby embeds it
 after a deploy, and reloads the page when you save a file. While dev runs,
 the preview serves your financial data to this machine — other websites
 can't reach it, but anything running locally can, so stop it when you're
-done: press Ctrl+C, or from any terminal run `npx driggsby@latest dev --stop`.
-It also stops on its own after 30 minutes with no page open.
+done: press Ctrl+C, or run `npx driggsby@latest dev --stop` in the app's
+folder. It also stops on its own after 30 minutes with no page open.
+Previews for several apps can run at once; each prints its own addresses.
 
 ## Deploying an app
 
