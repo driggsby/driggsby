@@ -21,11 +21,20 @@ test("the host page pins the app origin and keeps its script external", () => {
   assert.ok(!html.includes("<script>"));
 });
 
-test("the declared background paints the frame surround; none falls back to the dark ground", () => {
+// The frame's own rule, so the page's own background can't satisfy it.
+function frameRule(html: string): string {
+  const rule = /iframe \{[^}]*\}/.exec(html);
+  assert.ok(rule, "the host page styles its iframe");
+  return rule[0];
+}
+
+test("the declared background paints the frame surround; none falls back to the console's", () => {
   const declared = hostPageHtml("money-dash-x7k2qf", "http://127.0.0.1:4574", "#0b0c0f");
-  assert.ok(declared.includes("background: #0b0c0f;"));
+  assert.ok(frameRule(declared).includes("background: #0b0c0f;"));
   const undeclared = hostPageHtml("money-dash-x7k2qf", "http://127.0.0.1:4574", null);
-  assert.ok(undeclared.includes("background: #000000;"));
+  // What Driggsby paints under an app that declared no background: its
+  // card surface on the black page.
+  assert.ok(frameRule(undeclared).includes("background: #0a0a0a;"));
   // The chrome around the frame is the console's: black ground, light ink.
   assert.ok(undeclared.includes("color-scheme: dark;"));
   assert.ok(!undeclared.includes("#ffffff"));
