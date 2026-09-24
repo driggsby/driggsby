@@ -22,6 +22,12 @@ npx driggsby@latest mcp setup other
 After setup, authenticate Driggsby through your client — run `/mcp` in
 Claude Code, or sign in through the browser window Codex opens.
 
+So your Driggsby MCP page can tell your connections apart, `login` sends
+Driggsby this computer's name and operating system version (for example
+`mbp-studio` and `macOS 15.6`) with its sign-in, and
+`mcp setup claude-code` saves them as headers on the Driggsby entry it
+adds to Claude Code, which sends them with each request.
+
 For another MCP client, choose Other. Driggsby currently supports only
 OAuth-based remote MCP at:
 

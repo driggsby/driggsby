@@ -5,8 +5,9 @@
 // PATH + PATHEXT (never the current directory, which Windows shells would
 // search first) and run shims through an explicit, absolute cmd.exe
 // invocation with our own quoting. Real commands only ever carry fixed
-// constant arguments (see commands.ts); nothing user-controlled may ever
-// flow into a spawn plan.
+// constant arguments (see commands.ts) or this computer's name and system,
+// allowlisted by device.ts to characters cmd.exe treats as plain; nothing
+// user-controlled may ever flow into a spawn plan.
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -115,8 +116,9 @@ export function resolveWindowsProgram(
 // (the cmd convention) and trailing backslashes doubled (so a path ending
 // in \ cannot escape the closing quote for the child's own parser). The
 // safe set covers every constant argument the CLI actually runs, including
-// the MCP URL; only fixed constants and PATH-resolved program paths may
-// reach this function.
+// the MCP URL; only fixed constants, PATH-resolved program paths, and the
+// device values device.ts allowlists (no % ! ^ & | < > " \ or control
+// characters) may reach this function.
 export function quoteForCmd(value: string): string {
   if (/^[A-Za-z0-9_\-.:\\/=]+$/.test(value)) {
     return value;

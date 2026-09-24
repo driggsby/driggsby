@@ -6,6 +6,8 @@
 //   FAKE_GET_BEHAVIOR: missing | matches | differs | fail   (mcp get)
 //   FAKE_ADD_BEHAVIOR: ok | already-exists | fail |
 //                      oauth-stream | lingering-grandchild  (mcp add)
+//   FAKE_ARGS_FILE: a path; mcp add writes the arguments it received there
+//                   as JSON, so a test can see what the CLI passed.
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -34,6 +36,9 @@ if (args[0] === "mcp" && args[1] === "get") {
   process.exit(1);
 }
 if (args[0] === "mcp" && args[1] === "add") {
+  if (process.env.FAKE_ARGS_FILE) {
+    require("node:fs").writeFileSync(process.env.FAKE_ARGS_FILE, JSON.stringify(args));
+  }
   const behavior = process.env.FAKE_ADD_BEHAVIOR ?? "ok";
   if (behavior === "already-exists") {
     process.stderr.write("driggsby already exists");

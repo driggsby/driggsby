@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 
 import { CliError } from "../cli-error.ts";
+import { describeDevice, deviceHeaders } from "../device.ts";
 import { trimLikeRust } from "../terminal-text.ts";
 import { runClientCommand } from "./client-command.ts";
 import { classifyExistingMcpConfig, type ClientCommandOutput } from "./classify.ts";
@@ -56,7 +57,11 @@ export async function runMcpSetup(options: McpSetupOptions): Promise<void> {
   }
 
   write(`Adding Driggsby to ${displayName(client)} MCP config...\n`);
-  const result = await runClientCommand(installer, streamConfigOutput(client));
+  // The command it runs also names this computer (Claude Code only); the
+  // commands it prints for a person stay the plain, portable ones.
+  const headers = installClient === "claude-code" ? deviceHeaders(describeDevice()) : [];
+  const runInstaller = buildInstallerCommand(installClient, options.scope, headers);
+  const result = await runClientCommand(runInstaller, streamConfigOutput(client));
   switch (result.kind) {
     case "output":
       if (result.output.succeeded) {

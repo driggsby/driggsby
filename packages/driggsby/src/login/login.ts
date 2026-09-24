@@ -2,9 +2,10 @@
 // page, poll until they approve, and store the token. The token is shown to
 // no one — it goes straight from the poll response into the credential
 // store.
-import { apiBaseUrl, apiHost } from "../api/base-url.ts";
+import { apiBaseUrl, apiHost, baseUrlMayReceiveSavedSignIn } from "../api/base-url.ts";
 import { blockedNetworkError } from "../api/network-error.ts";
 import { CliError } from "../cli-error.ts";
+import { describeDevice } from "../device.ts";
 import {
   type CredentialEnvironment,
   type CredentialSource,
@@ -116,7 +117,10 @@ async function storeApprovedToken(
 
 async function createClaim(baseUrl: string): Promise<ClaimRequest> {
   try {
-    return await createClaimRequest(baseUrl);
+    // This computer's name goes only to Driggsby (or a local run), never
+    // to another host a base-URL override names.
+    const device = baseUrlMayReceiveSavedSignIn(baseUrl) ? describeDevice() : { name: null, system: null };
+    return await createClaimRequest(baseUrl, device);
   } catch (error) {
     const blocked = blockedNetworkError(error, {
       host: apiHost(baseUrl),

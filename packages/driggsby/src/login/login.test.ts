@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
+import { describeDevice, knownDevice } from "../device.ts";
 import { readFileToken, writeFileToken } from "../credentials/file-store.ts";
 import { type CredentialEnvironment } from "../credentials/store.ts";
 import { fakeCredentialToolEnvironment } from "../test-support/fake-credential-tool.ts";
@@ -20,6 +21,8 @@ interface FakeConsentServer {
   pollResponses: { status: number; body: unknown }[];
   claimUrlOrigin: string | null;
   claimUrlPath: string | null;
+  // The parsed body of each claim-create request, in order.
+  createBodies: unknown[];
 }
 
 const servers: Server[] = [];
@@ -38,11 +41,17 @@ function startConsentServer(): Promise<FakeConsentServer> {
     pollResponses: [],
     claimUrlOrigin: null,
     claimUrlPath: null,
+    createBodies: [],
   };
   const server = createServer((request, response) => {
-    request.resume();
+    let raw = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      raw += chunk;
+    });
     request.on("end", () => {
       if (request.url === "/app-tokens/claim-requests") {
+        fake.createBodies.push(raw === "" ? null : JSON.parse(raw));
         response.writeHead(201, { "Content-Type": "application/json" });
         response.end(
           JSON.stringify({
@@ -127,6 +136,18 @@ test("login walks create → poll → approved and stores the token", async () =
   assert.ok(text.includes("Next:"));
   assert.ok(!text.includes(APP_TOKEN), "the token must never be printed");
   assertFitsTerminal(text);
+});
+
+test("login names this computer in its sign-in request, with only what it knows", async () => {
+  const server = await startConsentServer();
+  server.pollResponses.push({ status: 200, body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" } });
+  const { environment, io } = harness(server.baseUrl);
+
+  await runLogin(environment, io);
+
+  const known = knownDevice(describeDevice());
+  const expected = { app_name: "Driggsby CLI", scope: "driggsby.cli", ...(known === null ? {} : { device: known }) };
+  assert.deepEqual(server.createBodies, [expected]);
 });
 
 test("login fails with a friendly retry when the claim is gone", async () => {

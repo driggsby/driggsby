@@ -96,6 +96,25 @@ test("createClaimRequest sends the CLI-scope claim and parses the response", asy
   assert.deepEqual(request.body, { app_name: "Driggsby CLI", scope: "driggsby.cli" });
 });
 
+test("createClaimRequest names this computer when it knows it, and only what it knows", async () => {
+  const server = await startFakeServer();
+  server.respondWith(201, CREATED_BODY);
+
+  await createClaimRequest(server.baseUrl, { name: "devbox-02", system: "Ubuntu 24.04" });
+  await createClaimRequest(server.baseUrl, { name: null, system: "Windows 11" });
+
+  assert.deepEqual(server.requests[0]?.body, {
+    app_name: "Driggsby CLI",
+    scope: "driggsby.cli",
+    device: { name: "devbox-02", system: "Ubuntu 24.04" },
+  });
+  assert.deepEqual(server.requests[1]?.body, {
+    app_name: "Driggsby CLI",
+    scope: "driggsby.cli",
+    device: { system: "Windows 11" },
+  });
+});
+
 test("createClaimRequest surfaces the server's error_description verbatim", async () => {
   const server = await startFakeServer();
   server.respondWith(429, {
