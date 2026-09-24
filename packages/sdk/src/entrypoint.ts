@@ -44,12 +44,17 @@ function showStandaloneNote(): void {
   const note = document.createElement("div");
   note.setAttribute(STANDALONE_NOTE_ATTRIBUTE, "");
   // Inline styles on purpose: this element lands inside arbitrary user
-  // apps, so it cannot depend on any stylesheet.
+  // apps, so it cannot depend on any stylesheet. It is the Driggsby
+  // console's toast, measured: the popover fill with no stroke, the menu
+  // radius, the floating shadow, 14px ink at 1.4 on the sans stack, in
+  // the bottom-right corner 24px in.
   note.style.cssText =
-    "position:fixed;left:16px;right:16px;bottom:16px;max-width:480px;margin:0 auto;" +
-    "padding:14px 18px;border-radius:8px;background:#0a0a0a;color:#fafafa;" +
-    "border:1px solid rgba(255,255,255,0.14);" +
-    "font:14px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,0.35);z-index:2147483647";
+    "position:fixed;top:auto;right:24px;bottom:24px;left:auto;box-sizing:border-box;max-width:min(400px,calc(100% - 48px));" +
+    "margin:0;padding:12px 14px;border:1px solid transparent;border-radius:12px;" +
+    "background:#1a1a1a;color:#fafafa;text-align:left;" +
+    "font:400 14px/1.4 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Helvetica,Arial,sans-serif;" +
+    "letter-spacing:normal;-webkit-font-smoothing:antialiased;" +
+    "box-shadow:0 8px 24px rgba(0,0,0,0.3);z-index:2147483647";
   note.textContent =
     "This dashboard shows your data when you open it from Driggsby. " +
     "Head to your Driggsby console and open it from the Dashboards page.";
