@@ -175,8 +175,8 @@ async function handleHostRequest(
   const path = requestPath(request);
 
   if (request.method === "GET" && path === DEV_IDENTITY_PATH) {
-    // Lets `dev --stop` (and a colliding `dev`) confirm that the process in
-    // ~/.driggsby/dev.json is the one actually serving this port.
+    // Lets `dev --stop` (and `dev`) confirm that a record in ~/.driggsby
+    // names the process actually serving this port.
     sendJson(response, 200, { pid: process.pid });
     return;
   }
