@@ -91,18 +91,20 @@ This runs the app locally, embedded the same way Driggsby embeds it after a
 deploy, so what you see here is what a deploy will show. Edits to the app's
 files reload the page on save.
 
+Previews for several apps can run at once; each prints its own addresses.
+
 While dev runs, the preview serves your financial data to this machine —
 other websites can't reach it, but anything running locally can, so stop
-it when you're done: press Ctrl+C, or from any terminal run
-npx driggsby@latest dev --stop. It also stops on its own after
-${String(DEV_IDLE_MINUTES)} minutes with no page open.
+it when you're done: press Ctrl+C, or run npx driggsby@latest dev --stop
+in the app's folder. It also stops on its own after ${String(DEV_IDLE_MINUTES)} minutes with no
+page open.
 
 Sign in first with npx driggsby@latest login.
 
 Usage: npx driggsby@latest dev [--stop]
 
 Options:
-      --stop  Stop the driggsby dev running on this machine.
+      --stop  Stop this app's driggsby dev, or the only one running.
   -h, --help  Print help
 `;
 
