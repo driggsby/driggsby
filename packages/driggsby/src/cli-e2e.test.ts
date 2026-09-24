@@ -4,10 +4,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { describeDevice, deviceHeaders } from "./device.ts";
 import { installFakeClientCli, pathWithFake } from "./test-support/fake-client-cli.ts";
 import { VERSION } from "./version.ts";
 
@@ -142,6 +144,7 @@ test("an install that reports an existing entry prints remove+add remediation", 
   assert.equal(result.code, 0);
   assert.ok(result.stdout.includes("does not match the expected Driggsby setup."));
   assert.ok(result.stdout.includes("claude mcp remove driggsby -s user"));
+  assert.ok(!result.stdout.includes("X-Driggsby-Device"));
 });
 
 test("a failed install hands the user the manual command and exits 0", async () => {
@@ -199,6 +202,25 @@ test("the CLI exits promptly even when a grandchild holds the output pipes", asy
   assert.ok(elapsedMs < 3000, `CLI took ${String(elapsedMs)}ms to exit`);
 });
 
+test("setup names this computer to Claude Code in headers after the URL", async () => {
+  const fake = installFakeClientCli("claude");
+  const argsFile = join(fake.pathPrefix, "add-args.json");
+  const result = await cli(["mcp", "setup", "claude-code"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_GET_BEHAVIOR: "missing",
+    FAKE_ADD_BEHAVIOR: "ok",
+    FAKE_ARGS_FILE: argsFile,
+  });
+
+  assert.equal(result.code, 0);
+  const args = JSON.parse(readFileSync(argsFile, "utf8")) as string[];
+  // The CLI and this test read the same machine, so whatever it's called
+  // (or if nothing is known), each header must arrive intact, the Windows
+  // .cmd shim included: one "--header" and one "Name: value" apiece.
+  const expected = deviceHeaders(describeDevice()).flatMap((header) => ["--header", header]);
+  assert.deepEqual(args.slice(args.indexOf("https://app.driggsby.com/mcp") + 1), expected);
+});
+
 test("setup is idempotent when the config already matches", async () => {
   const fake = installFakeClientCli("claude");
   const result = await cli(["mcp", "setup", "claude-code"], {
@@ -221,6 +243,7 @@ test("a different existing entry prints remove+add remediation", async () => {
   assert.equal(result.code, 0);
   assert.ok(result.stdout.includes("does not match the expected Driggsby setup."));
   assert.ok(result.stdout.includes("claude mcp remove driggsby -s user"));
+  assert.ok(!result.stdout.includes("X-Driggsby-Device"));
   assert.ok(
     result.stdout.includes("claude mcp add --transport http -s user driggsby 'https://app.driggsby.com/mcp'"),
   );
@@ -234,4 +257,6 @@ test("a client that is not installed still hands the user the manual command", a
   assert.equal(result.code, 0);
   assert.ok(result.stdout.includes("Claude Code is not installed or not on PATH."));
   assert.ok(result.stdout.includes("Run this command to add Driggsby to Claude Code:"));
+  // A command printed for a person stays the plain, portable one.
+  assert.ok(!result.stdout.includes("X-Driggsby-Device"));
 });
