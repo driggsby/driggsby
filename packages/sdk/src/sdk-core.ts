@@ -6,7 +6,10 @@
 // first-valid-hello pin, and the parent-source requirement.
 //
 // The whole public surface an app sees is:
-//   driggsby.watch(tool, params, callback) -> unsubscribe()
+//   driggsby.watch(tool, params, callback[, { onError }]) -> unsubscribe()
+// onError(error) receives { message, kind } when a watch's call fails
+// after the host's retries; kind is "timeout", "unavailable", "busy",
+// "rate_limited" or null.
 // Every read is a live subscription: the host announces "data-changed" and
 // each watch re-runs; results are deduped by JSON identity so unchanged
 // data never re-renders.
@@ -44,6 +47,19 @@ export function isAllowedHostOrigin(origin: string, allowLocalHostOrigins: boole
 }
 
 export type WatchCallback = (result: unknown) => void;
+
+export interface WatchError {
+  message: string;
+  kind: string | null;
+}
+
+export interface WatchOptions {
+  onError?: (error: WatchError) => void;
+}
+
+// The failure kinds a watch may be told about; the host forwards only
+// these, and anything else reads as null.
+const WATCH_ERROR_KINDS = new Set(["timeout", "unavailable", "busy", "rate_limited"]);
 export type PostFunction = (message: Record<string, unknown>, targetOrigin: string) => void;
 
 // The app's in-page location, as a URL fragment. The host mirrors it into
@@ -61,6 +77,7 @@ interface WatchEntry {
   tool: string;
   params: Record<string, unknown>;
   callback: WatchCallback;
+  onError: ((error: WatchError) => void) | null;
   // JSON of the last delivery (result or error), for dedupe.
   lastDeliveredJson: string | null;
 }
@@ -70,6 +87,7 @@ interface ProtocolMessage {
   id: string | null;
   result: unknown;
   errorMessage: string | null;
+  errorKind: string | null;
   route: string;
 }
 
@@ -82,10 +100,13 @@ function parseProtocolMessage(data: unknown): ProtocolMessage | null {
   if (typeof type !== "string") return null;
 
   let errorMessage: string | null = null;
+  let errorKind: string | null = null;
   const error = record.error;
   if (typeof error === "object" && error !== null) {
     const message = (error as Record<string, unknown>).message;
     errorMessage = typeof message === "string" ? message : "Something went wrong running this tool.";
+    const kind = (error as Record<string, unknown>).kind;
+    errorKind = typeof kind === "string" && WATCH_ERROR_KINDS.has(kind) ? kind : null;
   }
 
   return {
@@ -93,6 +114,7 @@ function parseProtocolMessage(data: unknown): ProtocolMessage | null {
     id: typeof record.id === "string" ? record.id : null,
     result: record.result,
     errorMessage,
+    errorKind,
     route: sanitizeAppRoute(record.route),
   };
 }
@@ -123,7 +145,12 @@ export class SdkCore {
   // params is typed loose on purpose: app authors call this from untyped
   // JavaScript, and a null/omitted params should mean "no params", not a
   // crash.
-  watch(tool: string, params: Record<string, unknown> | null | undefined, callback: WatchCallback): () => void {
+  watch(
+    tool: string,
+    params: Record<string, unknown> | null | undefined,
+    callback: WatchCallback,
+    options?: WatchOptions | null,
+  ): () => void {
     // Watches are registered by arbitrary app code; a watch() call that
     // leaked into a render loop would otherwise grow forever and turn
     // every data-changed into an unbounded fan-out of real tool calls.
@@ -134,7 +161,10 @@ export class SdkCore {
     }
     this.sequence += 1;
     const id = `w${this.sequence}`;
-    this.watches.set(id, { tool, params: params ?? {}, callback, lastDeliveredJson: null });
+    // Options come from untyped app code: a non-function onError is
+    // ignored rather than thrown at on the first failure.
+    const onError = typeof options?.onError === "function" ? options.onError : null;
+    this.watches.set(id, { tool, params: params ?? {}, callback, onError, lastDeliveredJson: null });
     // Before the host pins, requestWatch posts nothing; the pinning hello
     // fires every registered watch, so pre-hello watches are simply held.
     this.requestWatch(id);
@@ -199,10 +229,11 @@ export class SdkCore {
     if (entry === undefined) return;
 
     if (message.errorMessage !== null) {
-      const json = JSON.stringify({ error: message.errorMessage });
+      const json = JSON.stringify({ error: message.errorMessage, kind: message.errorKind });
       if (json === entry.lastDeliveredJson) return;
       entry.lastDeliveredJson = json;
       this.onToolError?.(entry.tool, message.errorMessage);
+      entry.onError?.({ message: message.errorMessage, kind: message.errorKind });
       return;
     }
 
