@@ -24,9 +24,12 @@ export function hostPageHtml(slug: string, appOrigin: string, background: string
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${slug} — driggsby dev</title>
   <style>
-    /* The strip above the frame is the console's title row, in its own
-       measured values: 46px tall on the black ground, 14px ink, a 14%
-       white hairline under it. */
+    /* The strip above the frame is the console's title row over a
+       dashboard, in its own measured values: 46px tall on the black
+       ground with no rule under it, the name centered in 14px ink, and
+       the side slot in the row's quiet 14px tertiary. Equal side tracks
+       keep the name centered; the slot ellipsizes only when the two
+       would otherwise meet. */
     * { box-sizing: border-box; }
     html { color-scheme: dark; }
     body {
@@ -38,26 +41,42 @@ export function hostPageHtml(slug: string, appOrigin: string, background: string
       color: #fafafa;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 14px;
-      line-height: 21px;
+      line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
     header {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) fit-content(60%) minmax(0, 1fr);
+      column-gap: 16px;
       align-items: center;
-      justify-content: space-between;
       height: 46px;
-      padding: 0 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+      padding: 0 20px;
+      border-bottom: 1px solid transparent;
     }
-    header .slug { font-weight: 500; }
-    header .mode { color: #a1a1a1; font-size: 13px; }
+    header .slug,
+    header .mode {
+      grid-row: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    header .slug { grid-column: 2; }
+    header .mode {
+      grid-column: 3;
+      justify-self: end;
+      max-width: 100%;
+      color: #a1a1a1;
+    }
     iframe {
       flex: 1;
       width: 100%;
       border: none;
       /* The app's declared background from driggsby.json, painted while
-         the app loads — the same surface the production host shows. */
-      background: ${background ?? "#000000"};
+         the app loads — the same surface the production host shows. With
+         none declared, Driggsby's own: its card surface on the black
+         page. */
+      background: ${background ?? "#0a0a0a"};
     }
   </style>
 </head>
