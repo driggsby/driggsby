@@ -98,9 +98,10 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 // These are the tools an app can watch — read-only, nothing else responds:
 //
 //   get_overview                 money rollups + every linked account
-//   get_history                  balances, holdings, or debts over time
-//                                (history_type is required: "account_balances",
-//                                "investment_holdings", or "liabilities")
+//   get_history                  balances, holdings, debts, or manual items
+//                                over time (history_type is required:
+//                                "account_balances", "investment_holdings",
+//                                "liabilities", or "custom_items")
 //   list_accounts                current balances per linked account
 //   list_assets_and_liabilities  the full balance sheet, incl. manual items
 //   list_findings                issues Driggsby has flagged
