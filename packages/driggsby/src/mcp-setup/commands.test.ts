@@ -32,6 +32,28 @@ test("claude code installer defaults to user scope", () => {
   ]);
 });
 
+test("claude code installer names this computer in headers after the URL", () => {
+  const command = buildInstallerCommand("claude-code", undefined, [
+    "X-Driggsby-Device-Name: mbp-studio",
+    "X-Driggsby-Device-System: macOS 15.6",
+  ]);
+
+  assert.deepEqual(command.args.slice(-6), [
+    "driggsby",
+    DRIGGSBY_MCP_URL,
+    "--header",
+    "X-Driggsby-Device-Name: mbp-studio",
+    "--header",
+    "X-Driggsby-Device-System: macOS 15.6",
+  ]);
+});
+
+test("codex has no header option, so its installer never carries one", () => {
+  const command = buildInstallerCommand("codex", undefined, ["X-Driggsby-Device-Name: mbp-studio"]);
+
+  assert.deepEqual(command.args, ["mcp", "add", "driggsby", "--url", DRIGGSBY_MCP_URL]);
+});
+
 test("claude code installer honors local scope", () => {
   const command = buildInstallerCommand("claude-code", "local");
 

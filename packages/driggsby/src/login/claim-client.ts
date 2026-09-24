@@ -4,6 +4,7 @@
 // token is returned by exactly one poll; callers must never poll again after
 // an approval.
 import { CliError } from "../cli-error.ts";
+import { type Device, knownDevice } from "../device.ts";
 import { sanitizeForTerminal } from "../terminal-text.ts";
 
 // The CLI's own sign-in: read, deploy, and the transaction-rule tools.
@@ -35,11 +36,16 @@ export interface ClaimRequest {
   expiresInSeconds: number;
 }
 
-export async function createClaimRequest(baseUrl: string): Promise<ClaimRequest> {
+// device: this computer's name and system (device.ts), so the sign-in shows
+// up on Driggsby's MCP page as the computer it is; only known values go.
+export async function createClaimRequest(
+  baseUrl: string,
+  device: Device = { name: null, system: null },
+): Promise<ClaimRequest> {
   const response = await fetch(`${baseUrl}/app-tokens/claim-requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ app_name: CLAIM_APP_NAME, scope: CLAIM_SCOPE }),
+    body: JSON.stringify({ app_name: CLAIM_APP_NAME, scope: CLAIM_SCOPE, ...deviceField(device) }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     // Never follow a redirect: a 307/308 would replay this claim flow —
     // and, on the poll below, the poll secret — to whatever origin a
@@ -173,6 +179,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function stringField(record: Record<string, unknown> | null, field: string): string | null {
   const value = record?.[field];
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+// The claim body's device field: only the values this computer knows.
+function deviceField(device: Device): { device?: { name?: string; system?: string } } {
+  const known = knownDevice(device);
+  return known === null ? {} : { device: known };
 }
 
 // The server's user-facing error text, stripped of terminal control bytes
