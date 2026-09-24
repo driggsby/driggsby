@@ -22,6 +22,22 @@ the callback runs again with fresh data. It returns an unsubscribe
 function. Identical results are deduped, so unchanged data never
 re-renders.
 
+To show a section's own failure, pass `onError`. It runs when a watch
+fails, after any retries the host makes, with `{ message, kind }`. A
+repeat of the same failure is skipped. `kind` is `"timeout"`,
+`"unavailable"`, `"busy"`, `"rate_limited"` or `null`. Under
+`driggsby dev`, which doesn't retry, `kind` is always `null`. The next
+successful result always reaches your callback, even when it matches
+the data from before the failure, so clear the failure there. Show
+`error.message` as text (for example with `textContent`), never as
+HTML:
+
+```js
+driggsby.watch("list_accounts", {}, render, {
+  onError: (error) => showFailure(error.message),
+});
+```
+
 This package exists for two narrower uses:
 
 - `driggsby dev` serves the same runtime locally from this package's

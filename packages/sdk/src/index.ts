@@ -14,4 +14,6 @@ export {
   isLocalAppHostname,
   type PostFunction,
   type WatchCallback,
+  type WatchError,
+  type WatchOptions,
 } from "./sdk-core.ts";

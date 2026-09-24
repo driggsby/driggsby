@@ -7,19 +7,24 @@
 //
 //   driggsby.watch('list_accounts', {}, (result) => render(result));
 //
+// and, to show a section's own failure once the host's retries run out:
+//
+//   driggsby.watch(tool, params, render, { onError: (error) => showFailure(error) });
+//
 // All protocol and security logic lives in sdk-core.ts (unit tested under
 // node --test); this entry only binds it to the real window: the
 // parent-source check, the ready handshake, reload on new-version, and the
 // standalone note when no Driggsby host is embedding the page. This entry
 // must stay dependency-free (that one local import only) so it bundles to
 // a single self-contained file.
-import { PROTOCOL, SdkCore, isLocalAppHostname } from "./sdk-core.ts";
+import { PROTOCOL, SdkCore, isLocalAppHostname, type WatchOptions } from "./sdk-core.ts";
 
 interface DriggsbyApi {
   watch: (
     tool: string,
     params: Record<string, unknown> | null | undefined,
     callback: (result: unknown) => void,
+    options?: WatchOptions | null,
   ) => () => void;
 }
 
@@ -106,7 +111,7 @@ window.addEventListener("message", (event: MessageEvent) => {
 });
 
 window.driggsby = {
-  watch: (tool, params, callback) => core.watch(tool, params, callback),
+  watch: (tool, params, callback, options) => core.watch(tool, params, callback, options),
 };
 
 if (window.parent === window) {
