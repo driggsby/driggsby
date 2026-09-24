@@ -291,6 +291,88 @@ test("an error object without a string message gets the generic wording", () => 
   assert.deepEqual(errors, ["Something went wrong running this tool."]);
 });
 
+test("a watch with onError gets each change of failure, with its kind, and later data as usual", () => {
+  const { core } = coreWithLog();
+  const data: unknown[] = [];
+  const failures: unknown[] = [];
+  const logged: string[] = [];
+  core.onToolError = (tool, message) => logged.push(`${tool}: ${message}`);
+  hello(core);
+  core.watch("query_cash_sql", { sql: "select 1" }, (result) => data.push(result), {
+    onError: (error) => failures.push(error),
+  });
+  const timedOut = { message: "SQL query timed out.", kind: "timeout" };
+
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", error: timedOut });
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", error: timedOut });
+  // The same message with another kind is a new failure; an unknown
+  // kind reads as null.
+  core.handleMessage(CONSOLE_ORIGIN, true, {
+    protocol: PROTOCOL,
+    type: "result",
+    id: "w1",
+    error: { message: "SQL query timed out.", kind: "bogus" },
+  });
+  // A new message with the same kind is a new failure too.
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", error: { message: "Nope." } });
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", result: { rows: [] } });
+  // A failure that comes back after data is reported again.
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", error: timedOut });
+
+  assert.deepEqual(failures, [
+    { message: "SQL query timed out.", kind: "timeout" },
+    { message: "SQL query timed out.", kind: null },
+    { message: "Nope.", kind: null },
+    { message: "SQL query timed out.", kind: "timeout" },
+  ]);
+  assert.deepEqual(data, [{ rows: [] }]);
+  assert.equal(logged.length, 4);
+});
+
+test("every public failure kind reaches onError as itself", () => {
+  const { core } = coreWithLog();
+  const kinds: unknown[] = [];
+  hello(core);
+  core.watch("list_accounts", {}, () => undefined, { onError: (error) => kinds.push(error.kind) });
+  for (const kind of ["timeout", "unavailable", "busy", "rate_limited", "transport"]) {
+    core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", error: { message: "x", kind } });
+  }
+  assert.deepEqual(kinds, ["timeout", "unavailable", "busy", "rate_limited", null]);
+});
+
+test("an error result from anyone but the pinned parent never reaches onError", () => {
+  const { core } = coreWithLog();
+  const failures: unknown[] = [];
+  const logged: string[] = [];
+  core.onToolError = (_tool, message) => logged.push(message);
+  core.watch("list_accounts", {}, () => undefined, { onError: (error) => failures.push(error) });
+  const failure = { protocol: PROTOCOL, type: "result", id: "w1", error: { message: "Busy.", kind: "busy" } };
+
+  core.handleMessage(CONSOLE_ORIGIN, true, failure);
+  hello(core);
+  core.handleMessage(CONSOLE_ORIGIN, false, failure);
+  core.handleMessage("https://evil.example", true, failure);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(logged, []);
+
+  // Nothing above touched the dedupe state: the real failure still lands.
+  core.handleMessage(CONSOLE_ORIGIN, true, failure);
+  assert.deepEqual(failures, [{ message: "Busy.", kind: "busy" }]);
+});
+
+test("a watch without onError, or with a broken one, still works", () => {
+  const { core } = coreWithLog();
+  const data: unknown[] = [];
+  hello(core);
+  core.watch("list_accounts", {}, (result) => data.push(result), { onError: "not a function" as never });
+  core.watch("get_overview", null, (result) => data.push(result));
+
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w1", error: { message: "x" } });
+  core.handleMessage(CONSOLE_ORIGIN, true, { protocol: PROTOCOL, type: "result", id: "w2", result: 1 });
+
+  assert.deepEqual(data, [1]);
+});
+
 test("data-changed re-runs every live watch, not unsubscribed ones", () => {
   const { core, posted } = coreWithLog();
   hello(core);
