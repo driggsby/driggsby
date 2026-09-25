@@ -29,7 +29,15 @@ function harness(server: FakeConsentServer | string, options: HarnessOptions = {
 
 // Logout never reaches a server; its harness only needs a base URL.
 function offlineServer(baseUrl: string): FakeConsentServer {
-  return { baseUrl, pollResponses: [], claimUrlOrigin: null, claimUrlPath: null, createBodies: [], tradeBodies: [] };
+  return {
+    baseUrl,
+    pollResponses: [],
+    claimUrlOrigin: null,
+    claimUrlPath: null,
+    createBodies: [],
+    tradeBodies: [],
+    claimGone: false,
+  };
 }
 
 test("login hands the code over the loopback, trades it with the verifier, and stores the token", async () => {

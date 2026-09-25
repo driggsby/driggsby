@@ -20,7 +20,7 @@ import {
   saveToken,
 } from "../credentials/store.ts";
 import { sanitizeForTerminal, wrapProse } from "../terminal-text.ts";
-import { awaitToken, type CodePrompt, LOGIN_RETRY_COMMAND, tradeWithRetries } from "./await-token.ts";
+import { awaitToken, CODE_WINDOW_MS, type CodePrompt, LOGIN_RETRY_COMMAND, tradeWithRetries } from "./await-token.ts";
 import { type ClaimPkce, type ClaimRequest, createClaimRequest, SIGN_IN_START_FAILURE } from "./claim-client.ts";
 import { type Loopback, startLoopback } from "./loopback.ts";
 import { tryOpenUrl } from "./open-url.ts";
@@ -73,12 +73,12 @@ export async function runLogin(
     const claim = await createClaim(baseUrl, { challenge: pkce.challenge, redirectUri: loopback?.redirectUri ?? null });
     const claimUrl = approvedClaimUrl(claim.claimUrl, baseUrl);
     const expiresAt = io.now() + claim.expiresInSeconds * 1_000;
-    await rememberPendingLogin(environment, {
+    const remembered = await rememberPendingLogin(environment, {
       baseUrl,
       claimRequestId: claim.claimRequestId,
       claimUrl,
       codeVerifier: pkce.verifier,
-      expiresAt,
+      expiresAt: expiresAt + CODE_WINDOW_MS,
     });
 
     // Only a page this CLI opened itself may hand its code to the
@@ -107,27 +107,28 @@ export async function runLogin(
       io.out(`If the page shows a code instead, finish with:\n  ${CODE_COMMAND}\n`);
     }
 
-    const appToken = await awaitToken(
-      {
-        baseUrl,
-        claimRequestId: claim.claimRequestId,
-        pollSecret: claim.pollSecret,
-        codeVerifier: pkce.verifier,
-        deadline: expiresAt,
-        loopback:
-          loopback === null
-            ? null
-            : {
-                callback: loopback.callback,
-                finish: () => {
-                  loopback.finish(claimUrl);
-                },
-              },
-        prompt,
-        promptQuestion: "If the page shows a code instead, paste it here: ",
-      },
+    const appToken = await awaitTokenOrElsewhere(
+      awaitToken(
+        {
+          baseUrl,
+          claimRequestId: claim.claimRequestId,
+          pollSecret: claim.pollSecret,
+          codeVerifier: pkce.verifier,
+          deadline: expiresAt,
+          landingUrl: claimUrl,
+          loopback,
+          prompt,
+          promptQuestion: "If the page shows a code instead, paste it here: ",
+        },
+        io,
+      ),
+      remembered,
+      environment,
       io,
     );
+    if (appToken === null) {
+      return;
+    }
     prompt?.close();
     prompt = null;
     await finishSignIn(appToken, environment, io);
@@ -154,7 +155,7 @@ export async function runLoginWithCode(
     );
   }
   const result = await tradeWithRetries(pending, code.trim(), io);
-  if (result.kind === "rejected") {
+  if (result.kind !== "approved") {
     throw new CliError(
       `${result.message}\n\nCheck the code and run the command again, or start a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`,
       1,
@@ -188,12 +189,34 @@ async function finishSignIn(appToken: string, environment: CredentialEnvironment
 }
 
 // The record `login --code` finishes from. Best effort: without it, the
-// loopback and the prompt still work.
-async function rememberPendingLogin(environment: CredentialEnvironment, pending: PendingLogin): Promise<void> {
+// loopback and the prompt still work. True once it is saved.
+async function rememberPendingLogin(environment: CredentialEnvironment, pending: PendingLogin): Promise<boolean> {
   try {
     await savePendingLogin(environment.homeDirectory, pending);
+    return true;
   } catch {
     // The credential save reports an unwritable home directory itself.
+    return false;
+  }
+}
+
+// The wait's token, or null when `login --code` in another command
+// finished this very sign-in meanwhile (it removes the record once the
+// token is saved, and Driggsby then reads the claim as gone).
+async function awaitTokenOrElsewhere(
+  wait: Promise<string>,
+  remembered: boolean,
+  environment: CredentialEnvironment,
+  io: LoginIo,
+): Promise<string | null> {
+  try {
+    return await wait;
+  } catch (error) {
+    if (remembered && error instanceof CliError && (await readPendingLogin(environment.homeDirectory, 0)) === null) {
+      io.out("\nSigned in: this sign-in finished with npx driggsby@latest login --code.\n");
+      return null;
+    }
+    throw error;
   }
 }
 

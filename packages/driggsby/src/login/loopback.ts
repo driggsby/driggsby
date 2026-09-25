@@ -3,18 +3,23 @@
 // http://127.0.0.1:<port>/callback with the one-time code (or
 // error=access_denied). A browser on any other computer lands on its own
 // loopback, where nothing listens, so the code reaches only this machine.
-// The browser's request is held until the sign-in finishes, then sent back
-// to the Driggsby page that says how it went.
+//
+// Any page in any browser on this computer can also reach the loopback, so
+// a callback proves nothing by itself: the caller trades each code (only
+// the approval's real code works with this CLI's verifier) and confirms a
+// denial with Driggsby before believing it. Each callback's browser waits
+// until the caller answers it, then goes back to the Driggsby page that
+// says how the sign-in went.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-export type LoopbackCallback = { kind: "code"; code: string } | { kind: "denied" };
+export type LoopbackCallback =
+  | { kind: "code"; code: string; answer: (landingUrl: string) => void }
+  | { kind: "denied"; answer: (landingUrl: string) => void };
 
 export interface Loopback {
   redirectUri: string;
-  // Resolves once, on the first well-formed callback.
-  callback: Promise<LoopbackCallback>;
-  // Sends the waiting browser to landingUrl, then stops listening.
-  finish: (landingUrl: string) => void;
+  // The next well-formed callback; answer it to send its browser on.
+  next: () => Promise<LoopbackCallback>;
   close: () => void;
 }
 
@@ -22,36 +27,46 @@ const HOST = "127.0.0.1";
 const CALLBACK_PATH = "/callback";
 // Driggsby's codes are four groups of five; anything else is not one.
 const CODE_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
-// A browser is never left hanging if the sign-in stalls after its callback.
+// A browser is never left hanging if a callback goes unanswered.
 const HELD_RESPONSE_MS = 30_000;
+// Callbacks waiting for the caller; more than this is someone knocking.
+const MAX_QUEUED = 8;
 const HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
 // null when this environment can't listen on the loopback (a sandbox that
 // forbids it): the approval page then shows the code to paste instead.
 export function startLoopback(): Promise<Loopback | null> {
   return new Promise((resolve) => {
-    let deliver: (value: LoopbackCallback) => void = () => undefined;
-    const callback = new Promise<LoopbackCallback>((resolveCallback) => {
-      deliver = resolveCallback;
-    });
+    const queued: LoopbackCallback[] = [];
+    const waiting: ((callback: LoopbackCallback) => void)[] = [];
+    const held = new Set<ServerResponse>();
     let port = 0;
-    let held: ServerResponse | null = null;
-    let heldTimer: NodeJS.Timeout | null = null;
-    let received = false;
 
     const server = createServer((request, response) => {
-      const parsed = received ? null : readCallback(request, port);
-      if (parsed === null) {
+      const parsed = readCallback(request, port);
+      if (parsed === null || queued.length >= MAX_QUEUED) {
         response.writeHead(404, { ...HEADERS, "Content-Type": "text/plain; charset=utf-8" });
         response.end("Not found\n");
         return;
       }
-      received = true;
-      held = response;
-      heldTimer = setTimeout(() => {
+      held.add(response);
+      const timer = setTimeout(() => {
         answer(response, null);
+        held.delete(response);
       }, HELD_RESPONSE_MS);
-      deliver(parsed);
+      const reply = (landingUrl: string): void => {
+        clearTimeout(timer);
+        answer(response, landingUrl);
+        held.delete(response);
+      };
+      const callback: LoopbackCallback =
+        parsed.kind === "code" ? { kind: "code", code: parsed.code, answer: reply } : { kind: "denied", answer: reply };
+      const taker = waiting.shift();
+      if (taker === undefined) {
+        queued.push(callback);
+      } else {
+        taker(callback);
+      }
     });
 
     let stopped = false;
@@ -60,9 +75,10 @@ export function startLoopback(): Promise<Loopback | null> {
         return;
       }
       stopped = true;
-      if (heldTimer !== null) {
-        clearTimeout(heldTimer);
+      for (const response of held) {
+        answer(response, null);
       }
+      held.clear();
       server.close();
       server.closeAllConnections();
     };
@@ -80,13 +96,9 @@ export function startLoopback(): Promise<Loopback | null> {
       port = address.port;
       resolve({
         redirectUri: `http://${HOST}:${port}${CALLBACK_PATH}`,
-        callback,
-        finish: (landingUrl) => {
-          if (held !== null) {
-            answer(held, landingUrl);
-            held = null;
-          }
-          stop();
+        next: () => {
+          const ready = queued.shift();
+          return ready === undefined ? new Promise((take) => waiting.push(take)) : Promise.resolve(ready);
         },
         close: stop,
       });
@@ -94,10 +106,12 @@ export function startLoopback(): Promise<Loopback | null> {
   });
 }
 
+type Parsed = { kind: "code"; code: string } | { kind: "denied" };
+
 // Only a GET for /callback, addressed to this very listener (a Host header
 // naming anything else is a DNS-rebinding page, not Driggsby's redirect),
 // carrying a code or Driggsby's denial. Everything else is ignored.
-function readCallback(request: IncomingMessage, port: number): LoopbackCallback | null {
+function readCallback(request: IncomingMessage, port: number): Parsed | null {
   if (request.method !== "GET" || request.headers.host !== `${HOST}:${port}`) {
     return null;
   }

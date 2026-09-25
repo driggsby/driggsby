@@ -33,6 +33,8 @@ async function listening(): Promise<Loopback> {
   return loopback;
 }
 
+const LANDING = "https://app.driggsby.com/connect/claim-1";
+
 test("the listener names its own loopback callback on the IP literal", async () => {
   const loopback = await listening();
   try {
@@ -42,26 +44,42 @@ test("the listener names its own loopback callback on the IP literal", async () 
   }
 });
 
-test("a code callback is held until the sign-in finishes, then sent to the landing page", async () => {
+test("a code callback's browser waits until it is answered, then goes to the landing page", async () => {
   const loopback = await listening();
-  const reply = get(loopback, "/callback?code=7KQ2M-9XH4T-A0B1C-DEFGH");
+  try {
+    const reply = get(loopback, "/callback?code=7KQ2M-9XH4T-A0B1C-DEFGH");
 
-  assert.deepEqual(await loopback.callback, { kind: "code", code: "7KQ2M-9XH4T-A0B1C-DEFGH" });
-  loopback.finish("https://app.driggsby.com/connect/claim-1");
+    const callback = await loopback.next();
+    assert.ok(callback.kind === "code");
+    assert.equal(callback.code, "7KQ2M-9XH4T-A0B1C-DEFGH");
+    callback.answer(LANDING);
 
-  assert.deepEqual(await reply, { status: 303, location: "https://app.driggsby.com/connect/claim-1" });
+    assert.deepEqual(await reply, { status: 303, location: LANDING });
+  } finally {
+    loopback.close();
+  }
 });
 
-test("Driggsby's denial arrives as a denial", async () => {
+test("a denial arrives as a denial, and every callback is heard in order", async () => {
   const loopback = await listening();
-  const reply = get(loopback, "/callback?error=access_denied");
+  try {
+    const denied = get(loopback, "/callback?error=access_denied");
+    const first = await loopback.next();
+    const coded = get(loopback, "/callback?code=GOOD1");
+    const second = await loopback.next();
 
-  assert.deepEqual(await loopback.callback, { kind: "denied" });
-  loopback.finish("https://app.driggsby.com/connect/claim-1");
-  assert.equal((await reply).status, 303);
+    assert.equal(first.kind, "denied");
+    assert.equal(second.kind, "code");
+    first.answer(LANDING);
+    second.answer(LANDING);
+    assert.equal((await denied).status, 303);
+    assert.equal((await coded).status, 303);
+  } finally {
+    loopback.close();
+  }
 });
 
-test("stray requests are refused and never count as the callback", async () => {
+test("stray requests are refused and never count as a callback", async () => {
   const loopback = await listening();
   try {
     const port = new URL(loopback.redirectUri).port;
@@ -78,12 +96,22 @@ test("stray requests are refused and never count as the callback", async () => {
     }
 
     const reply = get(loopback, "/callback?code=GOOD1");
-    assert.deepEqual(await loopback.callback, { kind: "code", code: "GOOD1" });
-    // After the one callback, nothing else is accepted.
-    assert.equal((await get(loopback, "/callback?code=LATER")).status, 404);
-    loopback.finish("https://app.driggsby.com/connect/claim-1");
+    const callback = await loopback.next();
+    assert.ok(callback.kind === "code");
+    assert.equal(callback.code, "GOOD1");
+    callback.answer(LANDING);
     await reply;
   } finally {
     loopback.close();
   }
+});
+
+test("closing answers any browser still waiting", async () => {
+  const loopback = await listening();
+  const reply = get(loopback, "/callback?code=GOOD1");
+  await loopback.next();
+
+  loopback.close();
+
+  assert.equal((await reply).status, 200);
 });

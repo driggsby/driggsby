@@ -8,6 +8,7 @@ import { readFileToken } from "../credentials/file-store.ts";
 import { APP_TOKEN, APPROVAL_CODE, loginHarness, startConsentServer } from "../test-support/fake-consent.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
 import { runLogin, runLoginWithCode } from "./login.ts";
+import { readPendingLogin } from "./pending.ts";
 import { challengeFor } from "./pkce.ts";
 
 function pendingFile(homeDirectory: string): string {
@@ -110,6 +111,8 @@ test("a denial on the approval page ends the sign-in and sends the browser back"
   const server = await startConsentServer();
   const login = loginHarness(server, { browser: "denies" });
 
+  // Whichever hears it first, the loopback's confirmed denial or the poll,
+  // the sign-in ends with a fresh start to try.
   await assert.rejects(runLogin(login.environment, login.io), (error: unknown) => {
     assert.ok(error instanceof CliError);
     assert.ok(error.message.includes("declined"));
@@ -121,17 +124,38 @@ test("a denial on the approval page ends the sign-in and sends the browser back"
   assert.equal(await readFileToken(login.environment.homeDirectory), null);
 });
 
-test("a code Driggsby refuses at the loopback ends the sign-in, and the browser still goes back", async () => {
+test("a forged denial or a bogus code at the loopback never ends the sign-in", async () => {
   const server = await startConsentServer();
-  // The approval's one code was already spent.
-  server.tradeBodies.push({ code: APPROVAL_CODE });
-  const login = loginHarness(server);
+  // Some other page on this computer knocks first: Driggsby still reads the
+  // claim as pending, and the bogus code doesn't trade.
+  const login = loginHarness(server, { knocks: ["error=access_denied", "code=BOGUS-00000-00000-00000"] });
 
-  await assert.rejects(runLogin(login.environment, login.io), (error: unknown) => {
-    assert.ok(error instanceof CliError);
-    assert.ok(error.message.includes("didn't work"));
-    return true;
-  });
-  assert.deepEqual(await login.browserLanding, { status: 303, location: `${server.baseUrl}/connect/claim-1` });
-  assert.equal(await readFileToken(login.environment.homeDirectory), null);
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.deepEqual(
+    server.tradeBodies.map((trade) => trade.code),
+    ["BOGUS-00000-00000-00000", APPROVAL_CODE],
+  );
+});
+
+test("an approval near the link's end still finishes inside its code window", async () => {
+  const server = await startConsentServer();
+  // The link's own 600 s pass with the claim still pending (approved,
+  // waiting for its code); only then does the code arrive at the prompt.
+  const login = loginHarness(server, { loopback: false, typed: [] });
+  const waiting = runLogin(login.environment, login.io);
+  while (login.io.now() < 620_000) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const record = await readPendingLogin(login.environment.homeDirectory, login.io.now());
+  assert.ok(record !== null, "the waiting sign-in outlives the link by the code window");
+  await runLoginWithCode(APPROVAL_CODE, login.environment, login.io);
+  server.claimGone = true;
+
+  // The first command hears the claim is gone and sees the other one
+  // finished it: that is a sign-in, not a failure.
+  await waiting;
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.ok(login.output().includes("finished with npx driggsby@latest login --code"));
 });

@@ -27,6 +27,9 @@ export interface FakeConsentServer {
   // The parsed body of each claim create and each code trade, in order.
   createBodies: Record<string, unknown>[];
   tradeBodies: Record<string, unknown>[];
+  // Once set (the person denied), every poll without a scripted answer
+  // reads gone.
+  claimGone: boolean;
 }
 
 const servers: Server[] = [];
@@ -44,6 +47,7 @@ export function startConsentServer(): Promise<FakeConsentServer> {
     claimUrlPath: null,
     createBodies: [],
     tradeBodies: [],
+    claimGone: false,
   };
   const server = createServer((incoming, response) => {
     let raw = "";
@@ -82,7 +86,7 @@ export function startConsentServer(): Promise<FakeConsentServer> {
         }
         return;
       }
-      const next = fake.pollResponses.shift() ?? { status: 200, body: { status: "pending" } };
+      const next = fake.pollResponses.shift() ?? { status: 200, body: { status: fake.claimGone ? "gone" : "pending" } };
       reply(next.status, next.body);
     });
   });
@@ -113,6 +117,9 @@ export interface HarnessOptions {
   loopback?: boolean;
   // Lines typed at the code prompt, or null for no terminal.
   typed?: string[] | null;
+  // Callbacks some other page on this computer sends to the loopback
+  // first, one after another (query strings).
+  knocks?: string[];
 }
 
 export interface LoginHarness {
@@ -152,7 +159,15 @@ export function loginHarness(server: FakeConsentServer, options: HarnessOptions 
         const redirectUri = server.createBodies.at(-1)?.redirect_uri;
         if (browser !== "idle" && new URL(url).searchParams.get("handoff") === "loopback" && typeof redirectUri === "string") {
           const query = browser === "approves" ? `code=${APPROVAL_CODE}` : "error=access_denied";
-          harness.browserLanding = visit(`${redirectUri}?${query}`);
+          harness.browserLanding = (async () => {
+            for (const knock of options.knocks ?? []) {
+              await visit(`${redirectUri}?${knock}`);
+            }
+            if (browser === "denies") {
+              server.claimGone = true;
+            }
+            return visit(`${redirectUri}?${query}`);
+          })();
         }
         return Promise.resolve(true);
       },

@@ -7,6 +7,9 @@ import { pollClaimRequest, tradeCode } from "./claim-client.ts";
 import { type LoopbackCallback } from "./loopback.ts";
 
 export const LOGIN_RETRY_COMMAND = "npx driggsby@latest login";
+// Approving leaves at least this long to trade the code, even past the
+// link's own lifetime, so a late approval can still finish.
+export const CODE_WINDOW_MS = 300_000;
 // A trade that hits a momentary hiccup is tried again this many times.
 const TRADE_ATTEMPTS = 3;
 const TRADE_RETRY_MS = 2_000;
@@ -23,9 +26,11 @@ export interface WaitingSignIn {
   pollSecret: string;
   codeVerifier: string;
   deadline: number;
-  // The loopback's callback and how to send its browser on, or null when
-  // this CLI isn't listening.
-  loopback: { callback: Promise<LoopbackCallback>; finish: () => void } | null;
+  // Where a browser goes back to once its callback is answered: the
+  // approval page, which by then says how the sign-in went.
+  landingUrl: string;
+  // The loopback's callbacks, or null when this CLI isn't listening.
+  loopback: { next: () => Promise<LoopbackCallback> } | null;
   prompt: CodePrompt | null;
   promptQuestion: string;
 }
@@ -43,7 +48,7 @@ export async function awaitToken(sign: WaitingSignIn, clock: WaitClock): Promise
   const stop = new AbortController();
   try {
     const outcome = await Promise.race([
-      fromLoopback(sign, clock),
+      fromLoopback(sign, clock, stop.signal),
       fromPaste(sign, clock, stop.signal),
       fromPoll(sign, clock, stop.signal),
     ]);
@@ -56,24 +61,39 @@ export async function awaitToken(sign: WaitingSignIn, clock: WaitClock): Promise
   }
 }
 
-// The browser on this computer handed over the code (or Driggsby's
-// denial). The browser waits on the loopback until the trade is done, so it
-// lands on a page that already says how it went.
-async function fromLoopback(sign: WaitingSignIn, clock: WaitClock): Promise<Outcome> {
+// A browser on this computer handed over a code, or Driggsby's denial. Its
+// request waits on the loopback until the trade is done, so it lands on a
+// page that already says how it went. Any page on this computer can reach
+// the loopback, so a code that doesn't trade is ignored (the approval's
+// real code still works), and a denial counts only once Driggsby confirms
+// the claim is gone.
+async function fromLoopback(sign: WaitingSignIn, clock: WaitClock, signal: AbortSignal): Promise<Outcome> {
   if (sign.loopback === null) {
     return never();
   }
-  const callback = await sign.loopback.callback;
-  if (callback.kind === "denied") {
-    sign.loopback.finish();
-    return { kind: "error", error: declined() };
+  for (;;) {
+    const callback = await sign.loopback.next();
+    if (stopped(signal)) {
+      callback.answer(sign.landingUrl);
+      return never();
+    }
+    if (callback.kind === "denied") {
+      const poll = await pollClaimRequest(sign.baseUrl, { claimRequestId: sign.claimRequestId, pollSecret: sign.pollSecret });
+      callback.answer(sign.landingUrl);
+      if (poll.kind === "gone") {
+        return { kind: "error", error: declined() };
+      }
+      continue;
+    }
+    const result = await tradeWithRetries(sign, callback.code, clock);
+    callback.answer(sign.landingUrl);
+    if (result.kind === "approved") {
+      return { kind: "token", appToken: result.appToken };
+    }
+    if (result.kind === "unreachable") {
+      return { kind: "error", error: new CliError(`${result.message}\n\nStart a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`, 1) };
+    }
   }
-  const result = await tradeWithRetries(sign, callback.code, clock);
-  sign.loopback.finish();
-  if (result.kind === "approved") {
-    return { kind: "token", appToken: result.appToken };
-  }
-  return { kind: "error", error: new CliError(`${result.message}\n\nStart a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`, 1) };
 }
 
 // A code pasted at the prompt. A refused code asks again, so a typo costs
@@ -102,12 +122,16 @@ async function fromPaste(sign: WaitingSignIn, clock: WaitClock, signal: AbortSig
   }
 }
 
-// The claim's own state: declined or expired ends the wait. Driggsby never
-// hands a PKCE claim's token to the poll; a server that did (one older than
-// PKCE) is still handing it to the CLI that made the claim, so it counts.
+// The claim's own state: declined or expired ends the wait. An approval
+// waiting for its code still polls as pending, so the wait runs past the
+// link's lifetime by up to the code window, until Driggsby says it's gone.
+// Driggsby never hands a PKCE claim's token to the poll; a server that did
+// (one older than PKCE) is still handing it to the CLI that made the claim,
+// so it counts.
 async function fromPoll(sign: WaitingSignIn, clock: WaitClock, signal: AbortSignal): Promise<Outcome> {
   const credentials = { claimRequestId: sign.claimRequestId, pollSecret: sign.pollSecret };
-  while (clock.now() < sign.deadline) {
+  const ceiling = sign.deadline + CODE_WINDOW_MS;
+  while (clock.now() < ceiling) {
     await clock.sleep(clock.pollIntervalMs);
     if (signal.aborted) {
       return never();
@@ -136,7 +160,12 @@ async function fromPoll(sign: WaitingSignIn, clock: WaitClock, signal: AbortSign
   };
 }
 
-type TradeOutcome = { kind: "approved"; appToken: string } | { kind: "rejected"; message: string };
+// rejected: Driggsby refused the code. unreachable: the trade never got an
+// answer, so the code may still work.
+type TradeOutcome =
+  | { kind: "approved"; appToken: string }
+  | { kind: "rejected"; message: string }
+  | { kind: "unreachable"; message: string };
 
 export async function tradeWithRetries(
   sign: Pick<WaitingSignIn, "baseUrl" | "claimRequestId" | "codeVerifier">,
@@ -153,10 +182,7 @@ export async function tradeWithRetries(
       return result;
     }
     if (attempt >= TRADE_ATTEMPTS) {
-      return {
-        kind: "rejected",
-        message: "We couldn't reach Driggsby to finish signing in just now.",
-      };
+      return { kind: "unreachable", message: "We couldn't reach Driggsby to finish signing in just now." };
     }
     await clock.sleep(TRADE_RETRY_MS);
   }
