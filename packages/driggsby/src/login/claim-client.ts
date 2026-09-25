@@ -179,14 +179,14 @@ export interface CodeTrade {
 
 export type CodeTradeResult =
   | { kind: "approved"; appToken: string }
-  // Driggsby refused the code (mistyped, used, or expired); message is its
-  // user-facing reason, sanitized.
+  // Driggsby refused the code (mistyped, used, or expired); message says
+  // so in the CLI's own words.
   | { kind: "rejected"; message: string }
   // A momentary server or network hiccup; the code may still work.
   | { kind: "transient" };
 
 const CODE_REJECTED =
-  "That sign-in code didn't work. It may have been mistyped, used already, or\nexpired.";
+  "That sign-in code didn't work. It may have been mistyped, used\nalready, or expired.";
 
 export async function tradeCode(baseUrl: string, trade: CodeTrade): Promise<CodeTradeResult> {
   let response: Response;

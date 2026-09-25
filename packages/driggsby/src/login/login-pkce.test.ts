@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
 import { readFileToken } from "../credentials/file-store.ts";
-import { APP_TOKEN, APPROVAL_CODE, loginHarness, startConsentServer } from "../test-support/fake-consent.ts";
+import { APP_TOKEN, APPROVAL_CODE, loginHarness, startConsentServer, visit } from "../test-support/fake-consent.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
 import { FINISH_MARK_WAIT_MS, runLogin, runLoginWithCode } from "./login.ts";
 import { readPendingLogin } from "./pending.ts";
@@ -88,15 +88,62 @@ test("an agent with no browser and no prompt gets the link and --code, and finis
 
 test("the trade that spends the claim wins even when a poll reads gone first", async () => {
   const server = await startConsentServer();
-  // The claim is spent as the trade lands; its answer arrives a moment
-  // after, while polls already read gone.
-  server.tradeReplyDelayMs = 60;
+  // The claim is spent as the trade lands; its answer is held until a poll
+  // has read gone.
+  const goneRead = gate();
+  server.onPollGone = goneRead.open;
+  server.onTradeSpent = () => goneRead.opened;
   const login = loginHarness(server);
 
   await runLogin(login.environment, login.io);
 
   assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
   assert.ok(login.output().includes("Approved."));
+});
+
+test("a denial knocked while a pasted code's trade spends the claim still signs in", async () => {
+  const server = await startConsentServer();
+  // The regular poll never runs, so only the denial's own check reads the
+  // claim, and it reads gone (the trade spent it) before the trade's
+  // answer is let through.
+  const login = loginHarness(server, {
+    browser: "idle",
+    typed: [APPROVAL_CODE],
+    beforeSleep: (ms) => (ms === login.io.pollIntervalMs ? new Promise(() => undefined) : Promise.resolve()),
+  });
+  const goneRead = gate();
+  server.onPollGone = goneRead.open;
+  let denial: Promise<unknown> = Promise.resolve();
+  server.onTradeSpent = async () => {
+    denial = visit(`${String(server.createBodies[0]?.redirect_uri)}?error=access_denied`).catch(() => null);
+    await goneRead.opened;
+  };
+
+  await runLogin(login.environment, login.io);
+  await denial;
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.ok(login.output().includes("Approved."));
+});
+
+test("with no prompt and no loopback, login hands over the link and --code without waiting", async () => {
+  const server = await startConsentServer();
+  // Over SSH the browser runs elsewhere, so the page always shows the code,
+  // and no agent is at a prompt to paste it.
+  const login = loginHarness(server, { extraEnv: { SSH_CONNECTION: "1" }, typed: null });
+
+  await runLogin(login.environment, login.io);
+
+  const text = login.output();
+  assert.ok(text.includes("After you approve, the page shows a code."));
+  assert.ok(text.includes("npx driggsby@latest login --code <CODE>"));
+  assert.ok(!text.includes("Waiting for your approval"));
+  assertFitsTerminal(text);
+  // It never slept, so it never waited on a poll.
+  assert.equal(login.io.now(), 0);
+
+  await runLoginWithCode(APPROVAL_CODE, login.environment, login.io);
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
 });
 
 test("a pasted link, or anything too long to be a code, asks again without a trade", async () => {

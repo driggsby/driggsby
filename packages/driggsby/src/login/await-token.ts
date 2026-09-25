@@ -3,7 +3,7 @@
 // going away (declined or expired) ends it. Every code is traded with the
 // verifier; only that trade returns the token.
 import { CliError } from "../cli-error.ts";
-import { pollClaimRequest, tradeCode } from "./claim-client.ts";
+import { pollClaimRequest, type PollResult, tradeCode } from "./claim-client.ts";
 import { type LoopbackCallback } from "./loopback.ts";
 
 export const LOGIN_RETRY_COMMAND = "npx driggsby@latest login";
@@ -132,7 +132,7 @@ async function fromLoopback(sign: WaitingSignIn, clock: WaitClock, trades: Trade
     }
     if (callback.kind === "denied") {
       const mark = trades.started;
-      const poll = await pollClaimRequest(sign.baseUrl, { claimRequestId: sign.claimRequestId, pollSecret: sign.pollSecret });
+      const poll = await pollLettingTradesSpeak(sign, trades, mark);
       if (poll.kind === "gone") {
         // A trade in flight may be what spent the claim; it speaks first.
         await settleTrades(trades, mark);
@@ -188,7 +188,10 @@ async function fromPaste(sign: WaitingSignIn, clock: WaitClock, trades: Trades, 
     if (result.kind === "approved") {
       return { kind: "token", appToken: result.appToken };
     }
-    question = `${result.message}\nCheck the code and paste it again: `;
+    question =
+      result.kind === "unreachable"
+        ? `${result.message}\nPaste the code again to retry: `
+        : `${result.message}\nCheck the code and paste it again: `;
   }
 }
 
@@ -199,7 +202,6 @@ async function fromPaste(sign: WaitingSignIn, clock: WaitClock, trades: Trades, 
 // (one older than PKCE) is still handing it to the CLI that made the claim,
 // so it counts.
 async function fromPoll(sign: WaitingSignIn, clock: WaitClock, trades: Trades, signal: AbortSignal): Promise<Outcome> {
-  const credentials = { claimRequestId: sign.claimRequestId, pollSecret: sign.pollSecret };
   const ceiling = sign.deadline + CODE_WINDOW_MS;
   while (clock.now() < ceiling) {
     await clock.sleep(clock.pollIntervalMs, signal);
@@ -207,7 +209,7 @@ async function fromPoll(sign: WaitingSignIn, clock: WaitClock, trades: Trades, s
       return never();
     }
     const mark = trades.started;
-    const result = await pollClaimRequest(sign.baseUrl, credentials);
+    const result = await pollLettingTradesSpeak(sign, trades, mark);
     if (stopped(signal)) {
       return never();
     }
@@ -238,6 +240,18 @@ async function fromPoll(sign: WaitingSignIn, clock: WaitClock, trades: Trades, s
     kind: "error",
     error: new CliError(`The sign-in link expired before it was approved.\n\nStart a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`, 1),
   };
+}
+
+// The claim's state. A poll that fails outright (an answer Driggsby never
+// gives) ends the wait, but only after any trade in flight speaks: that
+// trade may be what spent the claim, and its token must not be dropped.
+function pollLettingTradesSpeak(sign: WaitingSignIn, trades: Trades, mark: number): Promise<PollResult> {
+  return pollClaimRequest(sign.baseUrl, { claimRequestId: sign.claimRequestId, pollSecret: sign.pollSecret }).catch(
+    async (error: unknown) => {
+      await settleTrades(trades, mark);
+      throw error;
+    },
+  );
 }
 
 // Waits out any trade that is in flight, or that started since mark, and

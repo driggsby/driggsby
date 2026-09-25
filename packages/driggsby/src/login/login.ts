@@ -110,10 +110,11 @@ export async function runLogin(
     prompt = io.codePrompt();
     const minutes = approximateMinutes(claim.expiresInSeconds);
     const minutesWord = minutes === 1 ? "minute" : "minutes";
-    if (!browserOpened && prompt === null) {
-      // No browser here and no one at a prompt: an agent. It passes the
-      // link on, and finishes with the code the page shows, which needs
-      // the record `login --code` reads.
+    if (prompt === null && (loopback === null || !browserOpened)) {
+      // No one at a prompt, and no page this CLI opened can hand the code
+      // to the loopback: an agent, or a remote session. Nothing in this
+      // process could ever receive the code, so it doesn't wait: the page
+      // shows the code, and `login --code` finishes with the record.
       if (!remembered) {
         throw new CliError(
           "We couldn't save this sign-in on this machine to finish it later, so it\n" +
@@ -121,7 +122,11 @@ export async function runLogin(
           1,
         );
       }
-      io.out("Open this link in your browser to approve access for this machine:\n\n");
+      io.out(
+        browserOpened
+          ? "Your browser should open a Driggsby approval page. If it doesn't, open\nthis link:\n\n"
+          : "Open this link in your browser to approve access for this machine:\n\n",
+      );
       io.out(`  ${claimUrl}\n\n`);
       io.out(`After you approve, the page shows a code. Finish signing in with:\n  ${CODE_COMMAND}\n\n`);
       io.out(`The link is good for about ${minutes} ${minutesWord}.\n`);
@@ -196,9 +201,18 @@ export async function runLoginWithCode(
     throw new CliError(`This sign-in already finished.\n\nTo sign in again:\n  ${LOGIN_RETRY_COMMAND}`, 1);
   }
   const result = await tradeWithRetries(pending, code.trim(), io);
-  if (result.kind !== "approved") {
+  if (result.kind === "unreachable") {
     throw new CliError(
-      `${result.message}\n\nCheck the code and run the command again, or start a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`,
+      `${result.message}\n\nYour code may still work: run the same command again in a minute.\n` +
+        `Or start a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`,
+      1,
+    );
+  }
+  if (result.kind === "rejected") {
+    // One record per computer: a newer `login` replaced an older one's.
+    throw new CliError(
+      `${result.message}\n\nCheck the code and run the command again. Only the code from the latest\n` +
+        `sign-in started on this computer works here. Or start a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`,
       1,
     );
   }

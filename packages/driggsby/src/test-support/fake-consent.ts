@@ -30,11 +30,10 @@ export interface FakeConsentServer {
   // Once set (the person denied, or the code was traded), every poll
   // without a scripted answer reads gone.
   claimGone: boolean;
-  // How long a successful trade's reply waits after the claim is spent,
-  // so a poll can read gone before the trade's answer arrives.
-  tradeReplyDelayMs: number;
   // Called as a trade spends the claim; its reply waits until this settles.
   onTradeSpent: (() => Promise<void>) | null;
+  // Called each time a poll is answered gone.
+  onPollGone: (() => void) | null;
   // Trades answered 503 before any is answered for real.
   tradeFailures: number;
 }
@@ -56,8 +55,8 @@ export function offlineConsentServer(baseUrl: string): FakeConsentServer {
     createBodies: [],
     tradeBodies: [],
     claimGone: false,
-    tradeReplyDelayMs: 0,
     onTradeSpent: null,
+    onPollGone: null,
     tradeFailures: 0,
   };
 }
@@ -103,9 +102,7 @@ export function startConsentServer(): Promise<FakeConsentServer> {
           // The claim is spent the moment the trade lands, as on Driggsby.
           fake.claimGone = true;
           void (fake.onTradeSpent?.() ?? Promise.resolve()).then(() => {
-            setTimeout(() => {
-              reply(200, { app_token: APP_TOKEN, mcp_url: `${fake.baseUrl}/mcp` });
-            }, fake.tradeReplyDelayMs);
+            reply(200, { app_token: APP_TOKEN, mcp_url: `${fake.baseUrl}/mcp` });
           });
         } else {
           reply(400, { error: "invalid_grant", error_description: "That sign-in code didn't work." });
@@ -114,6 +111,9 @@ export function startConsentServer(): Promise<FakeConsentServer> {
       }
       const next = fake.pollResponses.shift() ?? { status: 200, body: { status: fake.claimGone ? "gone" : "pending" } };
       reply(next.status, next.body);
+      if ((next.body as { status?: unknown } | null)?.status === "gone") {
+        fake.onPollGone?.();
+      }
     });
   });
   servers.push(server);
@@ -219,7 +219,8 @@ export function loginHarness(server: FakeConsentServer, options: HarnessOptions 
   return harness;
 }
 
-function visit(url: string): Promise<{ status: number; location: string | undefined }> {
+// A browser (or any page on this computer) requesting url.
+export function visit(url: string): Promise<{ status: number; location: string | undefined }> {
   return new Promise((resolve, reject) => {
     const outgoing = request(url, (response) => {
       response.resume();
