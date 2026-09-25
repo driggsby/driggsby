@@ -13,7 +13,7 @@ import { runRollback } from "./deploy/rollback-command.ts";
 import { runVersions } from "./deploy/versions-command.ts";
 import { runQuery } from "./query/query-command.ts";
 import { runRules } from "./rules/rules-command.ts";
-import { runLogin } from "./login/login.ts";
+import { runLogin, runLoginWithCode } from "./login/login.ts";
 import { runLogout } from "./login/logout.ts";
 import { runMcpSetup } from "./mcp-setup/setup.ts";
 import { VERSION } from "./version.ts";
@@ -33,7 +33,7 @@ async function run(argv: string[]): Promise<number> {
       await runMcpSetup({ client: command.client, print: command.print, scope: command.scope });
       return 0;
     case "login":
-      await runLogin();
+      await (command.code === null ? runLogin() : runLoginWithCode(command.code));
       return 0;
     case "logout":
       return await runLogout();

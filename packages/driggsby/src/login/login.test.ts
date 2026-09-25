@@ -1,159 +1,75 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, test } from "node:test";
+import { test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
 import { describeDevice, knownDevice } from "../device.ts";
 import { readFileToken, writeFileToken } from "../credentials/file-store.ts";
-import { type CredentialEnvironment } from "../credentials/store.ts";
 import { fakeCredentialToolEnvironment } from "../test-support/fake-credential-tool.ts";
+import {
+  APP_TOKEN,
+  type FakeConsentServer,
+  type HarnessOptions,
+  loginHarness,
+  type LoginHarness,
+  offlineConsentServer,
+  startConsentServer,
+} from "../test-support/fake-consent.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
-import { type LoginIo, runLogin } from "./login.ts";
+import { runLogin } from "./login.ts";
 import { runLogout } from "./logout.ts";
 
-const APP_TOKEN = "dgb_at_test_1111";
-
-interface FakeConsentServer {
-  baseUrl: string;
-  pollResponses: { status: number; body: unknown }[];
-  claimUrlOrigin: string | null;
-  claimUrlPath: string | null;
-  // The parsed body of each claim-create request, in order.
-  createBodies: unknown[];
+// The login tests' one harness: a fake Driggsby and a person who approves
+// on the page this CLI opens, unless options say otherwise.
+function harness(server: FakeConsentServer | string, options: HarnessOptions = {}): LoginHarness {
+  const fake = typeof server === "string" ? offlineConsentServer(server) : server;
+  return loginHarness(fake, options);
 }
 
-const servers: Server[] = [];
-after(() => {
-  for (const server of servers) {
-    server.close();
-  }
-});
-
-// A fake of the two claim endpoints: create answers with a claim on this
-// server's own origin (or an attacker origin when claimUrlOrigin overrides
-// it), and each poll shifts the next scripted response.
-function startConsentServer(): Promise<FakeConsentServer> {
-  const fake: FakeConsentServer = {
-    baseUrl: "",
-    pollResponses: [],
-    claimUrlOrigin: null,
-    claimUrlPath: null,
-    createBodies: [],
-  };
-  const server = createServer((request, response) => {
-    let raw = "";
-    request.setEncoding("utf8");
-    request.on("data", (chunk: string) => {
-      raw += chunk;
-    });
-    request.on("end", () => {
-      if (request.url === "/app-tokens/claim-requests") {
-        fake.createBodies.push(raw === "" ? null : JSON.parse(raw));
-        response.writeHead(201, { "Content-Type": "application/json" });
-        response.end(
-          JSON.stringify({
-            claim_request_id: "claim-1",
-            claim_url: `${fake.claimUrlOrigin ?? fake.baseUrl}${fake.claimUrlPath ?? "/connect/claim-1"}`,
-            poll_secret: "secret-1",
-            poll_url: `${fake.baseUrl}/app-tokens/claim-requests/poll`,
-            expires_in: 600,
-          }),
-        );
-        return;
-      }
-      const next = fake.pollResponses.shift() ?? { status: 200, body: { status: "pending" } };
-      response.writeHead(next.status, { "Content-Type": "application/json" });
-      response.end(JSON.stringify(next.body));
-    });
-  });
-  servers.push(server);
-  return new Promise((resolve) => {
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        throw new Error("no server address");
-      }
-      fake.baseUrl = `http://127.0.0.1:${address.port}`;
-      resolve(fake);
-    });
-  });
-}
-
-interface TestHarness {
-  environment: CredentialEnvironment;
-  io: LoginIo;
-  output: () => string;
-  openedUrls: string[];
-}
-
-function harness(baseUrl: string, extraEnv: NodeJS.ProcessEnv = {}): TestHarness {
-  const written: string[] = [];
-  const openedUrls: string[] = [];
-  let clock = 0;
-  const environment: CredentialEnvironment = {
-    // win32 forces the file store, which works on every CI platform.
-    platform: "win32",
-    env: { DRIGGSBY_BASE_URL: baseUrl, ...extraEnv },
-    homeDirectory: mkdtempSync(join(tmpdir(), "driggsby-login-")),
-  };
-  const io: LoginIo = {
-    out: (text) => written.push(text),
-    openUrl: (url) => {
-      openedUrls.push(url);
-      return Promise.resolve(true);
-    },
-    sleep: (ms) => {
-      clock += ms;
-      return Promise.resolve();
-    },
-    now: () => clock,
-    pollIntervalMs: 4000,
-  };
-  return { environment, io, output: () => written.join(""), openedUrls };
-}
-
-test("login walks create → poll → approved and stores the token", async () => {
+test("login hands the code over the loopback, trades it with the verifier, and stores the token", async () => {
   const server = await startConsentServer();
-  server.pollResponses.push(
-    { status: 200, body: { status: "pending" } },
-    { status: 503, body: { error: "temporarily_unavailable", error_description: "momentary" } },
-    { status: 200, body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" } },
-  );
-  const { environment, io, output, openedUrls } = harness(server.baseUrl);
+  const login = harness(server);
 
-  await runLogin(environment, io);
+  await runLogin(login.environment, login.io);
 
-  assert.equal(await readFileToken(environment.homeDirectory), APP_TOKEN);
-  assert.deepEqual(openedUrls, [`${server.baseUrl}/connect/claim-1`]);
-  const text = output();
-  assert.ok(text.includes(`${server.baseUrl}/connect/claim-1`));
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  // The page this CLI opened carries the handoff; the printed link never does.
+  assert.deepEqual(login.openedUrls, [`${server.baseUrl}/connect/claim-1?handoff=loopback`]);
+  const text = login.output();
+  assert.ok(text.includes(`  ${server.baseUrl}/connect/claim-1\n`));
+  assert.ok(!text.includes("handoff"));
   assert.ok(text.includes("Waiting for your approval"));
   assert.ok(text.includes("Approved."));
   assert.ok(text.includes("~/.driggsby/credentials.json"));
   assert.ok(text.includes("Next:"));
   assert.ok(!text.includes(APP_TOKEN), "the token must never be printed");
   assertFitsTerminal(text);
+  // The browser waited on the loopback, then went back to Driggsby's page,
+  // which by then says the sign-in is done.
+  assert.deepEqual(await login.browserLanding, { status: 303, location: `${server.baseUrl}/connect/claim-1` });
 });
 
 test("login names this computer in its sign-in request, with only what it knows", async () => {
   const server = await startConsentServer();
-  server.pollResponses.push({ status: 200, body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" } });
-  const { environment, io } = harness(server.baseUrl);
+  const { environment, io } = harness(server);
 
   await runLogin(environment, io);
 
   const known = knownDevice(describeDevice());
-  const expected = { app_name: "Driggsby CLI", scope: "driggsby.cli", ...(known === null ? {} : { device: known }) };
-  assert.deepEqual(server.createBodies, [expected]);
+  const body = server.createBodies[0];
+  assert.equal(server.createBodies.length, 1);
+  assert.ok(body !== undefined);
+  assert.deepEqual(body.device, known ?? undefined);
+  assert.equal(body.app_name, "Driggsby CLI");
+  assert.equal(body.scope, "driggsby.cli");
 });
 
 test("login fails with a friendly retry when the claim is gone", async () => {
   const server = await startConsentServer();
   server.pollResponses.push({ status: 200, body: { status: "gone", note: "server note" } });
-  const { environment, io } = harness(server.baseUrl);
+  const { environment, io } = harness(server, { browser: "idle" });
 
   await assert.rejects(runLogin(environment, io), (error: unknown) => {
     assert.ok(error instanceof CliError);
@@ -168,7 +84,7 @@ test("login gives up politely when the link expires unapproved", async () => {
   const server = await startConsentServer();
   // Every poll stays pending; the injected clock advances 4 s per sleep, so
   // the 600 s expiry passes after ~150 polls.
-  const { environment, io } = harness(server.baseUrl);
+  const { environment, io } = harness(server, { browser: "idle" });
 
   await assert.rejects(runLogin(environment, io), (error: unknown) => {
     assert.ok(error instanceof CliError);
@@ -184,11 +100,7 @@ test("a claim URL with terminal control bytes is normalized before printing", as
   // The URL parser percent-encodes the ESC byte; the raw server string is
   // never printed or handed to the opener.
   server.claimUrlPath = "/connect/claim-1\u001b[2K";
-  server.pollResponses.push({
-    status: 200,
-    body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" },
-  });
-  const { environment, io, output, openedUrls } = harness(server.baseUrl);
+  const { environment, io, output, openedUrls } = harness(server);
 
   await runLogin(environment, io);
 
@@ -199,7 +111,7 @@ test("a claim URL with terminal control bytes is normalized before printing", as
 test("login refuses a claim URL on a foreign origin", async () => {
   const server = await startConsentServer();
   server.claimUrlOrigin = "https://evil.example";
-  const { environment, io, openedUrls } = harness(server.baseUrl);
+  const { environment, io, openedUrls } = harness(server);
 
   await assert.rejects(runLogin(environment, io), CliError);
   assert.deepEqual(openedUrls, []);
@@ -209,7 +121,7 @@ test("login refuses a claim URL that carries userinfo credentials", async () => 
   // URL.origin ignores user:pass@, so this passes an origin-only check while
   // rendering a misleading link; it must be rejected outright.
   const server = await startConsentServer();
-  const { environment, io, openedUrls } = harness(server.baseUrl);
+  const { environment, io, openedUrls } = harness(server);
   const serverHostPort = server.baseUrl.replace("http://", "");
   server.claimUrlOrigin = `http://user:secret@${serverHostPort}`;
 
@@ -219,11 +131,7 @@ test("login refuses a claim URL that carries userinfo credentials", async () => 
 
 test("a shadowing DRIGGSBY_TOKEN is the last word, not a scrolled-away note", async () => {
   const server = await startConsentServer();
-  server.pollResponses.push({
-    status: 200,
-    body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" },
-  });
-  const { environment, io, output } = harness(server.baseUrl, { DRIGGSBY_TOKEN: "dgb_at_env_9999" });
+  const { environment, io, output } = harness(server, { extraEnv: { DRIGGSBY_TOKEN: "dgb_at_env_9999" } });
 
   await runLogin(environment, io);
 
@@ -240,11 +148,7 @@ test("a shadowing DRIGGSBY_TOKEN is the last word, not a scrolled-away note", as
 
 test("logout removes the saved token and reports where it was", async () => {
   const server = await startConsentServer();
-  server.pollResponses.push({
-    status: 200,
-    body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" },
-  });
-  const { environment, io } = harness(server.baseUrl);
+  const { environment, io } = harness(server);
   await runLogin(environment, io);
 
   const written: string[] = [];
@@ -267,7 +171,7 @@ test("logout with nothing saved says so instead of failing", async () => {
 test("logout points out a DRIGGSBY_TOKEN it cannot unset itself", async () => {
   // Without this note a user would read "nothing to remove", see the prompt
   // return 0, and stay authenticated through the env var with no signal.
-  const { environment } = harness("http://127.0.0.1:1", { DRIGGSBY_TOKEN: "dgb_at_env_9999" });
+  const { environment } = harness("http://127.0.0.1:1", { extraEnv: { DRIGGSBY_TOKEN: "dgb_at_env_9999" } });
   const written: string[] = [];
   assert.equal(await runLogout(environment, (text) => written.push(text)), 0);
   const text = written.join("");
@@ -328,15 +232,11 @@ test(
   { skip: process.platform === "win32" },
   async () => {
     const server = await startConsentServer();
-    server.pollResponses.push({
-      status: 200,
-      body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" },
-    });
     // Every security invocation errors: the save falls back to the file with
     // a warning, and that warning must be the last word — never followed by
     // copy asserting the saved token will be used.
     const fake = fakeCredentialToolEnvironment("security", "fail");
-    const { environment, io, output } = harness(server.baseUrl);
+    const { environment, io, output } = harness(server);
     environment.platform = "darwin";
     environment.spawnEnv = fake.spawnEnv;
     environment.securityProgram = fake.toolPath;
@@ -355,11 +255,7 @@ test(
 
 test("login reports a token that could not be saved instead of a generic error", async () => {
   const server = await startConsentServer();
-  server.pollResponses.push({
-    status: 200,
-    body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" },
-  });
-  const { environment, io } = harness(server.baseUrl);
+  const { environment, io } = harness(server);
   // A home directory path under a regular file: the credential write fails.
   const blockingFile = join(mkdtempSync(join(tmpdir(), "driggsby-login-")), "not-a-directory");
   writeFileSync(blockingFile, "");
