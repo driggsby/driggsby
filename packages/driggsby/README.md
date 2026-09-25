@@ -67,6 +67,8 @@ can't reach it, but anything running locally can, so stop it when you're
 done: press Ctrl+C, or run `npx driggsby@latest dev --stop` in the app's
 folder. It also stops on its own after 30 minutes with no page open.
 Previews for several apps can run at once; each prints its own addresses.
+Each data call the page makes prints one line in the terminal, after any
+retries: a check and how long it took, or a cross and the reason.
 
 ## Deploying an app
 
