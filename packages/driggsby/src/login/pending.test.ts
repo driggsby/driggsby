@@ -39,8 +39,12 @@ test("a record is cleared only by its own claim, and a finished one says so", as
   await clearPendingLogin(directory, "claim-other", 0);
   assert.ok(await readPendingLogin(directory, 0));
 
-  await markPendingLoginFinished(directory, PENDING);
-  assert.equal((await readPendingLogin(directory, 0))?.finished, true);
+  await markPendingLoginFinished(directory, "claim-other", 0);
+  assert.equal((await readPendingLogin(directory, 0))?.finished, false);
+  await markPendingLoginFinished(directory, "claim-1", 0);
+  const finished = await readPendingLogin(directory, 0);
+  assert.equal(finished?.finished, true);
+  assert.equal(finished.codeVerifier, "");
 
   await clearPendingLogin(directory, "claim-1", 0);
   assert.equal(await readPendingLogin(directory, 0), null);

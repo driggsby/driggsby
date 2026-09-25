@@ -216,7 +216,9 @@ export async function tradeCode(baseUrl: string, trade: CodeTrade): Promise<Code
   }
   // The CLI says what to do next itself (paste again, or start over), so a
   // refused code reads in its own words.
-  if (response.status === 400) {
+  // 422 too: a paste Driggsby reads as blank (a Unicode space the CLI
+  // doesn't trim) is a wrong code, never the end of the sign-in.
+  if (response.status === 400 || response.status === 422) {
     return { kind: "rejected", message: CODE_REJECTED };
   }
   if (response.status === 429 || response.status >= 500) {

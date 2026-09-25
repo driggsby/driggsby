@@ -131,10 +131,13 @@ async function fromLoopback(sign: WaitingSignIn, clock: WaitClock, trades: Trade
       return never();
     }
     if (callback.kind === "denied") {
+      const mark = trades.started;
       const poll = await pollClaimRequest(sign.baseUrl, { claimRequestId: sign.claimRequestId, pollSecret: sign.pollSecret });
       if (poll.kind === "gone") {
+        // A trade in flight may be what spent the claim; it speaks first.
+        await settleTrades(trades, mark);
         callback.answer(sign.landingUrl);
-        return { kind: "error", error: declined() };
+        return stopped(signal) ? never() : { kind: "error", error: declined() };
       }
       callback.refuse();
       continue;
@@ -212,13 +215,9 @@ async function fromPoll(sign: WaitingSignIn, clock: WaitClock, trades: Trades, s
       return { kind: "token", appToken: result.appToken };
     }
     if (result.kind === "gone") {
-      if (trades.busy() || trades.started !== mark) {
-        await trades.idle();
-        // One more turn, so a trade that won settles the race first.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        if (stopped(signal)) {
-          return never();
-        }
+      await settleTrades(trades, mark);
+      if (stopped(signal)) {
+        return never();
       }
       return {
         kind: "error",
@@ -230,10 +229,26 @@ async function fromPoll(sign: WaitingSignIn, clock: WaitClock, trades: Trades, s
       };
     }
   }
+  // A trade still in flight at the ceiling may be the one that spends it.
+  await settleTrades(trades, trades.started);
+  if (stopped(signal)) {
+    return never();
+  }
   return {
     kind: "error",
     error: new CliError(`The sign-in link expired before it was approved.\n\nStart a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`, 1),
   };
+}
+
+// Waits out any trade that is in flight, or that started since mark, and
+// then one more turn, so a trade that spent the claim settles the race
+// before a "gone" or "expired" does.
+async function settleTrades(trades: Trades, mark: number): Promise<void> {
+  if (!trades.busy() && trades.started === mark) {
+    return;
+  }
+  await trades.idle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 // rejected: Driggsby refused the code, or it isn't shaped like one.
@@ -253,6 +268,9 @@ export async function tradeWithRetries(
     return { kind: "rejected", message: CODE_SHAPE_REFUSED };
   }
   for (let attempt = 1; ; attempt += 1) {
+    if (attempt > 1 && signal !== undefined && stopped(signal)) {
+      return { kind: "unreachable", message: UNREACHABLE };
+    }
     const result = await tradeCode(sign.baseUrl, {
       claimRequestId: sign.claimRequestId,
       code,
@@ -268,8 +286,10 @@ export async function tradeWithRetries(
   }
 }
 
+// A confirmed denial is the claim gone too, so a login whose sign-in
+// another command finished still tells that apart.
 function declined(): CliError {
-  return new CliError(`This sign-in was declined.\n\nStart a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`, 1);
+  return new ClaimGone(`This sign-in was declined.\n\nStart a fresh sign-in:\n  ${LOGIN_RETRY_COMMAND}`, 1);
 }
 
 // Read through a call: the signal flips while this code awaits, which a

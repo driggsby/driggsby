@@ -38,11 +38,16 @@ import {
   savePendingLogin,
 } from "./pending.ts";
 import { createPkcePair } from "./pkce.ts";
+import { abortableSleep } from "./sleep.ts";
 import { terminalCodePrompt } from "./terminal-prompt.ts";
 
 const DEFAULT_POLL_INTERVAL_MS = 4_000;
 // How long a waiting login gives `login --code` to mark a spent claim.
-const FINISH_MARK_WAIT_MS = 3_000;
+export const FINISH_MARK_WAIT_MS = 3_000;
+// Where a browser opened "here" may really run on another computer (an SSH
+// session, a cloud dev box forwarding its opener), so its approval could
+// never reach this loopback: the page shows the code to paste instead.
+const REMOTE_SESSION_VARIABLES = ["SSH_CONNECTION", "SSH_TTY", "CODESPACES", "GITPOD_WORKSPACE_ID"];
 
 // The side-effect surface runLogin talks to, injectable so the whole flow is
 // testable against a fake consent server with an instant clock.
@@ -83,7 +88,8 @@ export async function runLogin(
   io.out("Sign in to Driggsby\n\n");
 
   const pkce = createPkcePair();
-  const loopback = await io.startLoopback();
+  const remoteSession = REMOTE_SESSION_VARIABLES.some((name) => (environment.env[name] ?? "") !== "");
+  const loopback = remoteSession ? null : await io.startLoopback();
   let prompt: CodePrompt | null = null;
   try {
     const claim = await createClaim(baseUrl, { challenge: pkce.challenge, redirectUri: loopback?.redirectUri ?? null });
@@ -128,11 +134,11 @@ export async function runLogin(
     );
     io.out(`  ${claimUrl}\n\n`);
     io.out(`Waiting for your approval (the link is good for about ${minutes} ${minutesWord})...\n`);
-    if (prompt === null) {
+    if (prompt === null && remembered) {
       io.out(`If the page shows a code instead, finish with:\n  ${CODE_COMMAND}\n`);
     }
 
-    const appToken = await awaitTokenOrElsewhere(
+    const finish = await awaitTokenOrElsewhere(
       pending,
       awaitToken(
         {
@@ -156,9 +162,14 @@ export async function runLogin(
     prompt = null;
     // The claim is spent either way; only this sign-in's own record goes.
     await forgetPendingLogin(environment, pending, io);
-    if (appToken !== null) {
-      await finishSignIn(appToken, environment, io);
+    if (finish.kind === "elsewhere") {
+      io.out(
+        "\nThis sign-in was finished by npx driggsby@latest login --code in\n" +
+          "another command; its output says where the token was saved.\n",
+      );
+      return;
     }
+    await finishSignIn(finish.appToken, environment, io);
   } finally {
     prompt?.close();
     loopback?.close();
@@ -191,9 +202,9 @@ export async function runLoginWithCode(
       1,
     );
   }
-  // Marked before the token is saved: a login still waiting on this claim
-  // sees it finished here, not failed.
-  await markFinished(environment, pending);
+  // Marked once the claim is spent, before the token is saved: a login
+  // still waiting on this claim sees it finished here, not failed.
+  await markFinished(environment, pending, io);
   await finishSignIn(result.appToken, environment, io);
 }
 
@@ -232,7 +243,7 @@ async function rememberPendingLogin(environment: CredentialEnvironment, pending:
   }
 }
 
-// The wait's token, or null when `login --code` in another command
+// The wait's token, or "elsewhere" when `login --code` in another command
 // finished this very sign-in meanwhile: the claim reads gone, and this
 // claim's record says finished. Any other failure also ends this sign-in
 // for good, so its record goes with it.
@@ -242,14 +253,12 @@ async function awaitTokenOrElsewhere(
   remembered: boolean,
   environment: CredentialEnvironment,
   io: LoginIo,
-): Promise<string | null> {
+): Promise<{ kind: "token"; appToken: string } | { kind: "elsewhere" }> {
   try {
-    return await wait;
+    return { kind: "token", appToken: await wait };
   } catch (error) {
     if (remembered && error instanceof ClaimGone && (await finishedElsewhere(environment, pending, io))) {
-      io.out(`\nSigned in: this sign-in finished with ${CODE_COMMAND.replace(" <CODE>", "")}.\n`);
-      await forgetPendingLogin(environment, pending, io);
-      return null;
+      return { kind: "elsewhere" };
     }
     await forgetPendingLogin(environment, pending, io);
     throw error;
@@ -285,31 +294,13 @@ async function forgetPendingLogin(environment: CredentialEnvironment, pending: P
   }
 }
 
-async function markFinished(environment: CredentialEnvironment, pending: PendingLogin): Promise<void> {
+async function markFinished(environment: CredentialEnvironment, pending: PendingLogin, io: LoginIo): Promise<void> {
   try {
-    await markPendingLoginFinished(environment.homeDirectory, pending);
+    await markPendingLoginFinished(environment.homeDirectory, pending.claimRequestId, io.now());
   } catch {
     // Only a login still waiting on this claim reads it, and it then
     // reports the claim gone: the token below is saved all the same.
   }
-}
-
-function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal?.aborted === true) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
 }
 
 function handoffUrl(claimUrl: string): string {

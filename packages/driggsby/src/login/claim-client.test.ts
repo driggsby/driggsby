@@ -309,7 +309,7 @@ test("tradeCode reads a refused code as rejected, in the CLI's own words", async
   assert.ok(!result.message.includes("\u001b"));
 });
 
-test("tradeCode treats a busy or unreachable server as momentary and a malformed trade as a bug", async () => {
+test("tradeCode treats a busy or unreachable server as momentary and a malformed reply as a bug", async () => {
   const server = await startFakeServer();
   for (const status of [429, 500, 503]) {
     server.respondWith(status, {});
@@ -317,8 +317,9 @@ test("tradeCode treats a busy or unreachable server as momentary and a malformed
   }
   assert.deepEqual(await tradeCode("http://127.0.0.1:1", TRADE), { kind: "transient" });
 
+  // A trade Driggsby reads as blank is a wrong code, and the prompt asks again.
   server.respondWith(422, { error: "invalid_token_request", error_description: "Send a JSON object body." });
-  await assert.rejects(tradeCode(server.baseUrl, TRADE), CliError);
+  assert.equal((await tradeCode(server.baseUrl, TRADE)).kind, "rejected");
   server.respondWith(200, { status: "approved" });
   await assert.rejects(tradeCode(server.baseUrl, TRADE), CliError);
 });

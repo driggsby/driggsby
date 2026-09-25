@@ -14,6 +14,7 @@ import {
   type HarnessOptions,
   loginHarness,
   type LoginHarness,
+  offlineConsentServer,
   startConsentServer,
 } from "../test-support/fake-consent.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
@@ -23,23 +24,8 @@ import { runLogout } from "./logout.ts";
 // The login tests' one harness: a fake Driggsby and a person who approves
 // on the page this CLI opens, unless options say otherwise.
 function harness(server: FakeConsentServer | string, options: HarnessOptions = {}): LoginHarness {
-  const fake = typeof server === "string" ? offlineServer(server) : server;
+  const fake = typeof server === "string" ? offlineConsentServer(server) : server;
   return loginHarness(fake, options);
-}
-
-// Logout never reaches a server; its harness only needs a base URL.
-function offlineServer(baseUrl: string): FakeConsentServer {
-  return {
-    baseUrl,
-    pollResponses: [],
-    claimUrlOrigin: null,
-    claimUrlPath: null,
-    createBodies: [],
-    tradeBodies: [],
-    claimGone: false,
-    tradeReplyDelayMs: 0,
-    tradeFailures: 0,
-  };
 }
 
 test("login hands the code over the loopback, trades it with the verifier, and stores the token", async () => {

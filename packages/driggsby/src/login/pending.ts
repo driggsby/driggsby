@@ -70,8 +70,14 @@ export async function clearPendingLogin(homeDirectory: string, claimRequestId: s
   }
 }
 
-export async function markPendingLoginFinished(homeDirectory: string, pending: PendingLogin): Promise<void> {
-  await savePendingLogin(homeDirectory, { ...pending, finished: true });
+// Marks the record finished only while it is still this claim's (a newer
+// sign-in may have replaced it), and drops the spent verifier with it.
+export async function markPendingLoginFinished(homeDirectory: string, claimRequestId: string, now: number): Promise<void> {
+  const current = await readPendingLogin(homeDirectory, now);
+  if (current?.claimRequestId !== claimRequestId) {
+    return;
+  }
+  await savePendingLogin(homeDirectory, { ...current, codeVerifier: "", finished: true });
 }
 
 function pendingPath(homeDirectory: string): string {

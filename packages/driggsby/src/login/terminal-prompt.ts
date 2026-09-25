@@ -21,6 +21,9 @@ export function terminalCodePrompt(): CodePrompt | null {
     settle?.(null);
   });
   lines.on("SIGINT", () => {
+    if (open !== null) {
+      process.stdout.write("\n");
+    }
     lines.close();
     process.kill(process.pid, "SIGINT");
   });

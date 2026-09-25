@@ -33,6 +33,8 @@ export interface FakeConsentServer {
   // How long a successful trade's reply waits after the claim is spent,
   // so a poll can read gone before the trade's answer arrives.
   tradeReplyDelayMs: number;
+  // Called as a trade spends the claim; its reply waits until this settles.
+  onTradeSpent: (() => Promise<void>) | null;
   // Trades answered 503 before any is answered for real.
   tradeFailures: number;
 }
@@ -44,9 +46,10 @@ after(() => {
   }
 });
 
-export function startConsentServer(): Promise<FakeConsentServer> {
-  const fake: FakeConsentServer = {
-    baseUrl: "",
+// A fake no request ever reaches (logout needs only its base URL).
+export function offlineConsentServer(baseUrl: string): FakeConsentServer {
+  return {
+    baseUrl,
     pollResponses: [],
     claimUrlOrigin: null,
     claimUrlPath: null,
@@ -54,8 +57,13 @@ export function startConsentServer(): Promise<FakeConsentServer> {
     tradeBodies: [],
     claimGone: false,
     tradeReplyDelayMs: 0,
+    onTradeSpent: null,
     tradeFailures: 0,
   };
+}
+
+export function startConsentServer(): Promise<FakeConsentServer> {
+  const fake = offlineConsentServer("");
   const server = createServer((incoming, response) => {
     let raw = "";
     incoming.setEncoding("utf8");
@@ -94,9 +102,11 @@ export function startConsentServer(): Promise<FakeConsentServer> {
         if (codeMatches && verifierMatches && fake.tradeBodies.filter((trade) => trade.code === body.code).length === 1) {
           // The claim is spent the moment the trade lands, as on Driggsby.
           fake.claimGone = true;
-          setTimeout(() => {
-            reply(200, { app_token: APP_TOKEN, mcp_url: `${fake.baseUrl}/mcp` });
-          }, fake.tradeReplyDelayMs);
+          void (fake.onTradeSpent?.() ?? Promise.resolve()).then(() => {
+            setTimeout(() => {
+              reply(200, { app_token: APP_TOKEN, mcp_url: `${fake.baseUrl}/mcp` });
+            }, fake.tradeReplyDelayMs);
+          });
         } else {
           reply(400, { error: "invalid_grant", error_description: "That sign-in code didn't work." });
         }
@@ -136,6 +146,9 @@ export interface HarnessOptions {
   // Callbacks some other page on this computer sends to the loopback
   // first, one after another (query strings).
   knocks?: string[];
+  // Awaited as each sleep starts, with its length and the clock's time:
+  // a test holds the clock here until another step has happened.
+  beforeSleep?: (ms: number, now: number) => Promise<void>;
 }
 
 export interface LoginHarness {
@@ -193,6 +206,7 @@ export function loginHarness(server: FakeConsentServer, options: HarnessOptions 
         if (signal?.aborted === true) {
           return;
         }
+        await options.beforeSleep?.(ms, clock);
         clock += ms;
         await new Promise((resolve) => setTimeout(resolve, 2));
       },

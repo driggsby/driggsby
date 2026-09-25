@@ -7,7 +7,7 @@ import { CliError } from "../cli-error.ts";
 import { readFileToken } from "../credentials/file-store.ts";
 import { APP_TOKEN, APPROVAL_CODE, loginHarness, startConsentServer } from "../test-support/fake-consent.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
-import { runLogin, runLoginWithCode } from "./login.ts";
+import { FINISH_MARK_WAIT_MS, runLogin, runLoginWithCode } from "./login.ts";
 import { readPendingLogin } from "./pending.ts";
 import { challengeFor } from "./pkce.ts";
 
@@ -190,24 +190,72 @@ test("a forged denial or a bogus code at the loopback never ends the sign-in", a
   );
 });
 
-test("an approval near the link's end still finishes inside its code window", async () => {
+test("a late approval finished by --code in another command is a sign-in, not a failure", async () => {
   const server = await startConsentServer();
-  // The link's own 600 s pass with the claim still pending (approved,
-  // waiting for its code); only then does the code arrive at the prompt.
-  const login = loginHarness(server, { loopback: false, typed: [] });
+  const late = gate();
+  const spent = gate();
+  const paused = gate();
+  const codeDone = gate();
+  // Each step waits for the one before it, so the order is fixed:
+  // 1. the link's own 600 s pass with the claim still pending (approved,
+  //    waiting for its code), and the waiting login's polls hold there;
+  // 2. --code's trade spends the claim, and its reply is held;
+  // 3. the waiting login's poll reads gone before --code has marked the
+  //    record, so it pauses to look again;
+  // 4. --code gets its reply, marks the record finished, saves the token;
+  // 5. the pause ends and the waiting login reads the mark.
+  server.onTradeSpent = async () => {
+    spent.open();
+    await paused.opened;
+  };
+  const login = loginHarness(server, {
+    loopback: false,
+    typed: [],
+    beforeSleep: async (ms, now) => {
+      if (ms === FINISH_MARK_WAIT_MS) {
+        paused.open();
+        await codeDone.opened;
+      } else if (now >= 620_000) {
+        late.open();
+        await spent.opened;
+      }
+    },
+  });
   const waiting = runLogin(login.environment, login.io);
-  while (login.io.now() < 620_000) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  await late.opened;
   const record = await readPendingLogin(login.environment.homeDirectory, login.io.now());
   assert.ok(record !== null, "the waiting sign-in outlives the link by the code window");
-  // The trade spends the claim (the waiting login's polls read gone from
-  // then on) a moment before this command marks the record finished.
-  await runLoginWithCode(APPROVAL_CODE, login.environment, login.io);
 
-  // The first command hears the claim is gone and sees the other one
-  // finished it: that is a sign-in, not a failure.
+  await runLoginWithCode(APPROVAL_CODE, login.environment, login.io);
+  codeDone.open();
   await waiting;
+
   assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
-  assert.ok(login.output().includes("finished with npx driggsby@latest login --code"));
+  const text = login.output();
+  assert.ok(text.includes("This sign-in was finished by npx driggsby@latest login --code"));
+  assert.ok(!text.includes("no longer active"));
+  assertFitsTerminal(text);
+  assert.equal(existsSync(pendingFile(login.environment.homeDirectory)), false);
 });
+
+test("over SSH or in a cloud dev box, the page this CLI opens shows the code instead", async () => {
+  for (const name of ["SSH_CONNECTION", "SSH_TTY", "CODESPACES", "GITPOD_WORKSPACE_ID"]) {
+    const server = await startConsentServer();
+    const login = loginHarness(server, { extraEnv: { [name]: "1" }, typed: [APPROVAL_CODE] });
+
+    await runLogin(login.environment, login.io);
+
+    assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN, name);
+    assert.equal(server.createBodies[0]?.redirect_uri, undefined, name);
+    assert.deepEqual(login.openedUrls, [`${server.baseUrl}/connect/claim-1`], name);
+  }
+});
+
+// A promise the test opens by hand, to order steps without timers.
+function gate(): { opened: Promise<void>; open: () => void } {
+  let open: () => void = () => undefined;
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { opened, open };
+}
