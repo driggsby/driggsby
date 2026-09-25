@@ -76,9 +76,60 @@ test("an agent with no browser and no prompt gets the link and --code, and finis
   await runLoginWithCode(` ${APPROVAL_CODE} `, login.environment, login.io);
 
   assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
-  assert.equal(existsSync(pendingFile(login.environment.homeDirectory)), false);
   assert.ok(login.output().includes("Approved."));
   assert.ok(!login.output().includes(APP_TOKEN));
+  // The record now says finished, so the code can't be tried again here.
+  await assert.rejects(runLoginWithCode(APPROVAL_CODE, login.environment, login.io), (error: unknown) => {
+    assert.ok(error instanceof CliError);
+    assert.ok(error.message.includes("already finished"));
+    return true;
+  });
+});
+
+test("the trade that spends the claim wins even when a poll reads gone first", async () => {
+  const server = await startConsentServer();
+  // The claim is spent as the trade lands; its answer arrives a moment
+  // after, while polls already read gone.
+  server.tradeReplyDelayMs = 60;
+  const login = loginHarness(server);
+
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.ok(login.output().includes("Approved."));
+});
+
+test("a pasted link, or anything too long to be a code, asks again without a trade", async () => {
+  const server = await startConsentServer();
+  const link = `${server.baseUrl}/connect/11111111-2222-3333-4444-555555555555?handoff=none`;
+  const login = loginHarness(server, { loopback: false, typed: [link, APPROVAL_CODE] });
+
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.deepEqual(server.tradeBodies.map((trade) => trade.code), [APPROVAL_CODE]);
+  assert.ok(login.questions[1]?.includes("doesn't look like a sign-in code"));
+});
+
+test("a loopback code keeps being tried while Driggsby can't be reached", async () => {
+  const server = await startConsentServer();
+  server.tradeFailures = 4;
+  const login = loginHarness(server);
+
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.equal(server.tradeFailures, 0);
+});
+
+test("a server older than PKCE that hands the poll the token still signs in", async () => {
+  const server = await startConsentServer();
+  server.pollResponses.push({ status: 200, body: { status: "approved", app_token: APP_TOKEN, mcp_url: "x" } });
+  const login = loginHarness(server, { browser: "idle" });
+
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
 });
 
 test("--code with nothing waiting on this computer says how to start", async () => {
@@ -150,8 +201,9 @@ test("an approval near the link's end still finishes inside its code window", as
   }
   const record = await readPendingLogin(login.environment.homeDirectory, login.io.now());
   assert.ok(record !== null, "the waiting sign-in outlives the link by the code window");
+  // The trade spends the claim (the waiting login's polls read gone from
+  // then on) a moment before this command marks the record finished.
   await runLoginWithCode(APPROVAL_CODE, login.environment, login.io);
-  server.claimGone = true;
 
   // The first command hears the claim is gone and sees the other one
   // finished it: that is a sign-in, not a failure.

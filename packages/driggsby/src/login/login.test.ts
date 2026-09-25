@@ -37,6 +37,8 @@ function offlineServer(baseUrl: string): FakeConsentServer {
     createBodies: [],
     tradeBodies: [],
     claimGone: false,
+    tradeReplyDelayMs: 0,
+    tradeFailures: 0,
   };
 }
 

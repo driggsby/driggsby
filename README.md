@@ -48,6 +48,10 @@ keychain, or the Linux keyring via `secret-tool`), otherwise in
 `~/.driggsby/credentials.json` readable only by your account. The token is
 never printed. `npx driggsby@latest logout` removes it.
 
+If you approve in a browser on another computer (a cloud agent's machine,
+an SSH session), the page shows a code instead: paste it where `login` is
+waiting, or finish with `npx driggsby@latest login --code <CODE>`.
+
 `mcp setup` does not need this — client OAuth stays managed by your AI
 client.
 

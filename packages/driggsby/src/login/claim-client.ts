@@ -214,8 +214,10 @@ export async function tradeCode(baseUrl: string, trade: CodeTrade): Promise<Code
     }
     return { kind: "approved", appToken };
   }
+  // The CLI says what to do next itself (paste again, or start over), so a
+  // refused code reads in its own words.
   if (response.status === 400) {
-    return { kind: "rejected", message: errorDescription(body) ?? CODE_REJECTED };
+    return { kind: "rejected", message: CODE_REJECTED };
   }
   if (response.status === 429 || response.status >= 500) {
     return { kind: "transient" };

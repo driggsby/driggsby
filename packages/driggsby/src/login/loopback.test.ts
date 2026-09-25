@@ -106,6 +106,19 @@ test("stray requests are refused and never count as a callback", async () => {
   }
 });
 
+test("a refused callback learns nothing, not even where the approval page is", async () => {
+  const loopback = await listening();
+  try {
+    const reply = get(loopback, "/callback?code=BOGUS");
+    const callback = await loopback.next();
+    callback.refuse();
+
+    assert.deepEqual(await reply, { status: 400, location: undefined });
+  } finally {
+    loopback.close();
+  }
+});
+
 test("closing answers any browser still waiting", async () => {
   const loopback = await listening();
   const reply = get(loopback, "/callback?code=GOOD1");

@@ -27,9 +27,14 @@ export interface FakeConsentServer {
   // The parsed body of each claim create and each code trade, in order.
   createBodies: Record<string, unknown>[];
   tradeBodies: Record<string, unknown>[];
-  // Once set (the person denied), every poll without a scripted answer
-  // reads gone.
+  // Once set (the person denied, or the code was traded), every poll
+  // without a scripted answer reads gone.
   claimGone: boolean;
+  // How long a successful trade's reply waits after the claim is spent,
+  // so a poll can read gone before the trade's answer arrives.
+  tradeReplyDelayMs: number;
+  // Trades answered 503 before any is answered for real.
+  tradeFailures: number;
 }
 
 const servers: Server[] = [];
@@ -48,6 +53,8 @@ export function startConsentServer(): Promise<FakeConsentServer> {
     createBodies: [],
     tradeBodies: [],
     claimGone: false,
+    tradeReplyDelayMs: 0,
+    tradeFailures: 0,
   };
   const server = createServer((incoming, response) => {
     let raw = "";
@@ -74,13 +81,22 @@ export function startConsentServer(): Promise<FakeConsentServer> {
         return;
       }
       if (incoming.url === "/app-tokens/claim-requests/token") {
+        if (fake.tradeFailures > 0) {
+          fake.tradeFailures -= 1;
+          reply(503, { error: "temporarily_unavailable" });
+          return;
+        }
         fake.tradeBodies.push(body);
         const claim = fake.createBodies.at(-1);
         const verifier = body.code_verifier;
         const codeMatches = typeof body.code === "string" && normalize(body.code) === normalize(APPROVAL_CODE);
         const verifierMatches = typeof verifier === "string" && challengeFor(verifier) === claim?.code_challenge;
         if (codeMatches && verifierMatches && fake.tradeBodies.filter((trade) => trade.code === body.code).length === 1) {
-          reply(200, { app_token: APP_TOKEN, mcp_url: `${fake.baseUrl}/mcp` });
+          // The claim is spent the moment the trade lands, as on Driggsby.
+          fake.claimGone = true;
+          setTimeout(() => {
+            reply(200, { app_token: APP_TOKEN, mcp_url: `${fake.baseUrl}/mcp` });
+          }, fake.tradeReplyDelayMs);
         } else {
           reply(400, { error: "invalid_grant", error_description: "That sign-in code didn't work." });
         }
@@ -173,7 +189,10 @@ export function loginHarness(server: FakeConsentServer, options: HarnessOptions 
       },
       // The clock jumps, and real time passes a little, so the loopback and
       // the prompt get their turn beside the poll.
-      sleep: async (ms) => {
+      sleep: async (ms, signal) => {
+        if (signal?.aborted === true) {
+          return;
+        }
         clock += ms;
         await new Promise((resolve) => setTimeout(resolve, 2));
       },

@@ -297,13 +297,15 @@ test("tradeCode sends the claim, code and verifier, and returns the token", asyn
   });
 });
 
-test("tradeCode reads a refused code as rejected, with the server's words sanitized", async () => {
+test("tradeCode reads a refused code as rejected, in the CLI's own words", async () => {
   const server = await startFakeServer();
-  server.respondWith(400, { error: "invalid_grant", error_description: "That code didn't work.\u001b[2J" });
+  server.respondWith(400, { error: "invalid_grant", error_description: "Start a fresh sign-in.\u001b[2J" });
 
   const result = await tradeCode(server.baseUrl, TRADE);
 
   assert.ok(result.kind === "rejected");
+  assert.ok(result.message.startsWith("That sign-in code didn't work."));
+  assert.ok(!result.message.includes("Start a fresh"));
   assert.ok(!result.message.includes("\u001b"));
 });
 

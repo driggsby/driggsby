@@ -5,8 +5,6 @@
 // finish with `driggsby login --code <CODE>`. Only the code and the
 // verifier together mint the token, which goes straight into the
 // credential store and is shown to no one.
-import { createInterface } from "node:readline";
-
 import { apiBaseUrl, apiHost, baseUrlMayReceiveSavedSignIn } from "../api/base-url.ts";
 import { blockedNetworkError } from "../api/network-error.ts";
 import { CliError } from "../cli-error.ts";
@@ -20,22 +18,40 @@ import {
   saveToken,
 } from "../credentials/store.ts";
 import { sanitizeForTerminal, wrapProse } from "../terminal-text.ts";
-import { awaitToken, CODE_WINDOW_MS, type CodePrompt, LOGIN_RETRY_COMMAND, tradeWithRetries } from "./await-token.ts";
+import {
+  awaitToken,
+  ClaimGone,
+  CODE_COMMAND,
+  CODE_WINDOW_MS,
+  type CodePrompt,
+  LOGIN_RETRY_COMMAND,
+  tradeWithRetries,
+} from "./await-token.ts";
 import { type ClaimPkce, type ClaimRequest, createClaimRequest, SIGN_IN_START_FAILURE } from "./claim-client.ts";
 import { type Loopback, startLoopback } from "./loopback.ts";
 import { tryOpenUrl } from "./open-url.ts";
-import { clearPendingLogin, type PendingLogin, readPendingLogin, savePendingLogin } from "./pending.ts";
+import {
+  clearPendingLogin,
+  markPendingLoginFinished,
+  type PendingLogin,
+  readPendingLogin,
+  savePendingLogin,
+} from "./pending.ts";
 import { createPkcePair } from "./pkce.ts";
+import { terminalCodePrompt } from "./terminal-prompt.ts";
 
 const DEFAULT_POLL_INTERVAL_MS = 4_000;
-const CODE_COMMAND = "npx driggsby@latest login --code <CODE>";
+// How long a waiting login gives `login --code` to mark a spent claim.
+const FINISH_MARK_WAIT_MS = 3_000;
 
 // The side-effect surface runLogin talks to, injectable so the whole flow is
 // testable against a fake consent server with an instant clock.
 export interface LoginIo {
   out: (text: string) => void;
   openUrl: (url: string) => Promise<boolean>;
-  sleep: (ms: number) => Promise<void>;
+  // Resolves early, and quietly, once signal aborts, so a finished wait
+  // never holds the process open.
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   now: () => number;
   pollIntervalMs: number;
   startLoopback: () => Promise<Loopback | null>;
@@ -50,7 +66,7 @@ function defaultLoginIo(): LoginIo {
       process.stdout.write(text);
     },
     openUrl: tryOpenUrl,
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep: abortableSleep,
     now: () => Date.now(),
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     startLoopback,
@@ -73,13 +89,14 @@ export async function runLogin(
     const claim = await createClaim(baseUrl, { challenge: pkce.challenge, redirectUri: loopback?.redirectUri ?? null });
     const claimUrl = approvedClaimUrl(claim.claimUrl, baseUrl);
     const expiresAt = io.now() + claim.expiresInSeconds * 1_000;
-    const remembered = await rememberPendingLogin(environment, {
+    const pending: PendingLogin = {
       baseUrl,
       claimRequestId: claim.claimRequestId,
-      claimUrl,
       codeVerifier: pkce.verifier,
       expiresAt: expiresAt + CODE_WINDOW_MS,
-    });
+      finished: false,
+    };
+    const remembered = await rememberPendingLogin(environment, pending);
 
     // Only a page this CLI opened itself may hand its code to the
     // loopback; the printed link, opened anywhere, shows the code instead.
@@ -89,7 +106,15 @@ export async function runLogin(
     const minutesWord = minutes === 1 ? "minute" : "minutes";
     if (!browserOpened && prompt === null) {
       // No browser here and no one at a prompt: an agent. It passes the
-      // link on, and finishes with the code the page shows.
+      // link on, and finishes with the code the page shows, which needs
+      // the record `login --code` reads.
+      if (!remembered) {
+        throw new CliError(
+          "We couldn't save this sign-in on this machine to finish it later, so it\n" +
+            `can't finish here. Run it in a terminal instead:\n  ${LOGIN_RETRY_COMMAND}`,
+          1,
+        );
+      }
       io.out("Open this link in your browser to approve access for this machine:\n\n");
       io.out(`  ${claimUrl}\n\n`);
       io.out(`After you approve, the page shows a code. Finish signing in with:\n  ${CODE_COMMAND}\n\n`);
@@ -108,6 +133,7 @@ export async function runLogin(
     }
 
     const appToken = await awaitTokenOrElsewhere(
+      pending,
       awaitToken(
         {
           baseUrl,
@@ -126,12 +152,13 @@ export async function runLogin(
       environment,
       io,
     );
-    if (appToken === null) {
-      return;
-    }
     prompt?.close();
     prompt = null;
-    await finishSignIn(appToken, environment, io);
+    // The claim is spent either way; only this sign-in's own record goes.
+    await forgetPendingLogin(environment, pending, io);
+    if (appToken !== null) {
+      await finishSignIn(appToken, environment, io);
+    }
   } finally {
     prompt?.close();
     loopback?.close();
@@ -154,6 +181,9 @@ export async function runLoginWithCode(
       1,
     );
   }
+  if (pending.finished) {
+    throw new CliError(`This sign-in already finished.\n\nTo sign in again:\n  ${LOGIN_RETRY_COMMAND}`, 1);
+  }
   const result = await tradeWithRetries(pending, code.trim(), io);
   if (result.kind !== "approved") {
     throw new CliError(
@@ -161,6 +191,9 @@ export async function runLoginWithCode(
       1,
     );
   }
+  // Marked before the token is saved: a login still waiting on this claim
+  // sees it finished here, not failed.
+  await markFinished(environment, pending);
   await finishSignIn(result.appToken, environment, io);
 }
 
@@ -170,7 +203,6 @@ async function finishSignIn(appToken: string, environment: CredentialEnvironment
   // reads must never contradict a warning they were just shown.
   const warnings: string[] = [];
   const storedIn = await storeApprovedToken(appToken, environment, (text) => warnings.push(text));
-  await forgetPendingLogin(environment);
   const envTokenWarning = shadowingEnvTokenWarning(environment);
   if (envTokenWarning !== null) {
     warnings.push(envTokenWarning);
@@ -201,9 +233,11 @@ async function rememberPendingLogin(environment: CredentialEnvironment, pending:
 }
 
 // The wait's token, or null when `login --code` in another command
-// finished this very sign-in meanwhile (it removes the record once the
-// token is saved, and Driggsby then reads the claim as gone).
+// finished this very sign-in meanwhile: the claim reads gone, and this
+// claim's record says finished. Any other failure also ends this sign-in
+// for good, so its record goes with it.
 async function awaitTokenOrElsewhere(
+  pending: PendingLogin,
   wait: Promise<string>,
   remembered: boolean,
   environment: CredentialEnvironment,
@@ -212,57 +246,76 @@ async function awaitTokenOrElsewhere(
   try {
     return await wait;
   } catch (error) {
-    if (remembered && error instanceof CliError && (await readPendingLogin(environment.homeDirectory, 0)) === null) {
-      io.out("\nSigned in: this sign-in finished with npx driggsby@latest login --code.\n");
+    if (remembered && error instanceof ClaimGone && (await finishedElsewhere(environment, pending, io))) {
+      io.out(`\nSigned in: this sign-in finished with ${CODE_COMMAND.replace(" <CODE>", "")}.\n`);
+      await forgetPendingLogin(environment, pending, io);
       return null;
     }
+    await forgetPendingLogin(environment, pending, io);
     throw error;
   }
 }
 
-async function forgetPendingLogin(environment: CredentialEnvironment): Promise<void> {
+// `login --code` marks the record just after its trade spends the claim,
+// so a poll can read gone a moment before the mark lands: a record still
+// this claim's but not yet finished is read once more after a pause.
+async function finishedElsewhere(environment: CredentialEnvironment, pending: PendingLogin, io: LoginIo): Promise<boolean> {
+  for (let look = 1; ; look += 1) {
+    let current: PendingLogin | null;
+    try {
+      current = await readPendingLogin(environment.homeDirectory, io.now());
+    } catch {
+      return false;
+    }
+    if (current?.claimRequestId !== pending.claimRequestId) {
+      return false;
+    }
+    if (current.finished || look >= 2) {
+      return current.finished;
+    }
+    await io.sleep(FINISH_MARK_WAIT_MS);
+  }
+}
+
+async function forgetPendingLogin(environment: CredentialEnvironment, pending: PendingLogin, io: LoginIo): Promise<void> {
   try {
-    await clearPendingLogin(environment.homeDirectory);
+    await clearPendingLogin(environment.homeDirectory, pending.claimRequestId, io.now());
   } catch {
     // It expires on its own.
   }
+}
+
+async function markFinished(environment: CredentialEnvironment, pending: PendingLogin): Promise<void> {
+  try {
+    await markPendingLoginFinished(environment.homeDirectory, pending);
+  } catch {
+    // Only a login still waiting on this claim reads it, and it then
+    // reports the claim gone: the token below is saved all the same.
+  }
+}
+
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
 function handoffUrl(claimUrl: string): string {
   const url = new URL(claimUrl);
   url.searchParams.set("handoff", "loopback");
   return url.href;
-}
-
-// A readline prompt on a real terminal; null when stdin isn't one. Ctrl-C
-// at the prompt ends the command, as it does everywhere else.
-function terminalCodePrompt(): CodePrompt | null {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return null;
-  }
-  const lines = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  let closed = false;
-  lines.on("close", () => {
-    closed = true;
-  });
-  lines.on("SIGINT", () => {
-    lines.close();
-    process.kill(process.pid, "SIGINT");
-  });
-  return {
-    ask: (question) =>
-      closed
-        ? Promise.resolve(null)
-        : new Promise((resolve) => {
-            lines.once("close", () => {
-              resolve(null);
-            });
-            lines.question(question, resolve);
-          }),
-    close: () => {
-      lines.close();
-    },
-  };
 }
 
 // The one-time token is already consumed by the time saving starts, so a
