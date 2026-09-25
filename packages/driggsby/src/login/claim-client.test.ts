@@ -4,7 +4,7 @@ import { after, test } from "node:test";
 
 import { CliError } from "../cli-error.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
-import { createClaimRequest, pollClaimRequest } from "./claim-client.ts";
+import { type ClaimPkce, createClaimRequest, pollClaimRequest, tradeCode } from "./claim-client.ts";
 
 interface RecordedRequest {
   method: string;
@@ -68,6 +68,9 @@ function startFakeServer(): Promise<FakeServer> {
   });
 }
 
+const PKCE: ClaimPkce = { challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", redirectUri: null };
+const PKCE_FIELDS = { code_challenge: PKCE.challenge, code_challenge_method: "S256" };
+
 const CREATED_BODY = {
   claim_request_id: "11111111-2222-3333-4444-555555555555",
   claim_url: "https://app.driggsby.example/connect/11111111-2222-3333-4444-555555555555",
@@ -76,11 +79,11 @@ const CREATED_BODY = {
   expires_in: 600,
 };
 
-test("createClaimRequest sends the CLI-scope claim and parses the response", async () => {
+test("createClaimRequest sends the CLI-scope claim with its challenge and parses the response", async () => {
   const server = await startFakeServer();
   server.respondWith(201, CREATED_BODY);
 
-  const claim = await createClaimRequest(server.baseUrl);
+  const claim = await createClaimRequest(server.baseUrl, PKCE);
 
   assert.deepEqual(claim, {
     claimRequestId: "11111111-2222-3333-4444-555555555555",
@@ -93,24 +96,40 @@ test("createClaimRequest sends the CLI-scope claim and parses the response", asy
   assert.equal(request.method, "POST");
   assert.equal(request.url, "/app-tokens/claim-requests");
   assert.ok(request.contentType.startsWith("application/json"));
-  assert.deepEqual(request.body, { app_name: "Driggsby CLI", scope: "driggsby.cli" });
+  assert.deepEqual(request.body, { app_name: "Driggsby CLI", scope: "driggsby.cli", ...PKCE_FIELDS });
+});
+
+test("createClaimRequest names the loopback it listens on, when it has one", async () => {
+  const server = await startFakeServer();
+  server.respondWith(201, CREATED_BODY);
+
+  await createClaimRequest(server.baseUrl, { ...PKCE, redirectUri: "http://127.0.0.1:43110/callback" });
+
+  assert.deepEqual(server.requests[0]?.body, {
+    app_name: "Driggsby CLI",
+    scope: "driggsby.cli",
+    ...PKCE_FIELDS,
+    redirect_uri: "http://127.0.0.1:43110/callback",
+  });
 });
 
 test("createClaimRequest names this computer when it knows it, and only what it knows", async () => {
   const server = await startFakeServer();
   server.respondWith(201, CREATED_BODY);
 
-  await createClaimRequest(server.baseUrl, { name: "devbox-02", system: "Ubuntu 24.04" });
-  await createClaimRequest(server.baseUrl, { name: null, system: "Windows 11" });
+  await createClaimRequest(server.baseUrl, PKCE, { name: "devbox-02", system: "Ubuntu 24.04" });
+  await createClaimRequest(server.baseUrl, PKCE, { name: null, system: "Windows 11" });
 
   assert.deepEqual(server.requests[0]?.body, {
     app_name: "Driggsby CLI",
     scope: "driggsby.cli",
+    ...PKCE_FIELDS,
     device: { name: "devbox-02", system: "Ubuntu 24.04" },
   });
   assert.deepEqual(server.requests[1]?.body, {
     app_name: "Driggsby CLI",
     scope: "driggsby.cli",
+    ...PKCE_FIELDS,
     device: { system: "Windows 11" },
   });
 });
@@ -122,7 +141,7 @@ test("createClaimRequest surfaces the server's error_description verbatim", asyn
     error_description: "This app already has several pending connection requests.",
   });
 
-  await assert.rejects(createClaimRequest(server.baseUrl), (error: unknown) => {
+  await assert.rejects(createClaimRequest(server.baseUrl, PKCE), (error: unknown) => {
     assert.ok(error instanceof CliError);
     assert.equal(error.exitCode, 1);
     assert.ok(error.message.includes("This app already has several pending connection requests."));
@@ -133,7 +152,7 @@ test("createClaimRequest surfaces the server's error_description verbatim", asyn
 test("createClaimRequest rejects a malformed success response", async () => {
   const server = await startFakeServer();
   server.respondWith(201, { claim_request_id: "x" });
-  await assert.rejects(createClaimRequest(server.baseUrl), (error: unknown) => {
+  await assert.rejects(createClaimRequest(server.baseUrl, PKCE), (error: unknown) => {
     assert.ok(error instanceof CliError);
     assertFitsTerminal(error.message);
     return true;
@@ -208,7 +227,7 @@ test("server error text is stripped of terminal control bytes", async () => {
     error: "too_many_requests",
     error_description: "Too many\u001b[2K\u0007 requests.",
   });
-  await assert.rejects(createClaimRequest(server.baseUrl), (error: unknown) => {
+  await assert.rejects(createClaimRequest(server.baseUrl, PKCE), (error: unknown) => {
     assert.ok(error instanceof CliError);
     assert.equal(error.message, "Too many[2K requests.");
     return true;
@@ -226,7 +245,7 @@ test("pollClaimRequest treats rate limiting as transient, not fatal", async () =
 test("an oversized error_description is truncated, not dumped to the terminal", async () => {
   const server = await startFakeServer();
   server.respondWith(400, { error: "bad_request", error_description: "x".repeat(10_000) });
-  await assert.rejects(createClaimRequest(server.baseUrl), (error: unknown) => {
+  await assert.rejects(createClaimRequest(server.baseUrl, PKCE), (error: unknown) => {
     assert.ok(error instanceof CliError);
     assert.equal(error.message.length, 300);
     return true;
@@ -244,7 +263,7 @@ test("neither claim call ever follows a redirect", async () => {
   const server = await startFakeServer();
   server.respondWith(307, {}, { Location: `${redirectTarget.baseUrl}/steal` });
 
-  await assert.rejects(createClaimRequest(server.baseUrl));
+  await assert.rejects(createClaimRequest(server.baseUrl, PKCE));
   assert.deepEqual(await pollClaimRequest(server.baseUrl, { claimRequestId: "a", pollSecret: "b" }), {
     kind: "transient",
   });
@@ -258,6 +277,54 @@ test("neither claim call ever follows a redirect", async () => {
 test("an absurd expires_in is capped so the CLI never waits forever", async () => {
   const server = await startFakeServer();
   server.respondWith(201, { ...CREATED_BODY, expires_in: 1_000_000_000 });
-  const claim = await createClaimRequest(server.baseUrl);
+  const claim = await createClaimRequest(server.baseUrl, PKCE);
   assert.equal(claim.expiresInSeconds, 1_800);
+});
+
+const TRADE = { claimRequestId: "claim-1", code: "7KQ2M-9XH4T-A0B1C-DEFGH", codeVerifier: "v".repeat(43) };
+
+test("tradeCode sends the claim, code and verifier, and returns the token", async () => {
+  const server = await startFakeServer();
+  server.respondWith(200, { app_token: "dgb_at_test_1111", mcp_url: "x" });
+
+  assert.deepEqual(await tradeCode(server.baseUrl, TRADE), { kind: "approved", appToken: "dgb_at_test_1111" });
+  const request = server.requests[0];
+  assert.equal(request?.url, "/app-tokens/claim-requests/token");
+  assert.deepEqual(request.body, {
+    claim_request_id: "claim-1",
+    code: "7KQ2M-9XH4T-A0B1C-DEFGH",
+    code_verifier: "v".repeat(43),
+  });
+});
+
+test("tradeCode reads a refused code as rejected, with the server's words sanitized", async () => {
+  const server = await startFakeServer();
+  server.respondWith(400, { error: "invalid_grant", error_description: "That code didn't work.\u001b[2J" });
+
+  const result = await tradeCode(server.baseUrl, TRADE);
+
+  assert.ok(result.kind === "rejected");
+  assert.ok(!result.message.includes("\u001b"));
+});
+
+test("tradeCode treats a busy or unreachable server as momentary and a malformed trade as a bug", async () => {
+  const server = await startFakeServer();
+  for (const status of [429, 500, 503]) {
+    server.respondWith(status, {});
+    assert.deepEqual(await tradeCode(server.baseUrl, TRADE), { kind: "transient" });
+  }
+  assert.deepEqual(await tradeCode("http://127.0.0.1:1", TRADE), { kind: "transient" });
+
+  server.respondWith(422, { error: "invalid_token_request", error_description: "Send a JSON object body." });
+  await assert.rejects(tradeCode(server.baseUrl, TRADE), CliError);
+  server.respondWith(200, { status: "approved" });
+  await assert.rejects(tradeCode(server.baseUrl, TRADE), CliError);
+});
+
+test("tradeCode never follows a redirect with the code and verifier", async () => {
+  const server = await startFakeServer();
+  server.respondWith(307, {}, { Location: "https://evil.example/token" });
+
+  assert.deepEqual(await tradeCode(server.baseUrl, TRADE), { kind: "transient" });
+  assert.equal(server.requests.length, 1);
 });

@@ -10,6 +10,7 @@ import { parseDeploy, parseRollback, parseVersions } from "./args-deploy.ts";
 import { parseDev } from "./args-dev.ts";
 import { parseDelete } from "./args-delete.ts";
 import { parseInit } from "./args-init.ts";
+import { parseLogin } from "./args-login.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
 import { parseRules } from "./args-rules.ts";
@@ -22,7 +23,7 @@ import {
 } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
-import { LOGIN_HELP, LOGOUT_HELP, MCP_HELP, ROOT_HELP } from "./help.ts";
+import { LOGOUT_HELP, MCP_HELP, ROOT_HELP } from "./help.ts";
 import { sanitizeForTerminal } from "./terminal-text.ts";
 
 export { type ParsedCommand } from "./args-shared.ts";
@@ -123,7 +124,7 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
     case "mcp":
       return parseLevel(MCP_LEVEL, rest);
     case "login":
-      return parseBareCommand({ kind: "login" }, LOGIN_HELP, "Usage: npx driggsby@latest login", rest);
+      return parseLogin(rest);
     case "logout":
       return parseBareCommand({ kind: "logout" }, LOGOUT_HELP, "Usage: npx driggsby@latest logout", rest);
     case "init":
@@ -151,7 +152,7 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
   }
 }
 
-// Parsing for commands that take no arguments beyond help: login and logout.
+// Parsing for commands that take no arguments beyond help: logout.
 // Same exit codes and error shape as the rest of the tree, no clap quirks.
 function parseBareCommand(
   command: ParsedCommand,
