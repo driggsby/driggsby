@@ -133,6 +133,12 @@ async function fromLoopback(sign: WaitingSignIn, clock: WaitClock, trades: Trade
     if (callback.kind === "denied") {
       const mark = trades.started;
       const poll = await pollLettingTradesSpeak(sign, trades, mark);
+      if (poll.kind === "approved") {
+        // A server older than PKCE handed this poll the token; it counts,
+        // as it does in fromPoll.
+        callback.answer(sign.landingUrl);
+        return { kind: "token", appToken: poll.appToken };
+      }
       if (poll.kind === "gone") {
         // A trade in flight may be what spent the claim; it speaks first.
         await settleTrades(trades, mark);

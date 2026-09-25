@@ -10,8 +10,10 @@
 // denial with Driggsby before believing it. Each callback's browser waits
 // until the caller answers it: a real one goes back to the Driggsby page
 // that says how the sign-in went, and a refused one learns nothing, not
-// even where that page is. Once the sign-in has ended, every callback goes
-// back to that page, which by then can only say it is over.
+// even where that page is. Once the sign-in has ended, a callback taken
+// before the listener closes goes back to that page, which by then can only
+// say it is over; one still held when it closes is told it can close the
+// tab.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 interface Reply {

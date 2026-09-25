@@ -126,6 +126,54 @@ test("a denial knocked while a pasted code's trade spends the claim still signs 
   assert.ok(login.output().includes("Approved."));
 });
 
+test("a poll that fails outright while a pasted code's trade spends the claim still signs in", async () => {
+  const server = await startConsentServer();
+  const spent = gate();
+  const polled = gate();
+  // The regular poll waits until the trade has spent the claim, then gets
+  // an answer Driggsby never gives; the trade's answer is held until then.
+  const login = loginHarness(server, {
+    loopback: false,
+    browser: "idle",
+    typed: [APPROVAL_CODE],
+    beforeSleep: (ms) => (ms === login.io.pollIntervalMs ? spent.opened : Promise.resolve()),
+  });
+  server.pollResponses.push({ status: 403, body: { error: "forbidden" } });
+  server.onPollAnswered = polled.open;
+  server.onTradeSpent = async () => {
+    spent.open();
+    await polled.opened;
+  };
+
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.ok(login.output().includes("Approved."));
+});
+
+test("when Driggsby can't be reached, the prompt and --code say to retry, not to check the code", async () => {
+  const server = await startConsentServer();
+  server.tradeFailures = 3;
+  const login = loginHarness(server, { loopback: false, browser: "idle", typed: [APPROVAL_CODE, APPROVAL_CODE] });
+
+  await runLogin(login.environment, login.io);
+
+  assert.equal(await readFileToken(login.environment.homeDirectory), APP_TOKEN);
+  assert.ok(login.questions[1]?.includes("Paste the code again to retry"));
+  assert.ok(!login.questions[1]?.includes("Check the code"));
+
+  const agent = loginHarness(server, { browser: "unavailable", typed: null });
+  server.tradeFailures = 3;
+  await runLogin(agent.environment, agent.io);
+  await assert.rejects(runLoginWithCode(APPROVAL_CODE, agent.environment, agent.io), (error: unknown) => {
+    assert.ok(error instanceof CliError);
+    assert.ok(error.message.includes("Your code may still work"));
+    assert.ok(!error.message.includes("Check the code"));
+    assertFitsTerminal(error.message);
+    return true;
+  });
+});
+
 test("with no prompt and no loopback, login hands over the link and --code without waiting", async () => {
   const server = await startConsentServer();
   // Over SSH the browser runs elsewhere, so the page always shows the code,

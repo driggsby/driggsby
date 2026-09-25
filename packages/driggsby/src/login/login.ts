@@ -103,34 +103,26 @@ export async function runLogin(
       finished: false,
     };
     const remembered = await rememberPendingLogin(environment, pending);
+    prompt = io.codePrompt();
+    // With no one at a prompt and no loopback, only `login --code` can
+    // finish, and it needs the record: refuse before a page opens that
+    // nothing could finish.
+    if (prompt === null && loopback === null && !remembered) {
+      throw cantFinishHere();
+    }
 
     // Only a page this CLI opened itself may hand its code to the
     // loopback; the printed link, opened anywhere, shows the code instead.
     const browserOpened = await io.openUrl(loopback === null ? claimUrl : handoffUrl(claimUrl));
-    prompt = io.codePrompt();
     const minutes = approximateMinutes(claim.expiresInSeconds);
     const minutesWord = minutes === 1 ? "minute" : "minutes";
-    if (prompt === null && (loopback === null || !browserOpened)) {
-      // No one at a prompt, and no page this CLI opened can hand the code
-      // to the loopback: an agent, or a remote session. Nothing in this
-      // process could ever receive the code, so it doesn't wait: the page
-      // shows the code, and `login --code` finishes with the record.
-      if (!remembered) {
-        throw new CliError(
-          "We couldn't save this sign-in on this machine to finish it later, so it\n" +
-            `can't finish here. Run it in a terminal instead:\n  ${LOGIN_RETRY_COMMAND}`,
-          1,
-        );
-      }
-      io.out(
-        browserOpened
-          ? "Your browser should open a Driggsby approval page. If it doesn't, open\nthis link:\n\n"
-          : "Open this link in your browser to approve access for this machine:\n\n",
-      );
-      io.out(`  ${claimUrl}\n\n`);
-      io.out(`After you approve, the page shows a code. Finish signing in with:\n  ${CODE_COMMAND}\n\n`);
-      io.out(`The link is good for about ${minutes} ${minutesWord}.\n`);
-      return;
+    // No one at a prompt, and no page this CLI opened can hand the code to
+    // the loopback: an agent, or a remote session. Nothing in this process
+    // could ever receive the code, so it doesn't wait: the page shows the
+    // code, and `login --code` finishes with the record.
+    const finishesElsewhere = prompt === null && (loopback === null || !browserOpened);
+    if (finishesElsewhere && !remembered) {
+      throw cantFinishHere();
     }
     io.out(
       browserOpened
@@ -138,6 +130,11 @@ export async function runLogin(
         : "Open this link in your browser to approve access for this machine:\n\n",
     );
     io.out(`  ${claimUrl}\n\n`);
+    if (finishesElsewhere) {
+      io.out(`After you approve, the page shows a code. Finish signing in with:\n  ${CODE_COMMAND}\n\n`);
+      io.out(`The link is good for about ${minutes} ${minutesWord}.\n`);
+      return;
+    }
     io.out(`Waiting for your approval (the link is good for about ${minutes} ${minutesWord})...\n`);
     if (prompt === null && remembered) {
       io.out(`If the page shows a code instead, finish with:\n  ${CODE_COMMAND}\n`);
@@ -315,6 +312,14 @@ async function markFinished(environment: CredentialEnvironment, pending: Pending
     // Only a login still waiting on this claim reads it, and it then
     // reports the claim gone: the token below is saved all the same.
   }
+}
+
+function cantFinishHere(): CliError {
+  return new CliError(
+    "We couldn't save this sign-in on this machine to finish it later, so it\n" +
+      `can't finish here. Run it in a terminal instead:\n  ${LOGIN_RETRY_COMMAND}`,
+    1,
+  );
 }
 
 function handoffUrl(claimUrl: string): string {

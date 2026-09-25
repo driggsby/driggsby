@@ -32,8 +32,10 @@ export interface FakeConsentServer {
   claimGone: boolean;
   // Called as a trade spends the claim; its reply waits until this settles.
   onTradeSpent: (() => Promise<void>) | null;
-  // Called each time a poll is answered gone.
+  // Called each time a poll is answered gone, and each time one is answered
+  // at all.
   onPollGone: (() => void) | null;
+  onPollAnswered: (() => void) | null;
   // Trades answered 503 before any is answered for real.
   tradeFailures: number;
 }
@@ -57,6 +59,7 @@ export function offlineConsentServer(baseUrl: string): FakeConsentServer {
     claimGone: false,
     onTradeSpent: null,
     onPollGone: null,
+    onPollAnswered: null,
     tradeFailures: 0,
   };
 }
@@ -114,6 +117,7 @@ export function startConsentServer(): Promise<FakeConsentServer> {
       if ((next.body as { status?: unknown } | null)?.status === "gone") {
         fake.onPollGone?.();
       }
+      fake.onPollAnswered?.();
     });
   });
   servers.push(server);
