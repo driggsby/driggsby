@@ -67,10 +67,15 @@ app token that lets this machine read your Driggsby data, deploy Driggsby
 apps, and manage your transaction rules. The token is saved locally for
 other driggsby commands and is never printed.
 
-Usage: npx driggsby@latest login
+If you approve in a browser on another computer, the page shows a code
+instead. Paste it where login is waiting, or finish with --code.
+
+Usage: npx driggsby@latest login [--code <CODE>]
 
 Options:
-  -h, --help  Print help
+      --code <CODE>  Finish the sign-in waiting on this machine with the
+                     code its approval page showed
+  -h, --help         Print help
 `;
 
 export const LOGOUT_HELP = `Remove the saved Driggsby app token.

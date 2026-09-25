@@ -11,7 +11,8 @@ export type ParsedCommand =
   | { kind: "print-help"; text: string; stream: "stdout" | "stderr"; exitCode: 0 | 2 }
   | { kind: "print-version" }
   | { kind: "mcp-setup"; client: string | undefined; print: boolean; scope: McpScope | undefined }
-  | { kind: "login" }
+  // code: finish a waiting sign-in with the code its approval page showed.
+  | { kind: "login"; code: string | null }
   | { kind: "logout" }
   | { kind: "init"; slug: string | null }
   | { kind: "dev"; stop: boolean }

@@ -35,7 +35,9 @@ https://app.driggsby.com/mcp
 
 Some driggsby commands work with your Driggsby account directly and need
 an app token saved on your machine: run
-`npx driggsby@latest login` and approve the page it opens. The token is
+`npx driggsby@latest login` and approve the page it opens (approving in a
+browser on another computer shows a code to paste, or to finish with
+`npx driggsby@latest login --code <CODE>`). The token is
 stored in your platform keychain when one is available, otherwise in
 `~/.driggsby/credentials.json`, and is never printed.
 `npx driggsby@latest logout` removes it.

@@ -1,8 +1,9 @@
 // The app-token claim flow's HTTP client, against Driggsby's public
-// app-token claim API: create a pending claim, send the user to claim_url,
-// poll with the claim id + poll secret until the user approves. The app
-// token is returned by exactly one poll; callers must never poll again after
-// an approval.
+// app-token claim API: create a pending claim carrying a PKCE challenge,
+// send the user to claim_url, and trade the one-time code the approval
+// produced, with the verifier, for the app token. The poll only tells a
+// waiting sign-in that its claim is gone (denied or expired); Driggsby
+// hands a PKCE claim's token only to the code trade.
 import { CliError } from "../cli-error.ts";
 import { type Device, knownDevice } from "../device.ts";
 import { sanitizeForTerminal } from "../terminal-text.ts";
@@ -29,6 +30,13 @@ export const SIGN_IN_START_FAILURE =
 const SIGN_IN_FINISH_FAILURE =
   "We weren't able to finish your Driggsby sign-in just now. Please try again\nin a minute.";
 
+// The claim's PKCE half: the S256 challenge, and the loopback this CLI
+// listens on when it could open one (null: the page shows the code).
+export interface ClaimPkce {
+  challenge: string;
+  redirectUri: string | null;
+}
+
 export interface ClaimRequest {
   claimRequestId: string;
   claimUrl: string;
@@ -40,12 +48,20 @@ export interface ClaimRequest {
 // up on Driggsby's MCP page as the computer it is; only known values go.
 export async function createClaimRequest(
   baseUrl: string,
+  pkce: ClaimPkce,
   device: Device = { name: null, system: null },
 ): Promise<ClaimRequest> {
   const response = await fetch(`${baseUrl}/app-tokens/claim-requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ app_name: CLAIM_APP_NAME, scope: CLAIM_SCOPE, ...deviceField(device) }),
+    body: JSON.stringify({
+      app_name: CLAIM_APP_NAME,
+      scope: CLAIM_SCOPE,
+      code_challenge: pkce.challenge,
+      code_challenge_method: "S256",
+      ...(pkce.redirectUri === null ? {} : { redirect_uri: pkce.redirectUri }),
+      ...deviceField(device),
+    }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     // Never follow a redirect: a 307/308 would replay this claim flow —
     // and, on the poll below, the poll secret — to whatever origin a
@@ -153,6 +169,63 @@ export async function pollClaimRequest(
     default:
       return { kind: "transient" };
   }
+}
+
+export interface CodeTrade {
+  claimRequestId: string;
+  code: string;
+  codeVerifier: string;
+}
+
+export type CodeTradeResult =
+  | { kind: "approved"; appToken: string }
+  // Driggsby refused the code (mistyped, used, or expired); message says
+  // so in the CLI's own words.
+  | { kind: "rejected"; message: string }
+  // A momentary server or network hiccup; the code may still work.
+  | { kind: "transient" };
+
+const CODE_REJECTED =
+  "That sign-in code didn't work. It may have been mistyped, used\nalready, or expired.";
+
+export async function tradeCode(baseUrl: string, trade: CodeTrade): Promise<CodeTradeResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/app-tokens/claim-requests/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        claim_request_id: trade.claimRequestId,
+        code: trade.code,
+        code_verifier: trade.codeVerifier,
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // The verifier and code must never follow a redirect to another origin.
+      redirect: "error",
+    });
+  } catch {
+    return { kind: "transient" };
+  }
+  const body = await readJsonBody(response);
+  if (response.status === 200) {
+    const appToken = stringField(asRecord(body), "app_token");
+    if (appToken === null) {
+      throw new CliError(SIGN_IN_FINISH_FAILURE, 1);
+    }
+    return { kind: "approved", appToken };
+  }
+  // The CLI says what to do next itself (paste again, or start over), so a
+  // refused code reads in its own words.
+  // 422 too: a paste Driggsby reads as blank (a Unicode space the CLI
+  // doesn't trim) is a wrong code, never the end of the sign-in.
+  if (response.status === 400 || response.status === 422) {
+    return { kind: "rejected", message: CODE_REJECTED };
+  }
+  if (response.status === 429 || response.status >= 500) {
+    return { kind: "transient" };
+  }
+  // Any other answer means our request is wrong, which a retry can't fix.
+  throw new CliError(errorDescription(body) ?? SIGN_IN_FINISH_FAILURE, 1);
 }
 
 async function readJsonBody(response: Response): Promise<unknown> {

@@ -6,7 +6,7 @@ import { CliError } from "./cli-error.ts";
 import { LOGIN_HELP, LOGOUT_HELP, ROOT_HELP } from "./help.ts";
 
 test("login and logout parse as bare commands", () => {
-  assert.deepEqual(parseArgv(["login"]), { kind: "login" });
+  assert.deepEqual(parseArgv(["login"]), { kind: "login", code: null });
   assert.deepEqual(parseArgv(["logout"]), { kind: "logout" });
 });
 
@@ -46,7 +46,7 @@ test("login rejects unexpected arguments with exit 2", () => {
 });
 
 test("-- ends option parsing for login, and a token after it still errors", () => {
-  assert.deepEqual(parseArgv(["login", "--"]), { kind: "login" });
+  assert.deepEqual(parseArgv(["login", "--"]), { kind: "login", code: null });
   try {
     parseArgv(["login", "--", "extra"]);
     assert.fail("expected a CliError");
@@ -81,5 +81,28 @@ test("a typo'd login gets a did-you-mean tip", () => {
   } catch (error) {
     assert.ok(error instanceof CliError);
     assert.ok(error.message.includes("  tip: a similar subcommand exists: 'login'"));
+  }
+});
+
+test("login --code takes the code the approval page showed, spaced or with =", () => {
+  assert.deepEqual(parseArgv(["login", "--code", "7KQ2M-9XH4T-A0B1C-DEFGH"]), { kind: "login", code: "7KQ2M-9XH4T-A0B1C-DEFGH" });
+  assert.deepEqual(parseArgv(["login", "--code=7kq2m 9xh4t"]), { kind: "login", code: "7kq2m 9xh4t" });
+});
+
+test("login --code without a code, or twice, is a usage error", () => {
+  for (const argv of [
+    ["login", "--code"],
+    ["login", "--code="],
+    ["login", "--code", "--help"],
+    ["login", "--code", "A", "--code", "B"],
+    ["login", "--code", "A", "extra"],
+  ]) {
+    try {
+      parseArgv(argv);
+      assert.fail(`expected a CliError for ${argv.join(" ")}`);
+    } catch (error) {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.exitCode, 2, argv.join(" "));
+    }
   }
 });
