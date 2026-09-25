@@ -9,7 +9,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { describeDevice, deviceHeaders } from "./device.ts";
 import { installFakeClientCli, pathWithFake } from "./test-support/fake-client-cli.ts";
 import { VERSION } from "./version.ts";
 
@@ -202,7 +201,9 @@ test("the CLI exits promptly even when a grandchild holds the output pipes", asy
   assert.ok(elapsedMs < 3000, `CLI took ${String(elapsedMs)}ms to exit`);
 });
 
-test("setup names this computer to Claude Code in headers after the URL", async () => {
+// Claude Code doesn't send its sign-in with an entry that carries custom
+// headers, so setup adds the plain entry: nothing after the URL.
+test("setup adds Claude Code's entry with nothing after the URL", async () => {
   const fake = installFakeClientCli("claude");
   const argsFile = join(fake.pathPrefix, "add-args.json");
   const result = await cli(["mcp", "setup", "claude-code"], {
@@ -214,11 +215,21 @@ test("setup names this computer to Claude Code in headers after the URL", async 
 
   assert.equal(result.code, 0);
   const args = JSON.parse(readFileSync(argsFile, "utf8")) as string[];
-  // The CLI and this test read the same machine, so whatever it's called
-  // (or if nothing is known), each header must arrive intact, the Windows
-  // .cmd shim included: one "--header" and one "Name: value" apiece.
-  const expected = deviceHeaders(describeDevice()).flatMap((header) => ["--header", header]);
-  assert.deepEqual(args.slice(args.indexOf("https://app.driggsby.com/mcp") + 1), expected);
+  assert.equal(args.at(-1), "https://app.driggsby.com/mcp");
+  assert.ok(!args.includes("--header"));
+});
+
+test("an entry an earlier version gave device headers is set up again without them", async () => {
+  const fake = installFakeClientCli("claude");
+  const result = await cli(["mcp", "setup", "claude-code"], {
+    PATH: pathWithFake(fake.pathPrefix),
+    FAKE_GET_BEHAVIOR: "matches-with-device-headers",
+  });
+
+  assert.equal(result.code, 0);
+  assert.ok(result.stdout.includes("does not match the expected Driggsby setup."));
+  assert.ok(result.stdout.includes("claude mcp remove driggsby -s user"));
+  assert.ok(result.stdout.includes("claude mcp add --transport http -s user driggsby 'https://app.driggsby.com/mcp'"));
 });
 
 test("setup is idempotent when the config already matches", async () => {

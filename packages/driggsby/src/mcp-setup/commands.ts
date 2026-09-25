@@ -7,15 +7,11 @@ export interface McpConfigCommand {
   args: string[];
 }
 
-// headers: this computer's name and system for Driggsby's MCP page
-// (device.ts builds them from allowlisted values only). Claude Code takes
-// them after the URL (--header is variadic, so before the name it would
-// swallow it); Codex has no header option, so it never gets any. The
-// commands printed for a person to run carry none.
+// The plain entry, with no custom headers: Claude Code doesn't send its
+// sign-in on requests to an entry that carries them.
 export function buildInstallerCommand(
   client: CliMcpClient,
   scope: McpScope | undefined,
-  headers: readonly string[] = [],
 ): McpConfigCommand {
   switch (client) {
     case "claude-code":
@@ -30,7 +26,6 @@ export function buildInstallerCommand(
           scope ?? "user",
           "driggsby",
           DRIGGSBY_MCP_URL,
-          ...headers.flatMap((header) => ["--header", header]),
         ],
       };
     case "codex":

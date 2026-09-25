@@ -40,10 +40,13 @@ function matchesExpectedConfig(
 ): boolean {
   switch (client) {
     case "claude-code":
+      // An entry an earlier version gave device headers doesn't match:
+      // Claude Code doesn't send its sign-in on requests to it.
       return (
         hasLine(text, "Type: http") &&
         hasLine(text, `URL: ${DRIGGSBY_MCP_URL}`) &&
-        hasClaudeScope(text, scope ?? "user")
+        hasClaudeScope(text, scope ?? "user") &&
+        !text.includes("X-Driggsby-Device-")
       );
     case "codex":
       return (

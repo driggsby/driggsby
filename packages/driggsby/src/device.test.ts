@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeDevice, deviceHeaders, knownDevice, type OsFacts } from "./device.ts";
+import { describeDevice, knownDevice, type OsFacts } from "./device.ts";
 
 function facts(overrides: Partial<OsFacts>): OsFacts {
   return {
@@ -105,9 +105,9 @@ test("reading the computer can never fail a command", () => {
   assert.deepEqual(describeDevice(throwing), { name: null, system: null });
 });
 
-// The allowlists are what make these values safe as command arguments
-// (spawn-plan.ts quotes for cmd.exe) and as "Name: value" headers.
-test("no character cmd.exe or a header treats specially ever gets through", () => {
+// The allowlists keep what leaves the CLI plain text: no character a
+// shell, cmd.exe, or a header would treat specially.
+test("no character a shell, cmd.exe, or a header treats specially ever gets through", () => {
   for (const special of ["%", "!", "^", "&", "|", "<", ">", '"', "\\", ":", "\t", "\r", "\n", "(", ")", "$", "`"]) {
     assert.equal(describeDevice(facts({ hostname: `host${special}x` })).name, null, JSON.stringify(special));
     // In os-release a line break ends the value, so it can't carry one.
@@ -136,13 +136,4 @@ test("a name or system outside the safe characters is left out, never cleaned in
 test("the sign-in carries only what is known", () => {
   assert.deepEqual(knownDevice({ name: "mbp-studio", system: null }), { name: "mbp-studio" });
   assert.equal(knownDevice({ name: null, system: null }), null);
-});
-
-test("headers carry only what is known", () => {
-  assert.deepEqual(deviceHeaders({ name: "mbp-studio", system: "macOS 15.6" }), [
-    "X-Driggsby-Device-Name: mbp-studio",
-    "X-Driggsby-Device-System: macOS 15.6",
-  ]);
-  assert.deepEqual(deviceHeaders({ name: null, system: "Windows 11" }), ["X-Driggsby-Device-System: Windows 11"]);
-  assert.deepEqual(deviceHeaders({ name: null, system: null }), []);
 });

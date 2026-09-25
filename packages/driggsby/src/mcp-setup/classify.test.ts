@@ -16,6 +16,19 @@ test("claude code user config matches the expected remote MCP", () => {
   assert.equal(classifyExistingMcpConfig("claude-code", undefined, probe), "matches");
 });
 
+// Claude Code 2.1.281's layout for an entry an earlier version gave device
+// headers: Claude Code doesn't send its sign-in to it, so setup replaces it.
+test("claude code entry carrying device headers differs", () => {
+  const probe = output(
+    true,
+    "driggsby:\n  Scope: User config (available in all your projects)\n  Status: ✔ Connected\n  Type: http\n" +
+      "  URL: https://app.driggsby.com/mcp\n  Headers:\n    X-Driggsby-Device-Name: mbp-studio\n" +
+      "    X-Driggsby-Device-System: macOS 15.6\n\nTo remove this server, run: claude mcp remove \"driggsby\" -s user\n",
+  );
+
+  assert.equal(classifyExistingMcpConfig("claude-code", undefined, probe), "differs");
+});
+
 test("claude code scope mismatch differs", () => {
   const probe = output(
     true,
