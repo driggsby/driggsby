@@ -1,13 +1,23 @@
 // The tool-call broker: the only place `driggsby dev` talks to Driggsby.
 // It holds the app token in the CLI process (never in page HTML), calls the
 // Driggsby MCP endpoint, and hands the host page a plain
-// { ok, result | error } envelope. Bounds mirror the production host: a few
-// calls in flight, a bounded queue, and a hard per-call timeout, so a
-// buggy app can hammer its own laptop but never Driggsby.
+// { ok, result | error } envelope. Bounds mirror the production host: two
+// calls in flight, a bounded queue, a hard per-call timeout, and (for the
+// preview) the host's retries by kind of failure, so a preview loads the
+// way the deployed app would and a buggy app can hammer its own laptop but
+// never Driggsby.
 import { capForTerminal, sanitizeForTerminal } from "../terminal-text.ts";
 import { type BrokerResult, GENERIC_TOOL_TROUBLE } from "./dev-servers.ts";
+import {
+  httpRetryHint,
+  refusalKind,
+  refusalRetryHint,
+  RETRY_LIMITS,
+  type RetryHint,
+  retryDelayMs,
+} from "./retry-policy.ts";
 
-export const MAX_IN_FLIGHT_CALLS = 4;
+export const MAX_IN_FLIGHT_CALLS = 2;
 export const MAX_QUEUED_CALLS = 64;
 export const TOOL_CALL_TIMEOUT_MS = 30_000;
 // Server-supplied error text is untrusted; it reaches the page's console,
@@ -35,13 +45,28 @@ export interface BrokerOptions {
   // envelope, so a page never sees a rejection. "throw": it rejects
   // runToolCall instead, so a CLI command can name the host to allow.
   transportErrors?: "envelope" | "throw";
+  // true (the preview): retry failures the way the production host does
+  // (retry-policy.ts). Off by default, so a one-off command answers at once.
+  retries?: boolean;
+  // Tests replace the retry wait and its jitter.
+  wait?: (milliseconds: number) => Promise<void>;
+  random?: () => number;
 }
 
 interface QueuedCall {
   tool: string;
   argumentsObject: Record<string, unknown>;
+  // Retries already made.
+  attempt: number;
+  // The broker's epoch when the call arrived; dropPending() moves on.
+  epoch: number;
   resolve: (result: BrokerResult) => void;
   reject: (error: unknown) => void;
+}
+
+interface CallOutcome {
+  result: BrokerResult;
+  retry: RetryHint | null;
 }
 
 // One broker per `driggsby dev` run (or per `driggsby query`). With the
@@ -50,8 +75,12 @@ interface QueuedCall {
 export class McpBroker {
   private readonly options: BrokerOptions;
   private readonly queue: QueuedCall[] = [];
+  // Calls waiting out a retry delay, outside the queue until it's over.
+  private readonly waiting = new Set<QueuedCall>();
   private inFlight = 0;
   private nextRequestId = 1;
+  private closed = false;
+  private epoch = 0;
 
   constructor(options: BrokerOptions) {
     this.options = options;
@@ -61,17 +90,37 @@ export class McpBroker {
     tool: string,
     argumentsObject: Record<string, unknown>,
   ): Promise<BrokerResult> {
-    if (this.queue.length >= MAX_QUEUED_CALLS) {
+    if (this.closed || this.queue.length + this.waiting.size >= MAX_QUEUED_CALLS) {
       return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
     }
     return await new Promise<BrokerResult>((resolve, reject) => {
-      this.queue.push({ tool, argumentsObject, resolve, reject });
+      this.queue.push({ tool, argumentsObject, attempt: 0, epoch: this.epoch, resolve, reject });
       this.pump();
     });
   }
 
+  // The page reloaded (a file changed): calls still queued or waiting to
+  // retry belong to the old document, so they're answered now instead of
+  // run, like the production host clearing its queue. A call already in
+  // flight gets its answer but is never retried.
+  dropPending(): void {
+    this.epoch += 1;
+    for (const call of [...this.queue, ...this.waiting]) {
+      call.resolve({ ok: false, error: { message: GENERIC_TOOL_TROUBLE } });
+    }
+    this.queue.length = 0;
+    this.waiting.clear();
+  }
+
+  // The preview is stopping: pending calls are answered and no new
+  // request starts.
+  close(): void {
+    this.closed = true;
+    this.dropPending();
+  }
+
   private pump(): void {
-    while (this.inFlight < MAX_IN_FLIGHT_CALLS) {
+    while (!this.closed && this.inFlight < MAX_IN_FLIGHT_CALLS) {
       const call = this.queue.shift();
       if (call === undefined) {
         return;
@@ -85,23 +134,50 @@ export class McpBroker {
   }
 
   private async execute(call: QueuedCall): Promise<void> {
-    let result: BrokerResult;
+    let outcome: CallOutcome;
     try {
-      result = await this.callMcp(call.tool, call.argumentsObject);
+      outcome = await this.callMcp(call.tool, call.argumentsObject);
     } catch (error) {
       if (this.options.transportErrors === "throw") {
         call.reject(error);
         return;
       }
-      result = { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
+      outcome = { ...failed(GENERIC_TOOL_TROUBLE), retry: { kind: "transport", afterMs: null } };
     }
-    call.resolve(result);
+    const current = !this.closed && call.epoch === this.epoch;
+    const retry = this.options.retries === true && current ? outcome.retry : null;
+    if (retry !== null && call.attempt < RETRY_LIMITS[retry.kind]) {
+      this.retryLater(call, retry, outcome.result);
+      return;
+    }
+    call.resolve(outcome.result);
+  }
+
+  // A call waiting to retry gives up its slot and rejoins the back of the
+  // queue when its wait is over. If the queue is full by then, it keeps the
+  // answer it has; if the pending calls were dropped or the broker closed
+  // meanwhile, that already answered it.
+  private retryLater(call: QueuedCall, retry: RetryHint, answer: BrokerResult): void {
+    const delay = retryDelayMs(call.attempt, retry.afterMs, this.options.random);
+    call.attempt += 1;
+    this.waiting.add(call);
+    void (this.options.wait ?? sleep)(delay).then(() => {
+      if (!this.waiting.delete(call)) {
+        return;
+      }
+      if (this.queue.length >= MAX_QUEUED_CALLS) {
+        call.resolve(answer);
+        return;
+      }
+      this.queue.push(call);
+      this.pump();
+    });
   }
 
   private async callMcp(
     tool: string,
     argumentsObject: Record<string, unknown>,
-  ): Promise<BrokerResult> {
+  ): Promise<CallOutcome> {
     const toolArguments: Record<string, unknown> = { ...argumentsObject };
     if (typeof toolArguments.reason !== "string" || toolArguments.reason.trim() === "") {
       toolArguments.reason = this.options.defaultReason ?? DEFAULT_REASON;
@@ -110,72 +186,103 @@ export class McpBroker {
     this.nextRequestId += 1;
 
     const doFetch = this.options.fetchImplementation ?? fetch;
-    // Bare headers on purpose: the Driggsby endpoint refuses anything that
-    // looks like a browser call (an Origin or Sec-Fetch-Site header), and
-    // Node's fetch sends neither on its own.
-    const response = await doFetch(new URL("/mcp", this.options.baseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.options.token}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: requestId,
-        method: "tools/call",
-        params: { name: tool, arguments: toolArguments },
-      }),
-      // The bearer token must never travel to a redirect target, and tool
-      // results must never come from one either.
-      redirect: "error",
-      signal: AbortSignal.timeout(this.options.timeoutMs ?? TOOL_CALL_TIMEOUT_MS),
-    });
+    const signal = AbortSignal.timeout(this.options.timeoutMs ?? TOOL_CALL_TIMEOUT_MS);
+    // Our own timeout is retried once, like a server timeout; any other
+    // failure to get an answer is retried as a failed request.
+    const cutOff = (): RetryHint => ({ kind: signal.aborted ? "timeout" : "transport", afterMs: null });
+    let response: Response;
+    try {
+      // Bare headers on purpose: the Driggsby endpoint refuses anything that
+      // looks like a browser call (an Origin or Sec-Fetch-Site header), and
+      // Node's fetch sends neither on its own.
+      response = await doFetch(new URL("/mcp", this.options.baseUrl), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.options.token}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: requestId,
+          method: "tools/call",
+          params: { name: tool, arguments: toolArguments },
+        }),
+        // The bearer token must never travel to a redirect target, and tool
+        // results must never come from one either.
+        redirect: "error",
+        signal,
+      });
+    } catch (error) {
+      if (this.options.transportErrors === "throw") {
+        throw error;
+      }
+      return { ...failed(GENERIC_TOOL_TROUBLE), retry: cutOff() };
+    }
 
     if (response.status === 401) {
-      return { ok: false, error: { message: this.options.signInAgainMessage ?? SIGN_IN_AGAIN_MESSAGE } };
+      return failed(this.options.signInAgainMessage ?? SIGN_IN_AGAIN_MESSAGE);
     }
     if (!response.ok) {
-      return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
+      return { ...failed(GENERIC_TOOL_TROUBLE), retry: httpRetryHint(response.status, response.headers.get("Retry-After")) };
     }
 
     let payload: unknown;
     try {
       payload = await response.json();
-    } catch {
-      return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
+    } catch (error) {
+      // A body that isn't JSON would come back the same; a read cut off by
+      // the timeout or a dropped connection may not.
+      return { ...failed(GENERIC_TOOL_TROUBLE), retry: error instanceof SyntaxError ? null : cutOff() };
     }
     return interpretJsonRpc(payload);
   }
 }
 
+function failed(message: string): CallOutcome {
+  return { result: { ok: false, error: { message } }, retry: null };
+}
+
+// Unref'd: a retry's wait never keeps a stopped preview's process alive.
+async function sleep(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds).unref();
+  });
+}
+
 // The Driggsby MCP endpoint answers in JSON-RPC 2.0. Three shapes matter:
 // a protocol-level error ({ error: { message } }), a tool-level refusal
 // (result.isError true, message in content[0].text), and success
-// (result.structuredContent is the data the app's watch callback gets).
-function interpretJsonRpc(payload: unknown): BrokerResult {
+// (result.structuredContent is the data the app's watch callback gets). A
+// refusal the service marks retryable carries its kind and retry hint in
+// structuredContent.
+function interpretJsonRpc(payload: unknown): CallOutcome {
   if (typeof payload !== "object" || payload === null) {
-    return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
+    return failed(GENERIC_TOOL_TROUBLE);
   }
   const envelope = payload as Record<string, unknown>;
 
   const error = envelope.error;
   if (typeof error === "object" && error !== null) {
     const message = (error as Record<string, unknown>).message;
-    return {
-      ok: false,
-      error: { message: typeof message === "string" ? capMessage(message) : GENERIC_TOOL_TROUBLE },
-    };
+    return failed(typeof message === "string" ? capMessage(message) : GENERIC_TOOL_TROUBLE);
   }
 
   const result = envelope.result;
   if (typeof result !== "object" || result === null) {
-    return { ok: false, error: { message: GENERIC_TOOL_TROUBLE } };
+    return failed(GENERIC_TOOL_TROUBLE);
   }
   const resultRecord = result as Record<string, unknown>;
   if (resultRecord.isError === true) {
-    return { ok: false, error: { message: toolRefusalMessage(resultRecord) } };
+    // A known kind reaches the app even when it isn't worth retrying (a
+    // daily limit), as the production host forwards it.
+    const kind = refusalKind(resultRecord.structuredContent);
+    const message = toolRefusalMessage(resultRecord);
+    return {
+      result: { ok: false, error: kind === null ? { message } : { message, kind } },
+      retry: refusalRetryHint(resultRecord.structuredContent),
+    };
   }
-  return { ok: true, result: resultRecord.structuredContent ?? null };
+  return { result: { ok: true, result: resultRecord.structuredContent ?? null }, retry: null };
 }
 
 function toolRefusalMessage(resultRecord: Record<string, unknown>): string {

@@ -22,6 +22,7 @@ import { DEV_IDLE_MINUTES, DEV_START_COMMAND, DEV_STOP_COMMAND } from "./dev-com
 import { startDevServers, type DevServers } from "./dev-servers.ts";
 import { pruneDevStatesForPorts, readDevStates, removeDevState, writeDevState } from "./dev-state.ts";
 import { McpBroker } from "./mcp-broker.ts";
+import { toolCallLine } from "./tool-call-line.ts";
 import { watchDirectory } from "./watcher.ts";
 
 export const DEV_HOST_PORT = 4111;
@@ -97,13 +98,19 @@ export async function runDev(
   const session = await requireDeploySession(environment);
   await refuseSecondPreview(environment.homeDirectory, projectDirectory);
   const sdkBundle = await loadSdkBundle();
-  const broker = new McpBroker({ baseUrl: session.baseUrl, token: session.token });
+  // Retries like the production host, so the preview loads the way the
+  // deployed app would.
+  const broker = new McpBroker({ baseUrl: session.baseUrl, token: session.token, retries: true });
 
   const hostPort = options.hostPort ?? DEV_HOST_PORT;
   const appPort = options.appPort ?? DEV_APP_PORT;
   const pairs = options.portPairs ?? DEV_PORT_PAIRS;
   // Ephemeral ports (0, in tests) are never in use, so they never move.
   const fixedPorts = hostPort !== 0 && appPort !== 0;
+  // A call's terminal line prints only if the page that made it is still
+  // the current one and the preview is still running.
+  let documentGeneration = 0;
+  let stopping = false;
   let servers: DevServers | null = null;
   for (let pair = 0; servers === null; pair += 1) {
     try {
@@ -112,7 +119,15 @@ export async function runDev(
         background: config.background,
         serveDirectory: config.serveDirectory,
         sdkBundle,
-        runToolCall: (tool, argumentsObject) => broker.runToolCall(tool, argumentsObject),
+        runToolCall: async (tool, argumentsObject) => {
+          const started = Date.now();
+          const calledIn = documentGeneration;
+          const result = await broker.runToolCall(tool, argumentsObject);
+          if (!stopping && calledIn === documentGeneration) {
+            io.out(toolCallLine(tool, result, Date.now() - started));
+          }
+          return result;
+        },
         hostPort: shiftedPort(hostPort, pair),
         appPort: shiftedPort(appPort, pair),
       });
@@ -128,6 +143,10 @@ export async function runDev(
   }
 
   const stopWatching = watchDirectory(config.serveDirectory, () => {
+    // The app reloads in every open preview, so the old documents'
+    // pending calls go.
+    documentGeneration += 1;
+    broker.dropPending();
     servers.notifyChange();
   });
   const idleTimeoutMs = options.idleTimeoutMs ?? DEV_IDLE_TIMEOUT_MS;
@@ -148,6 +167,10 @@ export async function runDev(
     }
     return 0;
   } finally {
+    // No retry outlives the preview: waiting calls are answered, and no
+    // new request starts.
+    stopping = true;
+    broker.close();
     idle.cancel();
     stopWatching();
     // The record goes before the ports are freed, so a dev starting the

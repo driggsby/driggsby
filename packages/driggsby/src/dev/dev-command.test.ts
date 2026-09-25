@@ -10,6 +10,7 @@ import {
   makeEnvironment,
   makeProject,
 } from "../deploy/test-support/deploy-command-harness.ts";
+import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
 import { assertFitsTerminal } from "../test-support/terminal-width.ts";
 import { type DevCommandIo, idleWindowWords, runDev } from "./dev-command.ts";
 import { DEV_IDENTITY_PATH, type DevState, devStatePath, readLiveDevStates, writeDevState } from "./dev-state.ts";
@@ -91,6 +92,28 @@ test("dev serves the project and the host page end to end, then shuts down", asy
   assert.equal(stateWhileRunning.folder, directory);
   assert.equal(stateWhileRunning.hostPort, Number(new URL(hostOrigin).port));
   assert.deepEqual(await readLiveDevStates(environment.homeDirectory), []);
+});
+
+test("each tool call the preview makes prints one line in the terminal", async () => {
+  const fake = await startFakeMcp((body) => successEnvelope(body, { synthetic: true }));
+  try {
+    const directory = await makeProject("money-dash", { "index.html": "<h1>the dev app</h1>" });
+    const environment = await makeEnvironment(fake.baseUrl);
+    const io = probingIo(async (openedUrl) => {
+      const response = await fetch(new URL("/tool-calls", openedUrl), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "get_overview", arguments: {} }),
+      });
+      assert.deepEqual(await response.json(), { ok: true, result: { synthetic: true } });
+    });
+
+    assert.equal(await runDev({ projectDirectory: directory, hostPort: 0, appPort: 0 }, environment, io), 0);
+
+    assert.match(io.text(), /^✓ get_overview \d+\.\d{2}s$/m);
+  } finally {
+    await fake.close();
+  }
 });
 
 test("dev stops itself after the idle window with no page open", async () => {

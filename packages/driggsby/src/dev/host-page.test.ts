@@ -189,3 +189,86 @@ test("the host page script syncs routes: sanitize, mirror, clear, and hand back"
   deliver({ protocol: "driggsby-sdk/1", type: "ready" });
   assert.deepEqual(posted.at(-1), { protocol: "driggsby-sdk/1", type: "hello" });
 });
+
+// The host page's tool-call relay, run under stubbed globals: the kinds it
+// hands the app, and the results it drops after a reload.
+test("the host page relays only the service's failure kinds, and drops a result from before a reload", async () => {
+  const posted: Record<string, unknown>[] = [];
+  const frameWindow = {
+    postMessage: (message: Record<string, unknown>) => {
+      posted.push(message);
+    },
+  };
+  type Listener = (event: Record<string, unknown>) => void;
+  const listeners = new Map<string, Listener>();
+  const answers: ((payload: unknown) => void)[] = [];
+  let changeListener: () => void = () => undefined;
+  const stubWindow = {
+    location: { hash: "", href: "http://localhost:4573/", pathname: "/", search: "" },
+    addEventListener: (name: string, listener: Listener) => {
+      listeners.set(name, listener);
+    },
+  };
+  const stubbed = {
+    window: stubWindow,
+    location: stubWindow.location,
+    Date: { now: () => 0 },
+    history: { state: null, replaceState: () => undefined },
+    document: {
+      documentElement: { dataset: { appOrigin: "http://127.0.0.1:4574" } },
+      getElementById: () => ({ contentWindow: frameWindow }),
+    },
+    setTimeout: () => 0,
+    // Each tool call's answer is released by the test, in any order.
+    fetch: () =>
+      new Promise((resolve) => {
+        answers.push((payload) => {
+          resolve({ json: () => Promise.resolve(payload) });
+        });
+      }),
+    EventSource: class {
+      addEventListener(_name: string, listener: () => void): void {
+        changeListener = listener;
+      }
+    },
+  };
+  // The served script only exists as a string, so executing it requires the
+  // Function constructor; its content is this repo's own reviewed source.
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const run = new Function(...Object.keys(stubbed), HOST_PAGE_JS);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  run(...Object.values(stubbed));
+  const deliver = (data: Record<string, unknown>): void => {
+    listeners.get("message")?.({ origin: "http://127.0.0.1:4574", source: frameWindow, data });
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const call = (id: string): void => {
+    deliver({ protocol: "driggsby-sdk/1", type: "call", id, tool: "get_history", params: {} });
+  };
+  const results = () => posted.filter((message) => message.type === "result");
+
+  deliver({ protocol: "driggsby-sdk/1", type: "ready" });
+  call("w1");
+  call("w2");
+  answers[0]?.({ ok: false, error: { message: "Synthetic refusal.", kind: "busy" } });
+  answers[1]?.({ ok: false, error: { message: "Synthetic refusal.", kind: "melted" } });
+  await settle();
+  assert.deepEqual(results(), [
+    { protocol: "driggsby-sdk/1", type: "result", id: "w1", error: { message: "Synthetic refusal.", kind: "busy" } },
+    { protocol: "driggsby-sdk/1", type: "result", id: "w2", error: { message: "Synthetic refusal." } },
+  ]);
+
+  // A call from before a file change, answered after it: dropped.
+  call("w1");
+  changeListener();
+  answers[2]?.({ ok: true, result: { stale: true } });
+  await settle();
+  assert.equal(results().length, 2);
+
+  // And one from before the reloaded app's ready.
+  call("w1");
+  deliver({ protocol: "driggsby-sdk/1", type: "ready" });
+  answers[3]?.({ ok: true, result: { stale: true } });
+  await settle();
+  assert.equal(results().length, 2);
+});
