@@ -3,9 +3,9 @@ import { isIP } from "node:net";
 import { hostname, platform, release, version } from "node:os";
 
 // What this computer calls itself, so Driggsby's MCP page can tell your
-// connections apart ("On mbp-studio · macOS 15.6"). Read from the operating
-// system's own files; no program is run. Each value is allowlisted before it
-// leaves the CLI (it can travel as a command argument), and a value outside
+// CLI sign-ins apart ("mbp-studio · macOS 15.6"). Read from the operating
+// system's own files; no program is run. `login` sends it with its sign-in.
+// Each value is allowlisted before it leaves the CLI, and a value outside
 // the allowlist is left out, never cleaned into something else. Nothing
 // here can fail a command: if the OS won't say, the value is unknown.
 export interface Device {
@@ -24,10 +24,8 @@ export interface OsFacts {
   readFile: (path: string) => string | null;
 }
 
-// Load-bearing: these allowlists are what make the values safe as command
-// arguments (spawn-plan.ts quotes them for cmd.exe) and as "Name: value"
-// headers. They must never admit % ! ^ & | < > " \ : or a control
-// character; device.test.ts checks each.
+// These allowlists keep what leaves the CLI plain text: they never admit
+// % ! ^ & | < > " \ : or a control character (device.test.ts checks each).
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
 const SYSTEM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,63}$/;
 const MAC_VERSION_FILE = "/System/Library/CoreServices/SystemVersion.plist";
@@ -61,18 +59,6 @@ export function knownDevice(device: Device): { name?: string; system?: string } 
     ...(device.system === null ? {} : { system: device.system }),
   };
   return Object.keys(known).length === 0 ? null : known;
-}
-
-// The Driggsby headers `mcp setup` gives Claude Code, one per known value.
-export function deviceHeaders(device: Device): string[] {
-  const headers: string[] = [];
-  if (device.name !== null) {
-    headers.push(`X-Driggsby-Device-Name: ${device.name}`);
-  }
-  if (device.system !== null) {
-    headers.push(`X-Driggsby-Device-System: ${device.system}`);
-  }
-  return headers;
 }
 
 // "mbp-studio.local" and "devbox-02.corp.example.test" are mbp-studio and

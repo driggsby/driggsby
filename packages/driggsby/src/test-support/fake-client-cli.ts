@@ -3,7 +3,8 @@
 // POSIX, a .cmd shim on Windows, matching how npm installs real client CLIs).
 // The fake's behavior is driven by environment variables so one shim covers
 // every scenario:
-//   FAKE_GET_BEHAVIOR: missing | matches | differs | fail   (mcp get)
+//   FAKE_GET_BEHAVIOR: missing | matches | matches-with-device-headers |
+//                      differs | fail   (mcp get)
 //   FAKE_ADD_BEHAVIOR: ok | already-exists | fail |
 //                      oauth-stream | lingering-grandchild  (mcp add)
 //   FAKE_ARGS_FILE: a path; mcp add writes the arguments it received there
@@ -22,6 +23,10 @@ if (args[0] === "mcp" && args[1] === "get") {
     } else {
       process.stdout.write("driggsby:\\n  Scope: User config\\n  Type: http\\n  URL: https://app.driggsby.com/mcp\\n");
     }
+    process.exit(0);
+  }
+  if (behavior === "matches-with-device-headers") {
+    process.stdout.write("driggsby:\\n  Scope: User config\\n  Type: http\\n  URL: https://app.driggsby.com/mcp\\n  Headers:\\n    X-Driggsby-Device-Name: mbp-studio\\n");
     process.exit(0);
   }
   if (behavior === "differs") {
