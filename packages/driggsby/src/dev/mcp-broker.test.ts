@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { startFakeMcp, successEnvelope } from "../test-support/fake-mcp.ts";
 import { GENERIC_TOOL_TROUBLE } from "./dev-servers.ts";
-import { MAX_ERROR_MESSAGE_CHARS, McpBroker, SIGN_IN_AGAIN_MESSAGE } from "./mcp-broker.ts";
+import { MAX_ERROR_MESSAGE_CHARS, MAX_IN_FLIGHT_CALLS, MAX_QUEUED_CALLS, McpBroker, SIGN_IN_AGAIN_MESSAGE } from "./mcp-broker.ts";
 
 // A synthetic token for the fake server; never a real credential.
 const FAKE_TOKEN = "dgb_at_synthetic_test_token";
@@ -256,7 +256,7 @@ test("the queue cap refuses overflow instead of piling up calls", async () => {
       token: FAKE_TOKEN,
     });
     // Fill the in-flight slots plus the whole queue, then one more.
-    const pending = Array.from({ length: 4 + 64 }, () => broker.runToolCall("get_overview", {}));
+    const pending = Array.from({ length: MAX_IN_FLIGHT_CALLS + MAX_QUEUED_CALLS }, () => broker.runToolCall("get_overview", {}));
     const overflow = await broker.runToolCall("list_accounts", {});
     assert.deepEqual(overflow, { ok: false, error: { message: GENERIC_TOOL_TROUBLE } });
 
