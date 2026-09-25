@@ -1,7 +1,7 @@
 // The scaffold's styles.css. A deployed app lives inside Driggsby's dark
 // chrome, so the page is dark by default and its values are Driggsby's
-// own: the console's palette, type, insets, and page column, measured off
-// the console itself. The app is its own origin and cannot read the
+// own: the console's palette, type, and insets, measured off the console
+// itself, in a compact column. The app is its own origin and cannot read the
 // console's stylesheet, so each gray is written as the console paints it
 // on its black page (the console's cards and fills are translucent over
 // that ground) and each hue verbatim. The :root block is the same one
@@ -47,9 +47,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* The console's page column. */
+/* A compact column: a few figures and a short list read best close
+   together. The console's own pages run wider (75rem); widen this as the
+   page grows. */
 main {
-  max-width: 75rem;
+  max-width: 800px;
   margin: 0 auto;
   padding: 24px;
 }
