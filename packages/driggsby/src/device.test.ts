@@ -107,7 +107,7 @@ test("reading the computer can never fail a command", () => {
 
 // The allowlists keep what leaves the CLI plain text: no character a
 // shell, cmd.exe, or a header would treat specially.
-test("no character cmd.exe or a header treats specially ever gets through", () => {
+test("no character a shell, cmd.exe, or a header treats specially ever gets through", () => {
   for (const special of ["%", "!", "^", "&", "|", "<", ">", '"', "\\", ":", "\t", "\r", "\n", "(", ")", "$", "`"]) {
     assert.equal(describeDevice(facts({ hostname: `host${special}x` })).name, null, JSON.stringify(special));
     // In os-release a line break ends the value, so it can't carry one.

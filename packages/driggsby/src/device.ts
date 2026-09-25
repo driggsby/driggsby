@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { hostname, platform, release, version } from "node:os";
 
 // What this computer calls itself, so Driggsby's MCP page can tell your
-// connections apart ("On mbp-studio · macOS 15.6"). Read from the operating
+// CLI sign-ins apart ("mbp-studio · macOS 15.6"). Read from the operating
 // system's own files; no program is run. `login` sends it with its sign-in.
 // Each value is allowlisted before it leaves the CLI, and a value outside
 // the allowlist is left out, never cleaned into something else. Nothing
