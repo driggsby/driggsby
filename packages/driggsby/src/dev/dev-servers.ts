@@ -21,9 +21,12 @@ export const TOOL_NOT_ALLOWED_MESSAGE =
 
 const MAX_TOOL_CALL_BODY_BYTES = 65_536;
 
+// A failure's kind, when the Driggsby service named one (timeout,
+// unavailable, busy, rate_limited), rides beside its message so the page
+// can hand it to the app's onError, as the console's host does.
 export type BrokerResult =
   | { ok: true; result: unknown }
-  | { ok: false; error: { message: string } };
+  | { ok: false; error: { message: string; kind?: string } };
 
 export interface DevServerOptions {
   slug: string;
