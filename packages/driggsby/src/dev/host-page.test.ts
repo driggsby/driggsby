@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { transformSync } from "esbuild";
 
+import { FRAME_POLICY } from "./app-policy.ts";
 import { HOST_PAGE_JS, hostPageHtml } from "./host-page.ts";
 
 // HOST_PAGE_JS is browser code stored as a string literal, so tsc, ESLint,
@@ -19,6 +20,15 @@ test("the host page pins the app origin and keeps its script external", () => {
   assert.ok(html.includes('data-app-origin="http://127.0.0.1:4574"'));
   assert.ok(html.includes('src="/host.js"'));
   assert.ok(!html.includes("<script>"));
+});
+
+// The frame as the console builds it: the same sandbox, and the deployed
+// policy required of every document the frame shows.
+test("the host page frames the app with the console's sandbox and requires the deployed policy", () => {
+  const html = hostPageHtml("money-dash-x7k2qf", "http://127.0.0.1:4574", null);
+  const frame = /<iframe [^>]*>/.exec(html)?.[0] ?? "";
+  assert.ok(frame.includes('sandbox="allow-scripts allow-same-origin"'), frame);
+  assert.ok(frame.includes(`csp="${FRAME_POLICY}"`), frame);
 });
 
 // The frame's own rule, so the page's own background can't satisfy it.
