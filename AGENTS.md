@@ -44,9 +44,11 @@ or agent of choice. As such, security is non-negotiable and is your top priority
   first and be mirrored into these files verbatim, or `driggsby dev`
   silently stops matching what a deployed app actually does. The same rule
   covers `packages/driggsby/src/dev/tool-allowlist.ts` (a copy of the
-  read-only tool allowlist the Driggsby service enforces) and the host-page
-  protocol in `packages/driggsby/src/dev/host-page.ts`: service side first,
-  then mirror.
+  read-only tool allowlist the Driggsby service enforces), the host-page
+  protocol in `packages/driggsby/src/dev/host-page.ts`, and
+  `packages/driggsby/src/dev/app-policy.ts` (the security headers, service
+  worker, and frame policy a deployed app gets): service side first, then
+  mirror.
 - Main install path:
   - `npx driggsby@latest mcp setup`
   - `npx driggsby@latest mcp setup claude-code`

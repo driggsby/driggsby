@@ -5,6 +5,7 @@
 // inside Driggsby. The page carries no token and no data; every tool call
 // goes to the CLI's own /tool-calls endpoint, which holds the token and
 // enforces the allowlist and bounds.
+import { FRAME_POLICY } from "./app-policy.ts";
 
 // The page's script is served as its own file so the page can carry a
 // Content-Security-Policy with no inline scripts.
@@ -15,7 +16,11 @@
 // `appOrigin` is built by startDevServers from a literal plus a bound port
 // number, and `background` has passed readProjectConfig's strict hex-color
 // rule (or is null). Anything looser than those sources must not be
-// passed here.
+// passed here. FRAME_POLICY is a constant with no double quote in it.
+//
+// The frame gets the console's sandbox and, as its csp attribute, the
+// deployed policy (app-policy.ts), which Chrome then requires of every
+// document the frame shows, even one this server didn't send.
 export function hostPageHtml(slug: string, appOrigin: string, background: string | null): string {
   return `<!doctype html>
 <html lang="en" data-app-origin="${appOrigin}">
@@ -85,7 +90,7 @@ export function hostPageHtml(slug: string, appOrigin: string, background: string
     <span class="slug">${slug}</span>
     <span class="mode">driggsby dev — your live data</span>
   </header>
-  <iframe id="app" src="${appOrigin}/" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+  <iframe id="app" src="${appOrigin}/" sandbox="allow-scripts allow-same-origin" csp="${FRAME_POLICY}"></iframe>
   <script type="module" src="/host.js"></script>
 </body>
 </html>

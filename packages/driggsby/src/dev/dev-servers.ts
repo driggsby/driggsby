@@ -6,6 +6,7 @@
 // the CLI process.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
+import { appResponseHeaders, INERT_SERVICE_WORKER } from "./app-policy.ts";
 import { DEV_IDENTITY_PATH } from "./dev-state.ts";
 import { hostPageHtml, HOST_PAGE_JS } from "./host-page.ts";
 import { serveStaticFile } from "./static-files.ts";
@@ -20,6 +21,9 @@ export const TOOL_NOT_ALLOWED_MESSAGE =
   "That tool isn't available to Driggsby apps. Apps can use read-only tools like get_overview and list_accounts.";
 
 const MAX_TOOL_CALL_BODY_BYTES = 65_536;
+
+const PLAIN_TEXT = "text/plain; charset=utf-8";
+const JAVASCRIPT = "text/javascript; charset=utf-8";
 
 // A failure's kind, when the Driggsby service named one (timeout,
 // unavailable, busy, rate_limited), rides beside its message so the page
@@ -60,8 +64,9 @@ export async function startDevServers(options: DevServerOptions): Promise<DevSer
   // while binding only the IPv4 loopback breaks on machines whose browser
   // resolves localhost to ::1 first.
   let appPortForGuard = 0;
-  // Filled in once the host server binds; app responses embed it in their
-  // frame-ancestors policy so only the real host page can frame the app.
+  // Filled in once the host server binds; app responses name it in their
+  // frame-ancestors and Allow-CSP-From, so only the real host page can
+  // frame the app.
   let hostOriginForFraming = "";
   const appServer = createServer((request, response) => {
     void handleAppRequest(options, appPortForGuard, hostOriginForFraming, request, response);
@@ -119,39 +124,42 @@ async function handleAppRequest(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
-  // Only the real host page may frame the app: without this, any other
-  // loopback-served page could embed the app origin, pin itself as the
-  // app's host, and feed it fabricated numbers. Until the host server has
-  // bound (a startup race measured in milliseconds), nothing may frame it.
-  // nosniff keeps the browser honest about the served content types.
-  const appHeaders = {
-    "Content-Security-Policy": `frame-ancestors ${hostOrigin === "" ? "'none'" : hostOrigin};`,
-    "X-Content-Type-Options": "nosniff",
-  };
+  // Every response carries the deployed app's headers (app-policy.ts). Their
+  // frame-ancestors lets only the real host page frame the app: without it,
+  // any other loopback-served page could embed the app origin, pin itself
+  // as the app's host, and feed it fabricated numbers.
+  const plainTextHeaders = appResponseHeaders(hostOrigin, PLAIN_TEXT);
+
   // Same rebinding guard as the host origin: a page on another site that
   // tricked DNS into pointing here carries its own Host, and fails.
   if (!hostHeaderIsLocal(request.headers.host, appPort)) {
-    sendText(response, 403, "text/plain; charset=utf-8", "Forbidden.", appHeaders);
+    sendText(response, 403, PLAIN_TEXT, "Forbidden.", plainTextHeaders);
+    return;
+  }
+  // Every service worker script request, whatever path it names, gets the
+  // inert worker (app-policy.ts), as deployed. Browsers mark each one.
+  if (isServiceWorkerScriptRequest(request)) {
+    sendText(response, 200, JAVASCRIPT, INERT_SERVICE_WORKER, appResponseHeaders(hostOrigin, JAVASCRIPT));
     return;
   }
   const path = requestPath(request);
   if (request.method !== "GET" && request.method !== "HEAD") {
-    sendText(response, 405, "text/plain; charset=utf-8", "Method not allowed.", appHeaders);
+    sendText(response, 405, PLAIN_TEXT, "Method not allowed.", plainTextHeaders);
     return;
   }
   if (path === "/-/driggsby-sdk.js") {
-    sendText(response, 200, "text/javascript; charset=utf-8", options.sdkBundle, appHeaders);
+    sendText(response, 200, JAVASCRIPT, options.sdkBundle, appResponseHeaders(hostOrigin, JAVASCRIPT));
     return;
   }
   const file = await serveStaticFile(options.serveDirectory, path);
   if (file === null) {
-    sendText(response, 404, "text/plain; charset=utf-8", "Not found.", appHeaders);
+    sendText(response, 404, PLAIN_TEXT, "Not found.", plainTextHeaders);
     return;
   }
   response.writeHead(file.status, {
     "Content-Type": file.contentType,
     "Cache-Control": "no-store",
-    ...appHeaders,
+    ...appResponseHeaders(hostOrigin, file.contentType),
   });
   response.end(file.body);
 }
@@ -175,6 +183,12 @@ async function handleHostRequest(
     sendJson(response, 403, { ok: false, error: { message: "Forbidden." } });
     return;
   }
+  // The host page registers no worker, so a worker script request here is
+  // a foreign one; the inert worker replaces it (app-policy.ts).
+  if (isServiceWorkerScriptRequest(request)) {
+    sendText(response, 200, JAVASCRIPT, INERT_SERVICE_WORKER);
+    return;
+  }
   const path = requestPath(request);
 
   if (request.method === "GET" && path === DEV_IDENTITY_PATH) {
@@ -188,7 +202,7 @@ async function handleHostRequest(
     return;
   }
   if (request.method === "GET" && path === "/host.js") {
-    sendText(response, 200, "text/javascript; charset=utf-8", HOST_PAGE_JS);
+    sendText(response, 200, JAVASCRIPT, HOST_PAGE_JS);
     return;
   }
   if (request.method === "GET" && path === "/events") {
@@ -209,7 +223,7 @@ async function handleHostRequest(
     await handleToolCall(options, hostPort, request, response);
     return;
   }
-  sendText(response, 404, "text/plain; charset=utf-8", "Not found.");
+  sendText(response, 404, PLAIN_TEXT, "Not found.");
   return;
 }
 
@@ -278,6 +292,10 @@ function requestPath(request: IncomingMessage): string {
   const url = request.url ?? "/";
   const queryStart = url.indexOf("?");
   return queryStart === -1 ? url : url.slice(0, queryStart);
+}
+
+function isServiceWorkerScriptRequest(request: IncomingMessage): boolean {
+  return request.headers["service-worker"] === "script" || request.headers["sec-fetch-dest"] === "serviceworker";
 }
 
 function hostHeaderIsLocal(host: string | undefined, port: number): boolean {
