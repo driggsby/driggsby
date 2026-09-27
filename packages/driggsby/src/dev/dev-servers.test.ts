@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { INERT_SERVICE_WORKER } from "./app-policy.ts";
 import { startDevServers, type BrokerResult, TOOL_NOT_ALLOWED_MESSAGE } from "./dev-servers.ts";
 import { serveStaticFile } from "./static-files.ts";
 
@@ -12,6 +13,7 @@ async function makeServeDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "driggsby-dev-"));
   await writeFile(join(directory, "index.html"), "<h1>the app</h1>");
   await writeFile(join(directory, "app.js"), "console.log(1);");
+  await writeFile(join(directory, "data.bin"), "opaque bytes");
   await writeFile(join(directory, "driggsby.json"), '{"slug":"money-dash"}');
   await writeFile(join(directory, ".env"), "SECRET=nope");
   await mkdir(join(directory, "nested"));
@@ -56,16 +58,27 @@ test("the app origin serves the app's files and the SDK, never excluded files", 
     assert.equal(index.status, 200);
     assert.match(index.headers.get("content-type") ?? "", /text\/html/);
     assert.equal(await index.text(), "<h1>the app</h1>");
-    // Only the real host page may frame the app; content types are final.
-    assert.equal(
-      index.headers.get("content-security-policy"),
-      `frame-ancestors ${servers.hostOrigin};`,
-    );
+    // The deployed app's policy (app-policy.ts): only the real host page may
+    // frame the app, and a page or script carries Connection-Allowlist.
+    const indexPolicy = index.headers.get("content-security-policy") ?? "";
+    assert.match(indexPolicy, /^sandbox allow-scripts allow-same-origin; default-src 'self';/);
+    assert.ok(indexPolicy.endsWith(`; frame-ancestors ${servers.hostOrigin}`), indexPolicy);
+    assert.equal(index.headers.get("connection-allowlist"), "(response-origin)");
     assert.equal(index.headers.get("x-content-type-options"), "nosniff");
 
     const sdk = await fetch(`${servers.appOrigin}/-/driggsby-sdk.js`);
     assert.equal(sdk.status, 200);
     assert.equal(await sdk.text(), "// the sdk bundle\n");
+    assert.equal(sdk.headers.get("connection-allowlist"), "(response-origin)");
+
+    // A file that can't run script, a miss, and a refused method open sealed
+    // without it.
+    for (const [method, path] of [["GET", "/data.bin"], ["GET", "/missing.html"], ["POST", "/index.html"]] as const) {
+      const response = await fetch(`${servers.appOrigin}${path}`, { method });
+      await response.arrayBuffer();
+      assert.match(response.headers.get("content-security-policy") ?? "", /^sandbox; default-src 'self';/, path);
+      assert.equal(response.headers.get("connection-allowlist"), null, path);
+    }
 
     // What a deploy would never publish, dev never serves — in any casing,
     // so a case-insensitive filesystem (macOS, Windows) can't route an
@@ -86,6 +99,36 @@ test("the app origin serves the app's files and the SDK, never excluded files", 
     // A nested driggsby.json is an ordinary file, exactly like the deploy walk.
     const nested = await fetch(`${servers.appOrigin}/nested/driggsby.json`);
     assert.equal(nested.status, 200);
+  } finally {
+    await servers.close();
+  }
+});
+
+// An app's own service worker could answer the frame's navigations with
+// documents that carry none of the app origin's headers, and on the fixed
+// dev ports it would outlive the preview. Every worker script request gets
+// the inert worker instead, whatever path it names, as deployed; on the host
+// origin too, which registers none of its own.
+test("a service worker script request gets the inert worker, never the app's file", async () => {
+  const { servers } = await startServers({});
+  try {
+    for (const headers of [{ "Service-Worker": "script" }, { "Sec-Fetch-Dest": "serviceworker" }]) {
+      const response = await fetch(`${servers.appOrigin}/app.js`, { headers });
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("content-type") ?? "", /javascript/);
+      assert.match(
+        response.headers.get("content-security-policy") ?? "",
+        /^sandbox allow-scripts allow-same-origin; default-src 'self';/,
+      );
+      assert.equal(response.headers.get("connection-allowlist"), "(response-origin)");
+      assert.equal(await response.text(), INERT_SERVICE_WORKER);
+
+      const hostResponse = await fetch(`${servers.hostOrigin}/sw.js`, { headers });
+      assert.equal(hostResponse.status, 200);
+      assert.equal(await hostResponse.text(), INERT_SERVICE_WORKER);
+    }
+    const plain = await fetch(`${servers.appOrigin}/app.js`);
+    assert.equal(await plain.text(), "console.log(1);");
   } finally {
     await servers.close();
   }
@@ -119,7 +162,13 @@ test("the host origin serves the page, embedding the app origin", async () => {
     assert.ok(html.includes(`src="${servers.appOrigin}/"`), "the iframe must point at the app origin");
     assert.ok(html.includes("money-dash"));
     assert.ok(!html.includes("dgb_at_"), "no token material in page HTML");
-    assert.ok((page.headers.get("content-security-policy") ?? "").includes("script-src 'self'"));
+    // frame-src is all that keeps the frame from navigating itself to
+    // another site where Connection-Allowlist is unsupported.
+    assert.equal(
+      page.headers.get("content-security-policy"),
+      "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+        `connect-src 'self'; frame-src ${servers.appOrigin}; frame-ancestors 'none';`,
+    );
 
     const script = await fetch(`${servers.hostOrigin}/host.js`);
     assert.equal(script.status, 200);
