@@ -71,10 +71,15 @@ const CLI_EXPECTATION: PackageExpectation = {
   bin: { binName: "driggsby", binPath: "bin/driggsby.js" },
   // dist may nest (api/, deploy/, login/), but no path segment may start
   // with a dot — a stray dot-directory in dist must fail this check, not
-  // pack silently.
+  // pack silently. assets holds exactly the dashboard font `driggsby dev`
+  // serves and its license.
   allowedFilePattern:
-    /^(package\.json|LICENSE|README\.md|bin\/driggsby\.js|dist\/(?:[^/.][^/]*\/)*[^/.][^/]*\.js)$/,
+    /^(package\.json|LICENSE|README\.md|bin\/driggsby\.js|assets\/Inter\.woff2|assets\/Inter-LICENSE\.txt|dist\/(?:[^/.][^/]*\/)*[^/.][^/]*\.js)$/,
 };
+
+// The dashboard font `driggsby dev` serves at /-/inter.woff2: the same
+// bytes Driggsby's serving host serves deployed apps.
+const DASHBOARD_FONT_SHA256 = "52827645dde31ba8788d8a6100f2415298e52655783c7eff5fcb5d9200cbbbca";
 
 interface PackedFile {
   path: string;
@@ -303,6 +308,37 @@ try {
   const sdkBundle = readFileSync(sdkBundlePath, "utf8");
   if (!sdkBundle.includes("driggsby-sdk/1") || /^\s*import\b/m.test(sdkBundle)) {
     fail("the installed SDK bundle must carry the protocol marker and import nothing at runtime");
+  }
+
+  // The dashboard font, loaded the way `driggsby dev` loads it at run time
+  // (through the installed dist module, so a layout change that loses the
+  // asset fails here), must be exactly the bytes the serving host serves,
+  // and ship beside its license.
+  let fontDigest = "";
+  try {
+    fontDigest = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        "const { createHash } = await import('node:crypto');" +
+          "const { pathToFileURL } = await import('node:url');" +
+          "const { loadDashboardFont } = await import(pathToFileURL(process.argv[1]).href);" +
+          "console.log(createHash('sha256').update(await loadDashboardFont()).digest('hex'));",
+        // Ends node's own options, so the path is only ever an argument.
+        "--",
+        join(installedCliPackage, "dist", "dev", "dashboard-font.js"),
+      ],
+      { encoding: "utf8" },
+    ).trim();
+  } catch {
+    fail("the installed CLI could not load its dashboard font");
+  }
+  if (fontDigest !== DASHBOARD_FONT_SHA256) {
+    fail("the installed CLI's dashboard font must be the pinned Inter");
+  }
+  if (!readFileSync(join(installedCliPackage, "assets", "Inter-LICENSE.txt"), "utf8").includes("SIL OPEN FONT LICENSE")) {
+    fail("the installed dashboard font must ship beside its license");
   }
 
   // Behavior checks against the installed bytes. `driggsby --version` walks
