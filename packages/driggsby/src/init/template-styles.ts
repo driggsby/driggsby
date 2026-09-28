@@ -35,14 +35,15 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Inter, which Driggsby serves on this page's own address (driggsby dev
-   serves the same file), so the page loads it from nowhere else. Keep the
-   text in it: the Dashboards page shows a picture of this page, taken on a
-   server that has none of your fonts, and a face the page brings with it
-   looks the same there. Fonts from other sites are refused; to use another
-   face, put its file in this folder and point an @font-face at it. Text
-   waits for Inter (index.html preloads it) rather than flash another face
-   first. */
+/* Inter, which Driggsby serves at /-/inter.woff2 on this app's own origin
+   (driggsby dev serves the same file there), so nothing loads from another
+   site. Keep the page's text set in it: the Dashboards page shows a
+   picture of this page, taken on a server with none of your fonts, and
+   only a font the page loads itself looks the same there. Fonts from other
+   sites are refused. To switch faces, put the font file in this folder,
+   point an @font-face at it, name it first in --font-sans, and change the
+   preload in index.html to match. Text waits for the font (font-display:
+   block, preloaded) rather than flash another face first. */
 @font-face {
   font-family: "Inter";
   src: url("/-/inter.woff2") format("woff2");

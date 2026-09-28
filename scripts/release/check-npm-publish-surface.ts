@@ -314,19 +314,26 @@ try {
   // (through the installed dist module, so a layout change that loses the
   // asset fails here), must be exactly the bytes the serving host serves,
   // and ship beside its license.
-  const fontDigest = execFileSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      "const { createHash } = await import('node:crypto');" +
-        "const { pathToFileURL } = await import('node:url');" +
-        "const { loadDashboardFont } = await import(pathToFileURL(process.argv[1]).href);" +
-        "console.log(createHash('sha256').update(await loadDashboardFont()).digest('hex'));",
-      join(installedCliPackage, "dist", "dev", "dashboard-font.js"),
-    ],
-    { encoding: "utf8" },
-  ).trim();
+  let fontDigest = "";
+  try {
+    fontDigest = execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        "const { createHash } = await import('node:crypto');" +
+          "const { pathToFileURL } = await import('node:url');" +
+          "const { loadDashboardFont } = await import(pathToFileURL(process.argv[1]).href);" +
+          "console.log(createHash('sha256').update(await loadDashboardFont()).digest('hex'));",
+        // Ends node's own options, so the path is only ever an argument.
+        "--",
+        join(installedCliPackage, "dist", "dev", "dashboard-font.js"),
+      ],
+      { encoding: "utf8" },
+    ).trim();
+  } catch {
+    fail("the installed CLI could not load its dashboard font");
+  }
   if (fontDigest !== DASHBOARD_FONT_SHA256) {
     fail("the installed CLI's dashboard font must be the pinned Inter");
   }
