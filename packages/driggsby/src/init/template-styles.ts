@@ -128,6 +128,10 @@ h2 {
 }
 
 .stat {
+  /* The figure inside sizes itself to this card (see .stat-value), so
+     the card takes its width from the grid, never from its content: in a
+     content-sized track it would collapse. */
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   padding: 14px 16px;
@@ -143,13 +147,32 @@ h2 {
 
 .stat-value {
   margin-top: 2px;
+  /* 20px, and 20px wherever container units aren't known; the @supports
+     rule below shrinks a figure too long for its card. The line stays
+     30px whatever size the figure draws at, so it measures the same as
+     the skeleton bar it replaces. */
   font-size: 20px;
+  line-height: 30px;
   font-weight: 600;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
-  /* A currency string has no natural break, and a clipped balance is a
-     wrong number. If a value ever outgrows its cell, it wraps. */
+  /* Past the 12px floor a figure wraps rather than spill out of its
+     card: a clipped balance is a wrong number. */
   overflow-wrap: anywhere;
+}
+
+/* A figure keeps 20px unless it is too long for its card, and then
+   shrinks just enough to stay one number: its length (--chars, which
+   renderOverview sets) at 0.6em a character, the widest these figures
+   run with a little room, fills at most the card (100cqi). A short
+   balance never shrinks; $99,999,999.99 in a desktop card draws near
+   17px. Inside @supports, so a browser without container units keeps
+   20px: outside it, the var() would let the line override 20px and
+   then fail. */
+@supports (width: 1cqi) {
+  .stat-value {
+    font-size: clamp(12px, calc(100cqi / (var(--chars, 1) * 0.6)), 20px);
+  }
 }
 
 #accounts {
@@ -174,6 +197,28 @@ h2 {
 .empty-row {
   padding: 14px 16px;
   color: var(--text-secondary);
+}
+
+/* A section whose call failed says why in its own place (see "When a call
+   fails" in app.js): in the list, in a row's inset under any rows it
+   keeps; across the stat row, as a card of its own. A long reason (one
+   can quote your SQL) wraps inside it. */
+.problem {
+  padding: 14px 16px;
+  color: var(--text-warning);
+  overflow-wrap: anywhere;
+}
+
+.stat-grid > .problem {
+  grid-column: 1 / -1;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+}
+
+.account-row + .problem,
+.empty-row + .problem {
+  border-top: 1px solid var(--hairline);
 }
 
 /* The institution's initial on a round pill, as the console draws it. */

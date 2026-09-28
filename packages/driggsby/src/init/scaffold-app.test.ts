@@ -6,11 +6,11 @@
 // posture.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runInNewContext } from "node:vm";
 
 import { transformSync } from "esbuild";
 
 import { APP_JS } from "./templates.ts";
+import { holdsNoSkeleton, runScaffoldAppJs } from "./test-support/scaffold-harness.ts";
 
 // The scaffold's app code is browser JavaScript stored as a string literal,
 // invisible to tsc and ESLint; this parse gate turns a syntax slip in a
@@ -18,156 +18,6 @@ import { APP_JS } from "./templates.ts";
 test("the scaffolded app.js parses as JavaScript", () => {
   assert.doesNotThrow(() => transformSync(APP_JS, { loader: "js" }));
 });
-
-// A DOM stub just wide enough to execute the scaffold's app.js and observe
-// what it painted, so the no-flash invariant is tested behaviorally: sample
-// numbers exist in the DOM only when the page is genuinely standalone.
-class StubNode {
-  className = "";
-  textContent = "";
-  children: StubNode[] = [];
-  attributes = new Map<string, string>();
-
-  append(...nodes: StubNode[]): void {
-    this.children.push(...nodes);
-  }
-
-  replaceChildren(...nodes: StubNode[]): void {
-    this.children = nodes;
-  }
-
-  setAttribute(name: string, value: string): void {
-    this.attributes.set(name, value);
-  }
-
-  removeAttribute(name: string): void {
-    this.attributes.delete(name);
-  }
-}
-
-interface ScaffoldRun {
-  overview: StubNode;
-  accounts: StubNode;
-  overviewSkeleton: StubNode[];
-  accountsSkeleton: StubNode[];
-  watches: Map<string, (result: unknown) => void>;
-  // Captured, never run on their own: a test drives the settle beat and
-  // the dissolve by invoking these in order.
-  transitions: (() => void)[];
-  timers: (() => void)[];
-  // Everything the scaffold reported via console.error.
-  errors: unknown[];
-}
-
-// Mirrors the shipped HTML: the containers start marked busy and holding
-// their skeleton children (4 stat bars, 3 account rows), so the assertions
-// about replacement are about a skeleton that was genuinely there.
-function skeletonNodes(count: number): StubNode[] {
-  return Array.from({ length: count }, () => {
-    const node = new StubNode();
-    node.className = "skeleton";
-    return node;
-  });
-}
-
-function runScaffoldAppJs(options: {
-  embedded: boolean;
-  sdkLoaded: boolean;
-  // Gives the stub document a startViewTransition and the context a
-  // captured setTimeout, the two things the scaffold's settle path needs;
-  // without them the scaffold paints synchronously, as in old browsers.
-  viewTransitions?: boolean;
-  // With viewTransitions, makes the stubbed matchMedia report reduced
-  // motion, which must route the first paint around the dissolve.
-  reducedMotion?: boolean;
-}): ScaffoldRun {
-  const overview = new StubNode();
-  const accounts = new StubNode();
-  const overviewSkeleton = skeletonNodes(4);
-  const accountsSkeleton = skeletonNodes(3);
-  overview.children = [...overviewSkeleton];
-  accounts.children = [...accountsSkeleton];
-  overview.attributes.set("aria-busy", "true");
-  accounts.attributes.set("aria-busy", "true");
-  const byId = new Map<string, StubNode>([
-    ["overview", overview],
-    ["accounts", accounts],
-  ]);
-  const watches = new Map<string, (result: unknown) => void>();
-  const transitions: (() => void)[] = [];
-  const timers: (() => void)[] = [];
-  const errors: unknown[] = [];
-  const documentStub: {
-    getElementById: (id: string) => StubNode | null;
-    createElement: () => StubNode;
-    startViewTransition?: (update: () => void) => { ready: Promise<never> };
-  } = {
-    getElementById: (id: string): StubNode | null => byId.get(id) ?? null,
-    createElement: (): StubNode => new StubNode(),
-  };
-  if (options.viewTransitions) {
-    documentStub.startViewTransition = (update: () => void): { ready: Promise<never> } => {
-      transitions.push(update);
-      // Never settles, like a transition whose animation is still running;
-      // the scaffold only attaches a rejection handler to it.
-      return { ready: new Promise<never>(() => undefined) };
-    };
-  }
-  const driggsbyStub = options.sdkLoaded
-    ? {
-        watch: (
-          tool: string,
-          _params: Record<string, unknown>,
-          callback: (result: unknown) => void,
-        ): (() => void) => {
-          watches.set(tool, callback);
-          return () => undefined;
-        },
-      }
-    : undefined;
-  const windowStub: {
-    parent: unknown;
-    driggsby?: typeof driggsbyStub;
-    matchMedia?: (query: string) => { matches: boolean };
-  } = { parent: null };
-  windowStub.parent = options.embedded ? {} : windowStub;
-  if (driggsbyStub) windowStub.driggsby = driggsbyStub;
-  const context: Record<string, unknown> = {
-    window: windowStub,
-    document: documentStub,
-    driggsby: driggsbyStub,
-    // A fresh vm context has no console; the scaffold reports a throwing
-    // render through console.error, and tests read it back via `errors`.
-    console: {
-      error: (...args: unknown[]): void => {
-        errors.push(args);
-      },
-    },
-  };
-  if (options.viewTransitions) {
-    windowStub.matchMedia = (): { matches: boolean } => ({
-      matches: options.reducedMotion === true,
-    });
-    context.setTimeout = (callback: () => void): void => {
-      timers.push(callback);
-    };
-  }
-  runInNewContext(APP_JS, context);
-  return {
-    overview,
-    accounts,
-    overviewSkeleton,
-    accountsSkeleton,
-    watches,
-    transitions,
-    timers,
-    errors,
-  };
-}
-
-function holdsNoSkeleton(container: StubNode, skeleton: StubNode[]): boolean {
-  return container.children.every((child) => !skeleton.includes(child));
-}
 
 test("standalone, the scaffold paints sample data", () => {
   const run = runScaffoldAppJs({ embedded: false, sdkLoaded: false });
