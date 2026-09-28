@@ -90,11 +90,13 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 //
 // Reading data is one call:
 //
-//   driggsby.watch(tool, params, callback)
+//   driggsby.watch(tool, params, callback, { onError })
 //
 // Each watch is a live subscription: the callback runs with a fresh result
-// whenever your Driggsby data changes. The sample data below matches the
-// real result shapes, so the render functions work unchanged either way.
+// whenever your Driggsby data changes, and onError runs instead when a call
+// fails (see "When a call fails" below; watchSection wires one section
+// that way, so add yours with it). The sample data below matches the real
+// result shapes, so the render functions work unchanged either way.
 //
 // These are the tools an app can watch — read-only, nothing else responds:
 //
@@ -206,10 +208,11 @@ function renderOverview(result) {
   ];
   for (const [label, value] of stats) {
     const stat = element("div", "stat");
-    stat.append(
-      element("div", "stat-label", label),
-      element("div", "stat-value", formatMoney(value))
-    );
+    const figure = element("div", "stat-value", formatMoney(value));
+    // Its length, so a long figure can shrink to fit its card while a
+    // short one keeps its full size (see .stat-value in styles.css).
+    figure.style.setProperty("--chars", String(figure.textContent.length));
+    stat.append(element("div", "stat-label", label), figure);
     container.append(stat);
   }
   // aria-busy ships in the HTML so assistive tech hears "loading" until
@@ -351,6 +354,60 @@ function settledRenderer(render) {
 }
 
 // ---------------------------------------------------------------------------
+// When a call fails. A watch whose call fails never runs its callback; it
+// runs onError instead, with { message, kind }, once for each new failure —
+// after Driggsby has already retried a call that failed because it was busy
+// or slow. The section says why where its data would be: in place of its
+// skeleton, so a failure never looks like a page still loading, or under
+// the data it already shows, which stays. The watch asks again on its own
+// the next time your data changes, and the next good result repaints the
+// section, reason and all. A section counts as still loading while its
+// container is aria-busy="true": the HTML ships every container that way,
+// and every render clears it and replaces everything in its container,
+// so keep all three true for a section you add.
+// ---------------------------------------------------------------------------
+
+function showProblem(containerId, error) {
+  const container = document.getElementById(containerId);
+  const message =
+    error && typeof error.message === "string" && error.message
+      ? error.message
+      : "This didn't load. It tries again when your data next changes.";
+  const note = element("div", "problem", message);
+  note.setAttribute("role", "status");
+  if (container.getAttribute("aria-busy") === "true") {
+    container.replaceChildren(note);
+    container.removeAttribute("aria-busy");
+    return;
+  }
+  const earlier = container.querySelector(".problem");
+  if (earlier) earlier.remove();
+  container.append(note);
+}
+
+// One section's live data: its watch, its render, and its failures. A
+// failure that lands while the section's first result waits for its
+// dissolve still shows once that result paints, under it. It returns the
+// watch's stop function: call it before watching the same section again
+// with new params.
+function watchSection(tool, params, containerId, render) {
+  let problem = null;
+  const paint = settledRenderer((result) => {
+    render(result);
+    if (problem) showProblem(containerId, problem);
+  });
+  return driggsby.watch(tool, params, (result) => {
+    problem = null;
+    paint(result);
+  }, {
+    onError: (error) => {
+      problem = error;
+      showProblem(containerId, error);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Live data. window.driggsby exists when the Driggsby SDK loaded — inside
 // Driggsby, or under driggsby dev. Whether anything embeds this page is
 // knowable synchronously: opened directly in a tab, no host will ever
@@ -369,8 +426,8 @@ if (standalone) {
 }
 
 if (window.driggsby) {
-  driggsby.watch("get_overview", {}, settledRenderer(renderOverview));
-  driggsby.watch("list_accounts", {}, settledRenderer(renderAccounts));
+  watchSection("get_overview", {}, "overview", renderOverview);
+  watchSection("list_accounts", {}, "accounts", renderAccounts);
 }
 `;
 

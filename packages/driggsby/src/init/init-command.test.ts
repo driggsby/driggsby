@@ -64,8 +64,9 @@ test("init scaffolds a working app that deploy's own config reader accepts", asy
   assert.ok(html.includes("<title>money-dash</title>"));
 
   const appJs = await readFile(join(appDirectory, "app.js"), "utf8");
-  assert.ok(appJs.includes('driggsby.watch("get_overview"'));
-  assert.ok(appJs.includes('driggsby.watch("list_accounts"'));
+  assert.ok(appJs.includes('watchSection("get_overview", {}, "overview", renderOverview);'));
+  assert.ok(appJs.includes('watchSection("list_accounts", {}, "accounts", renderAccounts);'));
+  assert.ok(appJs.includes("driggsby.watch(tool, params, (result) => {"), "each section watches through driggsby.watch");
   assert.ok(appJs.includes("Sample Bank"), "sample values must be obviously synthetic");
   assert.ok(
     appJs.includes("startViewTransition"),
