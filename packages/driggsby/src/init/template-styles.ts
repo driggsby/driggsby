@@ -12,7 +12,8 @@
 // while the app loads.
 
 export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as part of the app it
-   opens inside. Change these together if you re-theme; keep --bg-app equal
+   opens inside. Change these together if you re-theme (all but
+   --font-sans, which stays as it is); keep --bg-app equal
    to the "background" in driggsby.json. The status tones are the
    console's own, for gains, losses, warnings, and a live dot. */
 :root {
@@ -39,11 +40,13 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
    (driggsby dev serves the same file there), so nothing loads from another
    site. Inter is the only font a dashboard uses: set all text with
    var(--font-sans), keep that stack as it is (the faces after Inter only
-   stand in if the font fails to load), and name no other font anywhere
-   else. The Dashboards page shows a picture of this page, taken on a
-   server with none of your fonts, and any other face looks different
-   there than on the live page. Text waits for the font (font-display:
-   block, preloaded) rather than flash another face first. */
+   stand in if the font is slow or fails to load, or lacks a character),
+   and name no other font anywhere else. A <canvas> or a chart library
+   can't read var(), so it names "Inter" itself. The Dashboards page shows
+   a picture of this page, taken on a server with none of your fonts, and
+   any other face looks different there than on the live page. Text waits
+   for the font (font-display: block, preloaded) rather than flash another
+   face first. */
 @font-face {
   font-family: "Inter";
   src: url("/-/inter.woff2") format("woff2");
@@ -64,6 +67,15 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Browsers set form controls in the system font on their own, whatever
+   the body's; these take the page's Inter instead. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 /* A compact column: a few figures and a short list read best close
