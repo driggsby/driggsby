@@ -37,12 +37,12 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
 
 /* Inter, which Driggsby serves at /-/inter.woff2 on this app's own origin
    (driggsby dev serves the same file there), so nothing loads from another
-   site. Keep the page's text set in it: the Dashboards page shows a
-   picture of this page, taken on a server with none of your fonts, and
-   only a font the page loads itself looks the same there. Fonts from other
-   sites are refused. To switch faces, put the font file in this folder,
-   point an @font-face at it, name it first in --font-sans, and change the
-   preload in index.html to match. Text waits for the font (font-display:
+   site. Inter is the only font a dashboard uses: set all text with
+   var(--font-sans), keep that stack as it is (the faces after Inter only
+   stand in if the font fails to load), and name no other font anywhere
+   else. The Dashboards page shows a picture of this page, taken on a
+   server with none of your fonts, and any other face looks different
+   there than on the live page. Text waits for the font (font-display:
    block, preloaded) rather than flash another face first. */
 @font-face {
   font-family: "Inter";

@@ -16,6 +16,9 @@ test("the scaffold sets its text in Inter from Driggsby's path, preloaded before
   assert.ok(face.includes("font-weight: 100 900;"));
   assert.ok(face.includes("font-display: block;"), "text waits for Inter rather than flash another face");
   assert.match(STYLES_CSS, /--font-sans: "Inter", -apple-system, /);
+  // Inter is the only font: the comment names no way to switch faces.
+  assert.ok(STYLES_CSS.includes("Inter is the only font a dashboard uses"));
+  assert.ok(!STYLES_CSS.includes("To switch faces"));
 
   const html = indexHtml("money-dash");
   const preload = `<link rel="preload" href="${DASHBOARD_FONT_PATH}" as="font" type="font/woff2" crossorigin>`;
