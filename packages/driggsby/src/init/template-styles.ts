@@ -5,9 +5,11 @@
 // console's stylesheet, so each gray is written as the console paints it
 // on its black page (the console's cards and fills are translucent over
 // that ground) and each hue verbatim. The :root block is the same one
-// Driggsby's own example dashboard carries. --bg-app must stay equal to
-// driggsby.json's "background" (init-command.test.ts pins the two
-// together): Driggsby paints that color while the app loads.
+// Driggsby's own example dashboard carries, --font-sans leading with
+// Inter, the face Driggsby serves every app (dev/dashboard-font.ts).
+// --bg-app must stay equal to driggsby.json's "background"
+// (init-command.test.ts pins the two together): Driggsby paints that color
+// while the app loads.
 
 export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as part of the app it
    opens inside. Change these together if you re-theme; keep --bg-app equal
@@ -29,8 +31,24 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
   --text-error: oklch(0.8 0.13 25);
   --radius-card: 8px;
   --radius-bar: 4px;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Inter, which Driggsby serves on this page's own address (driggsby dev
+   serves the same file), so the page loads it from nowhere else. Keep the
+   text in it: the Dashboards page shows a picture of this page, taken on a
+   server that has none of your fonts, and a face the page brings with it
+   looks the same there. Fonts from other sites are refused; to use another
+   face, put its file in this folder and point an @font-face at it. Text
+   waits for Inter (index.html preloads it) rather than flash another face
+   first. */
+@font-face {
+  font-family: "Inter";
+  src: url("/-/inter.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
 }
 
 * {
