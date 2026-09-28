@@ -328,7 +328,14 @@ verifies on all three OSes, validates the packed npm package surface, and
 publishes `@driggsby/deploy`, then `@driggsby/sdk`, then `driggsby` with
 `--provenance` through the `npm-publish` environment, skipping any package
 whose exact version is already on the registry from the tagged commit so a
-partially-failed release can be re-run. A version already published from
+partially-failed release can be re-run. Before `driggsby` publishes, it
+waits until npm serves both libraries at the release version, built from
+the tagged commit, and lists them in their install documents, then five
+more minutes, the life of npm's cached install documents, so no install
+finds the CLI before its libraries. If that wait gives up after 20 minutes
+for a library, re-run the publish job once npm serves it (the re-run
+publishes the same commit); the libraries skip and the CLI publishes. A
+version already published from
 any other commit fails the release: bump the version rather than re-push
 the tag. Once npm serves all three packages, built from the tagged commit,
 it creates the tag's GitHub Release (links to the three npm packages plus
