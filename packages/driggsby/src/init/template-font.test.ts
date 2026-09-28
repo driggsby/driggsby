@@ -35,8 +35,8 @@ test("the scaffold sets its text in Inter from Driggsby's path, preloaded before
 test("the scaffold names no font but Inter, and its form controls inherit it", () => {
   assert.ok(STYLES_CSS.includes("Inter is the only font a dashboard uses"));
   assert.ok(!STYLES_CSS.includes("To switch faces"), "no how-to for another face");
-  const families = [...STYLES_CSS.matchAll(/font-family:\s*([^;]+);/g)].map((match) => match[1]);
-  assert.deepEqual(families, ['"Inter"', "var(--font-sans)"]);
+  const fonts = [...STYLES_CSS.matchAll(/\bfont(?:-family)?:\s*([^;]+);/g)].map((match) => match[1]);
+  assert.deepEqual(fonts, ['"Inter"', "var(--font-sans)", "inherit"]);
   assert.match(STYLES_CSS, /button,\s*input,\s*select,\s*textarea \{\s*font: inherit;\s*\}/);
   assert.ok(!/font-family|font:/.test(indexHtml("money-dash")), "index.html sets no font of its own");
 });
