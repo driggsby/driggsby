@@ -2,3 +2,6 @@
 # line-ending conversion (e.g. autocrlf on Windows runners) breaks the
 # byte-for-byte test comparisons. Treat them as binary for eol purposes.
 packages/driggsby/src/__fixtures__/** -text
+
+# The dashboard font `driggsby dev` serves; its digest is pinned.
+packages/driggsby/assets/*.woff2 binary

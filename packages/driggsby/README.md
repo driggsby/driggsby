@@ -123,4 +123,6 @@ signed in with an earlier version of the CLI, run
 
 ## License
 
-Apache-2.0
+Apache-2.0. The bundled Inter font (`assets/Inter.woff2`), which
+`driggsby dev` serves to the app it previews, is under the SIL Open Font
+License 1.1; see `assets/Inter-LICENSE.txt`.

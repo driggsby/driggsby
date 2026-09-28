@@ -23,6 +23,8 @@ async function makeServeDirectory(): Promise<string> {
   return directory;
 }
 
+const FAKE_FONT = Buffer.from([0x77, 0x4f, 0x46, 0x32, 0x00, 0xff, 0x10]);
+
 interface RecordedCall {
   tool: string;
   argumentsObject: Record<string, unknown>;
@@ -39,6 +41,7 @@ async function startServers(overrides: {
     slug: "money-dash",
     serveDirectory,
     sdkBundle: "// the sdk bundle\n",
+    dashboardFont: FAKE_FONT,
     runToolCall:
       overrides.runToolCall ??
       ((tool, argumentsObject) => {
@@ -99,6 +102,23 @@ test("the app origin serves the app's files and the SDK, never excluded files", 
     // A nested driggsby.json is an ordinary file, exactly like the deploy walk.
     const nested = await fetch(`${servers.appOrigin}/nested/driggsby.json`);
     assert.equal(nested.status, 200);
+  } finally {
+    await servers.close();
+  }
+});
+
+// The dashboard font, from this package, at the path Driggsby serves it on a
+// deployed app's origin; a font runs no script, so it opens sealed.
+test("the app origin serves the dashboard font at Driggsby's path, sealed like any font", async () => {
+  const { servers } = await startServers({});
+  try {
+    const font = await fetch(`${servers.appOrigin}/-/inter.woff2`);
+    assert.equal(font.status, 200);
+    assert.equal(font.headers.get("content-type"), "font/woff2");
+    assert.deepEqual(Buffer.from(await font.arrayBuffer()), FAKE_FONT);
+    assert.match(font.headers.get("content-security-policy") ?? "", /^sandbox; default-src 'self';/);
+    assert.equal(font.headers.get("connection-allowlist"), null);
+    assert.equal(font.headers.get("cache-control"), "no-store");
   } finally {
     await servers.close();
   }
@@ -415,6 +435,7 @@ test("a failed host bind closes the already-bound app server instead of squattin
         slug: "money-dash",
         serveDirectory,
         sdkBundle: "// the sdk bundle\n",
+        dashboardFont: FAKE_FONT,
         runToolCall: () => Promise.resolve({ ok: true, result: null }),
         hostPort: takenHostPort,
         appPort: freeAppPort,

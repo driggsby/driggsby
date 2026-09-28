@@ -1,12 +1,13 @@
 // The two local servers behind `driggsby dev`, mirroring production's
 // topology: the host origin (the page a person opens; serves the host page
 // and the CLI's tool-call endpoint) and the app origin (the app's own
-// files, plus the Driggsby SDK at /-/driggsby-sdk.js). Both bind loopback
-// only. The app token never appears here — the broker callback holds it in
-// the CLI process.
+// files, plus the Driggsby SDK at /-/driggsby-sdk.js and the dashboard font
+// at /-/inter.woff2). Both bind loopback only. The app token never appears
+// here — the broker callback holds it in the CLI process.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { appResponseHeaders, INERT_SERVICE_WORKER } from "./app-policy.ts";
+import { DASHBOARD_FONT_PATH, DASHBOARD_FONT_TYPE } from "./dashboard-font.ts";
 import { DEV_IDENTITY_PATH } from "./dev-state.ts";
 import { hostPageHtml, HOST_PAGE_JS } from "./host-page.ts";
 import { serveStaticFile } from "./static-files.ts";
@@ -39,6 +40,7 @@ export interface DevServerOptions {
   background: string | null;
   serveDirectory: string;
   sdkBundle: string;
+  dashboardFont: Buffer;
   runToolCall: (tool: string, argumentsObject: Record<string, unknown>) => Promise<BrokerResult>;
   // Real runs use the fixed dev ports; tests pass 0 for ephemeral ones.
   hostPort: number;
@@ -114,7 +116,7 @@ export async function startDevServers(options: DevServerOptions): Promise<DevSer
 }
 
 // ---------------------------------------------------------------------------
-// The app origin: the SDK path, then the project's own files.
+// The app origin: the SDK and font paths, then the project's own files.
 // ---------------------------------------------------------------------------
 
 async function handleAppRequest(
@@ -149,6 +151,15 @@ async function handleAppRequest(
   }
   if (path === "/-/driggsby-sdk.js") {
     sendText(response, 200, JAVASCRIPT, options.sdkBundle, appResponseHeaders(hostOrigin, JAVASCRIPT));
+    return;
+  }
+  if (path === DASHBOARD_FONT_PATH) {
+    response.writeHead(200, {
+      "Content-Type": DASHBOARD_FONT_TYPE,
+      "Cache-Control": "no-store",
+      ...appResponseHeaders(hostOrigin, DASHBOARD_FONT_TYPE),
+    });
+    response.end(options.dashboardFont);
     return;
   }
   const file = await serveStaticFile(options.serveDirectory, path);

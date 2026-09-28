@@ -2,7 +2,7 @@
   "name": "driggsby",
   "version": "0.7.1",
   "description": "Set up and build on Driggsby, the MCP server for personal finance.",
-  "license": "Apache-2.0",
+  "license": "Apache-2.0 AND OFL-1.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/driggsby/driggsby.git"
@@ -13,6 +13,8 @@
     "driggsby": "bin/driggsby.js"
   },
   "files": [
+    "assets/Inter.woff2",
+    "assets/Inter-LICENSE.txt",
     "bin",
     "dist",
     "LICENSE",

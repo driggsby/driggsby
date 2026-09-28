@@ -18,6 +18,7 @@ import {
 import { requireDeploySession } from "../deploy/api-session.ts";
 import { tryOpenUrl } from "../login/open-url.ts";
 import { wrapProse } from "../terminal-text.ts";
+import { loadDashboardFont } from "./dashboard-font.ts";
 import { DEV_IDLE_MINUTES, DEV_START_COMMAND, DEV_STOP_COMMAND } from "./dev-commands.ts";
 import { startDevServers, type DevServers } from "./dev-servers.ts";
 import { pruneDevStatesForPorts, readDevStates, removeDevState, writeDevState } from "./dev-state.ts";
@@ -98,6 +99,7 @@ export async function runDev(
   const session = await requireDeploySession(environment);
   await refuseSecondPreview(environment.homeDirectory, projectDirectory);
   const sdkBundle = await loadSdkBundle();
+  const dashboardFont = await loadDashboardFont();
   // Retries like the production host, so the preview loads the way the
   // deployed app would.
   const broker = new McpBroker({ baseUrl: session.baseUrl, token: session.token, retries: true });
@@ -119,6 +121,7 @@ export async function runDev(
         background: config.background,
         serveDirectory: config.serveDirectory,
         sdkBundle,
+        dashboardFont,
         runToolCall: async (tool, argumentsObject) => {
           const started = Date.now();
           const calledIn = documentGeneration;

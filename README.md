@@ -179,4 +179,6 @@ to remove it.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE). The Inter font bundled with the
+`driggsby` package is under the SIL Open Font License 1.1 — see
+[packages/driggsby/assets/Inter-LICENSE.txt](packages/driggsby/assets/Inter-LICENSE.txt).

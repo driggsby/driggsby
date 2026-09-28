@@ -16,6 +16,7 @@ export function indexHtml(slug: string): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${slug}</title>
+  <link rel="preload" href="/-/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
