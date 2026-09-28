@@ -15,7 +15,10 @@ test("the scaffold sets its text in Inter from Driggsby's path, preloaded before
   assert.ok(face.includes(`src: url("${DASHBOARD_FONT_PATH}") format("woff2");`));
   assert.ok(face.includes("font-weight: 100 900;"));
   assert.ok(face.includes("font-display: block;"), "text waits for Inter rather than flash another face");
-  assert.match(STYLES_CSS, /--font-sans: "Inter", -apple-system, /);
+  assert.ok(
+    STYLES_CSS.includes('--font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;'),
+    "the stack leads with Inter; the rest only stand in",
+  );
 
   const html = indexHtml("money-dash");
   const preload = `<link rel="preload" href="${DASHBOARD_FONT_PATH}" as="font" type="font/woff2" crossorigin>`;
@@ -24,4 +27,16 @@ test("the scaffold sets its text in Inter from Driggsby's path, preloaded before
     html.indexOf(preload) < html.indexOf('<link rel="stylesheet" href="styles.css">'),
     "the font's fetch starts before the stylesheet's",
   );
+});
+
+// Inter is the only font (the dashboards skill says the same): the
+// template names no other face, teaches none, and its form controls take
+// the page's font rather than the system's.
+test("the scaffold names no font but Inter, and its form controls inherit it", () => {
+  assert.ok(STYLES_CSS.includes("Inter is the only font a dashboard uses"));
+  assert.ok(!STYLES_CSS.includes("To switch faces"), "no how-to for another face");
+  const fonts = [...STYLES_CSS.matchAll(/\bfont(?:-family)?:\s*([^;]+);/g)].map((match) => match[1]);
+  assert.deepEqual(fonts, ['"Inter"', "var(--font-sans)", "inherit"]);
+  assert.match(STYLES_CSS, /button,\s*input,\s*select,\s*textarea \{\s*font: inherit;\s*\}/);
+  assert.ok(!/font-family|font:/.test(indexHtml("money-dash")), "index.html sets no font of its own");
 });
