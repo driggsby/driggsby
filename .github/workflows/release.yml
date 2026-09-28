@@ -125,20 +125,28 @@ jobs:
           node scripts/release/check-npm-publish-surface.ts "${GITHUB_REF_NAME#driggsby-v}"
       # The libraries publish first: driggsby pins @driggsby/deploy and
       # @driggsby/sdk at the exact lockstep version, so each dependency must
-      # exist on the registry before the CLI that requires it does. Each
-      # publish is skipped when that exact version is already on the
+      # exist on the registry before the CLI that requires it does. Existing
+      # is not enough: npm takes a while to serve a fresh publish, and
+      # installs resolve each library through its install document, which
+      # npm's CDN keeps for up to five minutes (max-age=300), so a copy
+      # cached just before the library published still lacks the new
+      # version, and an install that reads it fails with ETARGET. So the
+      # CLI publishes only once npm serves both libraries at this version,
+      # built from this commit, lists them in their install documents, and
+      # five more minutes have passed for any older cached copy to expire.
+      # Each publish is skipped when that exact version is already on the
       # registry from this tag's commit (npm records it as gitHead), so a
       # re-run of a release that failed between publishes completes instead
       # of dying on the version conflict. A version already published from
       # any other commit (a re-pushed tag, a manual publish) fails the
       # release instead: skipping it would mix commits across packages that
-      # pin each other exactly. Bump the version. npm takes a few
-      # minutes to serve a fresh publish, so a re-run inside that window can
-      # miss it here and be refused with "Cannot publish over previously
-      # staged version". That refusal is deliberately NOT treated as done:
-      # npm uses it for versions that never went live (a held stage, an npm
-      # bug), and publishing the CLI on top of one would ship an exact pin
-      # nobody can install. Wait a few minutes and re-run. Note: npm trusted
+      # pin each other exactly. Bump the version. A re-run while npm is
+      # still processing a fresh publish can miss it here and be refused
+      # with "Cannot publish over previously staged version". That refusal
+      # is deliberately NOT treated as done: npm uses it for versions that
+      # never went live (a held stage, an npm bug), and publishing the CLI
+      # on top of one would ship an exact pin nobody can install. Wait a
+      # few minutes and re-run. Note: npm trusted
       # publishing is configured per package on npmjs.com, so each package
       # needs its trusted publisher set up there before the first release
       # that includes it.
@@ -146,6 +154,33 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#driggsby-v}"
+          wait_until_served() {
+            local package="$1" url body published_from
+            local deadline=$((SECONDS + 1200))
+            url="https://registry.npmjs.org/${package/\//%2f}/${version}"
+            until body="$(curl -fsS --max-time 20 "$url")"; do
+              if (( SECONDS >= deadline )); then
+                echo "${package}@${version} is still not served by npm after 20 minutes; not publishing driggsby on top of it." >&2
+                return 1
+              fi
+              sleep 15
+            done
+            published_from="$(jq -r '.gitHead // ""' <<<"$body")"
+            if [[ "$published_from" != "$GITHUB_SHA" ]]; then
+              echo "${package}@${version} on npm was built from a different commit; not publishing driggsby on top of it." >&2
+              return 1
+            fi
+            url="https://registry.npmjs.org/${package/\//%2f}"
+            until curl -fsS --max-time 20 -H "Accept: application/vnd.npm.install-v1+json" "$url" \
+              | jq -e --arg v "$version" '.versions[$v]' > /dev/null; do
+              if (( SECONDS >= deadline )); then
+                echo "${package}'s install document still lacks ${version} after 20 minutes; not publishing driggsby on top of it." >&2
+                return 1
+              fi
+              sleep 15
+            done
+            echo "${package}@${version} is served by npm, built from this commit, and listed for installs."
+          }
           for package in "@driggsby/deploy" "@driggsby/sdk" "driggsby"; do
             if npm view "${package}@${version}" version > /dev/null 2>&1; then
               published_from="$(npm view "${package}@${version}" gitHead)"
@@ -155,6 +190,12 @@ jobs:
               fi
               echo "${package}@${version} is already on the registry from this commit; skipping its publish."
               continue
+            fi
+            if [[ "$package" == "driggsby" ]]; then
+              wait_until_served "@driggsby/deploy"
+              wait_until_served "@driggsby/sdk"
+              echo "Waiting five minutes for any install document cached before the libraries published to expire."
+              sleep 300
             fi
             npm publish --workspace "$package" --access public --provenance --ignore-scripts
           done
