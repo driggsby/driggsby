@@ -3,7 +3,6 @@
 // ready-but-not-live version with --preview).
 import {
   collectDeployFiles,
-  type DeployFile,
   type DeployOutcome,
   deployProjectFiles,
   formatBytes,
@@ -27,10 +26,6 @@ import {
 } from "./api-session.ts";
 
 const DEPLOY_RETRY_COMMAND = "npx driggsby@latest deploy";
-// Driggsby's Dashboards page runs every dashboard live in its tile, phones
-// included, so a heavy page opens slowly there: past this, the deploy says
-// so. A source map never loads with the page, so it doesn't count.
-const PAGE_WEIGHT_BUDGET_BYTES = 1_000_000;
 
 export interface DeployCommandIo {
   out: (text: string) => void;
@@ -113,10 +108,6 @@ export async function runDeploy(
     if (collected.skippedSymlinks.length > 0) {
       io.out(`\n${symlinkNote(collected.skippedSymlinks)}\n`);
     }
-    const weight = pageWeight(collected.files);
-    if (weight > PAGE_WEIGHT_BUDGET_BYTES) {
-      io.out(`\n${weightNote(weight)}\n`);
-    }
     if (createdApp !== null) {
       io.out(
         `\n${wrapProse(`This deploy created your app. Its address is assigned by Driggsby — the name you picked plus a unique ending — and it's saved in driggsby.json, so every later deploy targets it. If this project lives in git, commit the updated driggsby.json: it's the only record of your app's address, and a fresh checkout without it would create a second app.`)}\n`,
@@ -174,22 +165,6 @@ function symlinkNote(skipped: string[]): string {
     .join(", ");
   const more = skipped.length > 3 ? ` and ${skipped.length - 3} more` : "";
   return wrapProse(`Note: symlinks don't deploy — skipped ${shown}${more}.`);
-}
-
-function pageWeight(files: readonly DeployFile[]): number {
-  return files
-    .filter((file) => !file.path.toLowerCase().endsWith(".map"))
-    .reduce((total, file) => total + file.byteSize, 0);
-}
-
-function weightNote(bytes: number): string {
-  // formatBytes rounds to a tenth, so a weight just past the budget reads
-  // as the budget itself; it says so rather than "1 MB ... past 1 MB".
-  const budget = formatBytes(PAGE_WEIGHT_BUDGET_BYTES);
-  const size = formatBytes(bytes) === budget ? `just over ${budget}` : formatBytes(bytes);
-  return wrapProse(
-    `Note: this app is ${size}. Driggsby's Dashboards page runs each dashboard live in its tile, phones included, and past ${budget} it opens there slowly. Keep what the page loads under ${budget}.`,
-  );
 }
 
 function nextSection(outcome: DeployOutcome): string {

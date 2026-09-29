@@ -7,8 +7,7 @@ import { indexHtml } from "./templates.ts";
 
 // The scaffold sets its text in Inter from the path Driggsby serves it at
 // on every app's own origin (dev serves the same bytes there too), so the
-// page draws the same letters on every device, in its tile on the
-// Dashboards page and when it opens.
+// page draws the same letters everywhere it's shown.
 test("the scaffold sets its text in Inter from Driggsby's path, preloaded before the stylesheet", () => {
   const face = /@font-face \{[^}]*\}/.exec(STYLES_CSS)?.[0] ?? "";
   assert.ok(face.includes('font-family: "Inter";'), "styles.css declares Inter");
@@ -39,4 +38,15 @@ test("the scaffold names no font but Inter, and its form controls inherit it", (
   assert.deepEqual(fonts, ['"Inter"', "var(--font-sans)", "inherit"]);
   assert.match(STYLES_CSS, /button,\s*input,\s*select,\s*textarea \{\s*font: inherit;\s*\}/);
   assert.ok(!/font-family|font:/.test(indexHtml("money-dash")), "index.html sets no font of its own");
+});
+
+// The font's reason is the page's own: it loads its font itself. How
+// Driggsby shows a dashboard is Driggsby's to change, so the scaffold never
+// explains it.
+test("the scaffold's font note gives the page's reason, not how Driggsby shows it", () => {
+  const prose = STYLES_CSS.replace(/\s+/g, " ");
+  assert.ok(prose.includes("The page loads its font from its own address, so it looks the same everywhere it's shown."));
+  for (const internal of [/Dashboards page/i, /picture/i, /screenshot/i, /thumbnail/i, /viewer's device/i, /in its tile/i]) {
+    assert.ok(!internal.test(prose), `styles.css says nothing matching ${internal}`);
+  }
 });
