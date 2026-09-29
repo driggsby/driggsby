@@ -43,11 +43,11 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
    stand in if the font is slow or fails to load, or lacks a character),
    and name no other font anywhere else. A <canvas> or a chart library's
    font setting can't read var(): name "Inter" there, followed only by
-   sans-serif, and draw a canvas after document.fonts.ready. The
-   Dashboards page shows a picture of this page, taken on a server with
-   none of your fonts, and any other face looks different there than on
-   the live page. Text waits for the font (font-display: block,
-   preloaded) rather than flash another face first. */
+   sans-serif, and draw a canvas after document.fonts.ready. A face the
+   page doesn't bring with it falls back to whatever the viewer's device
+   has, and looks different on every phone and computer. Text waits for
+   the font (font-display: block, preloaded) rather than flash another
+   face first. */
 @font-face {
   font-family: "Inter";
   src: url("/-/inter.woff2") format("woff2");

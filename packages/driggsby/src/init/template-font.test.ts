@@ -7,8 +7,8 @@ import { indexHtml } from "./templates.ts";
 
 // The scaffold sets its text in Inter from the path Driggsby serves it at
 // on every app's own origin (dev serves the same bytes there too), so the
-// picture Driggsby takes of the page for its tile, on a server with none of
-// the user's fonts, draws the same letters as the page.
+// page draws the same letters on every device, in its tile on the
+// Dashboards page and when it opens.
 test("the scaffold sets its text in Inter from Driggsby's path, preloaded before the stylesheet", () => {
   const face = /@font-face \{[^}]*\}/.exec(STYLES_CSS)?.[0] ?? "";
   assert.ok(face.includes('font-family: "Inter";'), "styles.css declares Inter");
