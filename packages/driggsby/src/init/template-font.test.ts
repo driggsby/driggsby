@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { DASHBOARD_FONT_PATH } from "../dev/dashboard-font.ts";
 import { STYLES_CSS } from "./template-styles.ts";
-import { indexHtml } from "./templates.ts";
+import { APP_JS, indexHtml } from "./templates.ts";
 
 // The scaffold sets its text in Inter from the path Driggsby serves it at
 // on every app's own origin (dev serves the same bytes there too), so the
@@ -40,13 +40,14 @@ test("the scaffold names no font but Inter, and its form controls inherit it", (
   assert.ok(!/font-family|font:/.test(indexHtml("money-dash")), "index.html sets no font of its own");
 });
 
-// The font's reason is the page's own: it loads its font itself. How
-// Driggsby shows a dashboard is Driggsby's to change, so the scaffold never
-// explains it.
-test("the scaffold's font note gives the page's reason, not how Driggsby shows it", () => {
-  const prose = STYLES_CSS.replace(/\s+/g, " ");
-  assert.ok(prose.includes("The page loads its font from its own address, so it looks the same everywhere it's shown."));
-  for (const internal of [/Dashboards page/i, /picture/i, /screenshot/i, /thumbnail/i, /viewer's device/i, /in its tile/i]) {
-    assert.ok(!internal.test(prose), `styles.css says nothing matching ${internal}`);
+// The scaffold's comments say what the page does and why in its own terms.
+// How Driggsby shows, serves, or retries anything is Driggsby's to change,
+// so the files a user gets never explain it.
+test("the scaffold's comments give the page's reasons, not how Driggsby works", () => {
+  const styles = STYLES_CSS.replace(/\s+/g, " ");
+  assert.ok(styles.includes("Inter, from this page's own address, so it looks the same everywhere it's shown."));
+  const scaffold = [STYLES_CSS, APP_JS, indexHtml("money-dash")].join(" ").replace(/\s+/g, " ");
+  for (const internal of [/Dashboards page/i, /screenshot/i, /thumbnail/i, /viewer's device/i, /in its tile/i, /the console's/i, /Driggsby fills/i, /already retried/i, /driggsby dev serves/i]) {
+    assert.ok(!internal.test(scaffold), `the scaffold says nothing matching ${internal}`);
   }
 });

@@ -14,8 +14,8 @@
 export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as part of the app it
    opens inside. Change these together if you re-theme (all but
    --font-sans, which stays as it is); keep --bg-app equal to the
-   "background" in driggsby.json. The status tones are the console's own,
-   for gains, losses, warnings, and a live dot. */
+   "background" in driggsby.json. The status tones are for gains, losses,
+   warnings, and a live dot. */
 :root {
   color-scheme: dark;
   --bg-app: #000000;
@@ -36,17 +36,14 @@ export const STYLES_CSS = `/* Driggsby's console palette, so this page reads as 
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Inter, which Driggsby serves at /-/inter.woff2 on this app's own origin
-   (driggsby dev serves the same file there), so nothing loads from another
-   site. Inter is the only font a dashboard uses: set all text with
-   var(--font-sans), keep that stack as it is (the faces after Inter only
-   stand in if the font is slow or fails to load, or lacks a character),
-   and name no other font anywhere else. A <canvas> or a chart library's
-   font setting can't read var(): name "Inter" there, followed only by
-   sans-serif, and draw a canvas after document.fonts.ready. The page
-   loads its font from its own address, so it looks the same everywhere
-   it's shown. Text waits for the font (font-display: block, preloaded)
-   rather than flash another face first. */
+/* Inter, from this page's own address, so it looks the same everywhere
+   it's shown. Inter is the only font a dashboard uses: set all text with
+   var(--font-sans), keep that stack as it is, and name no other font
+   anywhere else. A <canvas> or a chart library's font setting can't read
+   var(): name "Inter" there, followed only by sans-serif, and draw a
+   canvas after document.fonts.ready. Text waits for the font
+   (font-display: block, preloaded) rather than flash another face
+   first. */
 @font-face {
   font-family: "Inter";
   src: url("/-/inter.woff2") format("woff2");
@@ -79,8 +76,7 @@ textarea {
 }
 
 /* A compact column: a few figures and a short list read best close
-   together. The console's own pages run wider (75rem); widen this as the
-   page grows. */
+   together. Widen it as the page grows. */
 main {
   max-width: 800px;
   margin: 0 auto;
@@ -105,8 +101,7 @@ h2 {
   letter-spacing: -0.02em;
 }
 
-/* The console's stat tiles: a card per figure, 16px apart, the row
-   capped at the console's 920px. */
+/* A card per figure, 16px apart. */
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
