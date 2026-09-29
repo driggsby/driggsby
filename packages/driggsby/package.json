@@ -1,6 +1,6 @@
 {
   "name": "driggsby",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Set up and build on Driggsby, the MCP server for personal finance.",
   "license": "Apache-2.0 AND OFL-1.1",
   "repository": {
@@ -30,7 +30,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@driggsby/deploy": "0.7.4",
-    "@driggsby/sdk": "0.7.4"
+    "@driggsby/deploy": "0.7.5",
+    "@driggsby/sdk": "0.7.5"
   }
 }

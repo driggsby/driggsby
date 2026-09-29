@@ -83,6 +83,13 @@ https://app.driggsby.com/mcp
 - Treat this as consumer financial software.
 - Never expose secrets, token values, private paths, or internal service
   diagnostics in public CLI output. Credential checks are presence-only.
+- Public output, templates (comments included), and docs never explain how
+  the Driggsby service works inside: how the console renders, loads,
+  caches, or captures apps, what runs on its servers, or its internal
+  budgets. State what the user or their agent must do, with a reason in
+  their own terms if one is needed. The service changes without the CLI
+  seeing it, so internals written here go stale and disclose the service's
+  architecture.
 - Public remote MCP/OAuth validation errors may be surfaced when they are already
   part of the public remote contract. Local process/config command failures must
   be mapped to consumer-safe messages with clear next steps.
