@@ -116,9 +116,8 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 //   search_cash_transactions     bank and card transaction search
 //   search_investment_activity   trades, dividends, and transfers
 //
-// Params mirror Driggsby's public MCP tools of the same names, with one
-// simplification: those tools require a "reason" string, but a watch can
-// leave it out — Driggsby fills one in naming the dashboard.
+// Params mirror Driggsby's public MCP tools of the same names; a watch
+// needs no "reason".
 //
 // To see a tool's exact result shape before writing render code, run it
 // once from the terminal — the JSON it prints is what the callback gets:
@@ -238,9 +237,9 @@ function renderAccounts(result) {
     const displayName = asText(account.account_display_name);
     const institution = asText(account.institution_name);
     const mask = asText(account.account_mask_last4);
-    // The institution's initial on a round pill, the way Driggsby's own
-    // account rows draw it. Array.from keeps an emoji-leading name from
-    // breaking the render (it splits by whole character, not UTF-16 half).
+    // The institution's initial on a round pill. Array.from keeps an
+    // emoji-leading name from breaking the render (it splits by whole
+    // character, not UTF-16 half).
     const initialSource = (institution || displayName).trim();
     const initial = (Array.from(initialSource)[0] || "?").toUpperCase();
     const institutionLine = [institution, mask ? "····" + mask : ""].filter(Boolean).join(" ");
@@ -355,9 +354,8 @@ function settledRenderer(render) {
 
 // ---------------------------------------------------------------------------
 // When a call fails. A watch whose call fails never runs its callback; it
-// runs onError instead, with { message, kind }, once for each new failure —
-// after Driggsby has already retried a call that failed because it was busy
-// or slow. The section says why where its data would be: in place of its
+// runs onError instead, with { message, kind }, once for each new failure.
+// The section says why where its data would be: in place of its
 // skeleton, so a failure never looks like a page still loading, or under
 // the data it already shows, which stays. The watch asks again on its own
 // the next time your data changes, and the next good result repaints the
