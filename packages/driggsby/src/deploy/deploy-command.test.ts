@@ -192,6 +192,7 @@ test("first live deploy walks through every step and prints the URL", async () =
     assert.ok(text.includes("The app's own address, which shows no Driggsby data"));
     assert.ok(text.includes("Next:"));
     assert.ok(text.includes("npx driggsby@latest rollback"));
+    assert.ok(!text.includes("opens there slowly"), "a light app gets no weight note");
     assertFitsTerminal(text);
     assert.equal(server.liveVersionNumber("money-dash"), 1);
   } finally {
