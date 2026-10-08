@@ -8,6 +8,8 @@ import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
 import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
 import { QUERY_HELP } from "./help.ts";
+import { ITEM_ACTION_TOOLS } from "./items/item-actions.ts";
+import { RULE_ACTION_TOOLS } from "./rules/rule-actions.ts";
 import { quotedForTerminal, wrapNames } from "./terminal-text.ts";
 
 // The tools that take SQL: --sql applies only to these, and a retry
@@ -128,9 +130,26 @@ function missingTool(): CliError {
   );
 }
 
+// A tool with a command of its own (the items and rules actions): its
+// refusal names that command rather than a read tool that looks alike.
+function commandFor(tool: string): string | undefined {
+  const commands: [string, Record<string, string>][] = [["items", ITEM_ACTION_TOOLS], ["rules", RULE_ACTION_TOOLS]];
+  for (const [command, tools] of commands) {
+    const action = Object.keys(tools).find((name) => tools[name] === tool);
+    if (action !== undefined) return `npx driggsby@latest ${command} ${action}`;
+  }
+  return undefined;
+}
+
 function unknownTool(tool: string): CliError {
-  const similar = didYouMean(tool, [...APP_TOOL_ALLOWLIST]);
-  const tip = similar === undefined ? "" : `  tip: a similar tool exists: '${similar}'\n\n`;
+  const command = commandFor(tool);
+  const similar = command === undefined ? didYouMean(tool, [...APP_TOOL_ALLOWLIST]) : undefined;
+  const tip =
+    command !== undefined
+      ? `  tip: run ${tool} with its own command:\n    ${command}\n\n`
+      : similar === undefined
+        ? ""
+        : `  tip: a similar tool exists: '${similar}'\n\n`;
   return new CliError(
     `error: ${quotedForTerminal(tool, 60)} isn't a tool a Driggsby app can call.\n` +
       `Apps can watch these read-only tools:\n` +

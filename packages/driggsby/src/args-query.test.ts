@@ -62,6 +62,18 @@ test("query without a tool, or with a tool apps cannot call, is a usage error na
   assert.ok(!usageError(["query", "get_\u001b[31moverview"]).message.includes("\u001b"));
 });
 
+test("query points an item or rule tool at the command that runs it", () => {
+  const save = usageError(["query", "save_transaction_items"]);
+  assert.equal(save.exitCode, 2);
+  assert.match(save.message, /"save_transaction_items" isn't a tool a Driggsby app can call/);
+  assert.match(save.message, /tip: run save_transaction_items with its own command:\n {4}npx driggsby@latest items save\n/);
+  assert.ok(!save.message.includes("similar tool"), "never a read tool that merely looks alike");
+  assert.ok(save.message.split("\n").every((line) => line.length <= 80));
+  assert.match(usageError(["query", "delete_transaction_items"]).message, /npx driggsby@latest items delete\n/);
+  assert.match(usageError(["query", "save_transaction_rule"]).message, /npx driggsby@latest rules save\n/);
+  assert.match(usageError(["query", "list_transaction_tags"]).message, /npx driggsby@latest rules tags\n/);
+});
+
 test("query refuses --params that is not a JSON object, and a missing flag value", () => {
   const notJson = usageError(["query", "get_overview", "--params", "{nope"]);
   assert.equal(notJson.exitCode, 2);
