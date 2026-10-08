@@ -117,9 +117,19 @@ counterparty's name, or tags on a set of transactions. `rules describe`
 prints the rule format and the process. `rules preview` shows exactly what a
 new or changed rule would do and returns the confirm token `rules save`
 needs to apply it; renaming, pausing, or resuming a rule needs its
-`rule_ref` and no preview. `rules delete` needs `--yes`. Every action prints JSON. If you
-signed in with an earlier version of the CLI, run
-`npx driggsby@latest login` once more to use rules.
+`rule_ref` and no preview. `rules delete` needs `--yes`. Every action prints
+JSON.
+
+## Items
+
+`npx driggsby@latest items` saves and removes the items behind your charges:
+what an order or a receipt actually bought, each in a category, so Driggsby
+counts a charge by what was in it. `items describe` prints the item format
+and the process. `items save --params-file order.json` saves the items of up
+to 25 charges (saving a charge again replaces its items); each charge is
+saved or refused on its own, and the JSON result says which and why.
+`items delete` needs `--yes`. Read items back with
+`npx driggsby@latest query query_item_sql --sql "..."`.
 
 ## License
 

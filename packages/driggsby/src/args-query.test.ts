@@ -45,7 +45,7 @@ test("query prints its help on -h and --help", () => {
   }
 });
 
-test("query without a tool, or with a tool apps cannot call, is a usage error naming the twelve", () => {
+test("query without a tool, or with a tool apps cannot call, is a usage error naming the thirteen", () => {
   const missing = usageError(["query"]);
   assert.equal(missing.exitCode, 2);
   assert.match(missing.message, /required arguments were not provided:\n {2}<TOOL>/);
@@ -78,5 +78,5 @@ test("query refuses --params that is not a JSON object, and a missing flag value
   assert.match(usageError(["query", "get_overview", "extra"]).message, /unexpected argument 'extra'/);
   const sqlMisuse = usageError(["query", "get_overview", "--sql", "SELECT 1"]);
   assert.equal(sqlMisuse.exitCode, 2);
-  assert.match(sqlMisuse.message, /'--sql' only applies to query_cash_sql or query_investment_sql/);
+  assert.match(sqlMisuse.message, /'--sql' only applies to query_cash_sql, query_investment_sql, or query_item_sql/);
 });
