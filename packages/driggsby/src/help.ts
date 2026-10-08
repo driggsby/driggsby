@@ -23,6 +23,7 @@ Commands:
   delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
   rules     Create, change, and delete your transaction rules.
+  items     Save and remove the items behind your charges.
 
 Options:
   -h, --help     Print help
@@ -39,6 +40,7 @@ Examples:
   npx driggsby@latest deploy
   npx driggsby@latest query get_overview
   npx driggsby@latest rules describe
+  npx driggsby@latest items describe
 `;
 
 export const INIT_HELP = `Create a new Driggsby app in a new folder.
@@ -64,8 +66,8 @@ export const LOGIN_HELP = `Sign in to Driggsby and save an app token on this mac
 
 This opens a Driggsby approval page in your browser. Approving it issues an
 app token that lets this machine read your Driggsby data, deploy Driggsby
-apps, and manage your transaction rules. The token is saved locally for
-other driggsby commands and is never printed.
+apps, and manage your transaction rules and items. The token is saved
+locally for other driggsby commands and is never printed.
 
 If you approve in a browser on another computer, the page shows a code
 instead. Paste it where login is waiting, or finish with --code.
@@ -191,8 +193,8 @@ Arguments:
 ${QUERY_TOOL_LINES}
 
 Options:
-      --sql <SQL>      The SQL for query_cash_sql or query_investment_sql.
-                       Overrides a sql key given in --params.
+      --sql <SQL>      The SQL for query_cash_sql, query_investment_sql, or
+                       query_item_sql. Overrides a sql key given in --params.
       --params <JSON>  Other params as a JSON object, for example
                        '{"history_type":"liabilities"}'.
   -h, --help           Print help
@@ -241,6 +243,44 @@ Examples:
   npx driggsby@latest rules list
   npx driggsby@latest rules tags
   npx driggsby@latest rules save --params-file answers.json
+`;
+
+export const ITEMS_HELP = `Save and remove the items behind your charges.
+
+An itemized charge carries what it bought: an order's or a receipt's items,
+each in a category, so Driggsby counts the charge by what was in it. Each
+action runs one Driggsby item tool and prints its result as JSON; the JSON
+goes to stdout and nothing else does. Start with describe: it prints the
+item format and the process. Read items back with
+npx driggsby@latest query query_item_sql --sql <SQL>.
+
+Sign in first with npx driggsby@latest login.
+
+Usage: npx driggsby@latest items <ACTION> [--params <JSON>] [--yes]
+
+Actions:
+  describe  Print the item format and the process.
+  save      Save the items of up to 25 charges. Saving a charge again
+            replaces its items.
+  delete    Remove the items of charges by transaction_ref. There is no
+            undo; needs --yes.
+
+Options:
+      --params <JSON>       The action's params as a JSON object, like
+                            '{"transaction_refs":["txn_..."]}'.
+      --params-file <PATH>  Read the params object from a JSON file instead.
+      --yes                 Confirm a delete.
+  -h, --help                Print help
+
+Each charge in a save is saved or refused on its own (items that don't add
+up to the charge, say): the JSON result reports each one, with the reason
+and the fix, and the command exits 0. Only a failure of the whole call puts
+its message on stderr and exits 1.
+
+Examples:
+  npx driggsby@latest items describe
+  npx driggsby@latest items save --params-file order.json
+  npx driggsby@latest items delete --params-file refs.json --yes
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.

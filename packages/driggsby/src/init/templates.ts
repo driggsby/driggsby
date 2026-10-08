@@ -113,6 +113,8 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 //   list_recurring_transactions  subscriptions, bills, and paychecks
 //   query_cash_sql               SQL over cash transactions ({ sql: "..." })
 //   query_investment_sql         SQL over investment activity ({ sql: "..." })
+//   query_item_sql               SQL over the items in itemized charges
+//                                ({ sql: "..." })
 //   search_cash_transactions     bank and card transaction search
 //   search_investment_activity   trades, dividends, and transfers
 //
