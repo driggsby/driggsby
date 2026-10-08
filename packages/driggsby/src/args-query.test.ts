@@ -45,7 +45,7 @@ test("query prints its help on -h and --help", () => {
   }
 });
 
-test("query without a tool, or with a tool apps cannot call, is a usage error naming the twelve", () => {
+test("query without a tool, or with a tool apps cannot call, is a usage error naming the thirteen", () => {
   const missing = usageError(["query"]);
   assert.equal(missing.exitCode, 2);
   assert.match(missing.message, /required arguments were not provided:\n {2}<TOOL>/);

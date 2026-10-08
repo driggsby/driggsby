@@ -39,7 +39,7 @@ test("items save parses its params, and delete needs --yes", () => {
   usageError(["items", "delete", "--params", '{"transaction_refs":["txn_1"]}'], /run the same command again with --yes/);
   usageError(["items", "save", "--yes"], /'--yes' only applies to items delete/);
   usageError(["items", "describe", "--params", "{}"], /items describe takes no params/);
-  usageError(["items", "sav"], /isn't a items action[\s\S]*tip: a similar action exists: 'save'/);
+  usageError(["items", "sav"], /isn't an items action[\s\S]*tip: a similar action exists: 'save'/);
   usageError(["items", "save", "--params", "[1]"], /must be a JSON object, like '\{"transaction_refs":\["txn_\.\.\."\]\}'/);
   assert.deepEqual(parseArgv(["items", "--help"]), { kind: "print-help", text: ITEMS_HELP, stream: "stdout", exitCode: 0 });
 });
@@ -74,8 +74,21 @@ test("items delete without --yes never reaches Driggsby", async () => {
   }
 });
 
-test("a refusal prints its details on stdout and exits 1 with its message", async () => {
-  const details = { error: "The items don't add up to the charge." };
+test("a per-charge refusal is part of the result: printed as JSON, exit 0", async () => {
+  const structured = { results: [{ transaction_ref: "txn_1", status: "refused", reason: "The items don't add up to the charge." }] };
+  const fake = await startFakeMcp((body) => successEnvelope(body, structured));
+  try {
+    const io = capturedOut();
+    const code = await runItems({ action: "save", params: { charges: [] } }, await makeEnvironment(fake.baseUrl), io);
+    assert.equal(code, 0);
+    assert.deepEqual(JSON.parse(io.text()), structured);
+  } finally {
+    await fake.close();
+  }
+});
+
+test("a whole-call refusal prints its details on stdout and exits 1 with its message", async () => {
+  const details = { error: "Saving items isn't available right now." };
   const fake = await startFakeMcp((body) => ({
     status: 200,
     payload: { jsonrpc: "2.0", id: body.id, result: { isError: true, structuredContent: details, content: [] } },
@@ -84,7 +97,7 @@ test("a refusal prints its details on stdout and exits 1 with its message", asyn
     const io = capturedOut();
     await assert.rejects(
       runItems({ action: "save", params: { charges: [] } }, await makeEnvironment(fake.baseUrl), io),
-      (error: unknown) => error instanceof CliError && error.exitCode === 1 && error.message.includes("don't add up"),
+      (error: unknown) => error instanceof CliError && error.exitCode === 1 && error.message.includes("isn't available right now"),
     );
     assert.deepEqual(JSON.parse(io.text()), details);
   } finally {

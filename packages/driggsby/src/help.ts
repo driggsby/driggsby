@@ -272,14 +272,15 @@ Options:
       --yes                 Confirm a delete.
   -h, --help                Print help
 
-If Driggsby refuses a charge with details to act on (items that don't add
-up to the charge), stdout carries those details as JSON. Any failure puts
+Each charge in a save is saved or refused on its own (items that don't add
+up to the charge, say): the JSON result reports each one, with the reason
+and the fix, and the command exits 0. Only a failure of the whole call puts
 its message on stderr and exits 1.
 
 Examples:
   npx driggsby@latest items describe
   npx driggsby@latest items save --params-file order.json
-  npx driggsby@latest items delete --params '{"transaction_refs":["txn_..."]}' --yes
+  npx driggsby@latest items delete --params-file refs.json --yes
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.

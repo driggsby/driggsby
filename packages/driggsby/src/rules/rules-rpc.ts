@@ -1,4 +1,4 @@
-// The rules command's channel to Driggsby: one JSON-RPC POST to /mcp with
+// The rules and items commands' channel to Driggsby: one JSON-RPC POST to /mcp with
 // the saved sign-in. Unlike the dev preview's broker, a tool refusal keeps
 // its structured details (a blocking suggestion and its options, the
 // overlapping rule), because an agent needs them to answer and save again.

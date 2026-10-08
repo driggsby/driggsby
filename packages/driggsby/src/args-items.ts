@@ -8,6 +8,7 @@ import { type ItemAction, isItemAction, ITEM_ACTIONS } from "./items/item-action
 
 const ITEMS_SPEC: ActionCommandSpec<ItemAction> = {
   name: "items",
+  article: "an",
   usage: "Usage: npx driggsby@latest items <ACTION> [--params <JSON>] [--yes]",
   help: ITEMS_HELP,
   actions: ITEM_ACTIONS,

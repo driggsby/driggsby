@@ -19,6 +19,8 @@ const RULES_USAGE = "Usage: npx driggsby@latest rules <ACTION> [--params <JSON>]
 // words, its actions, and which action takes no params and which needs --yes.
 export interface ActionCommandSpec<A extends string> {
   name: string;
+  // "a rules action", "an items action".
+  article: "a" | "an";
   usage: string;
   help: string;
   actions: readonly A[];
@@ -31,6 +33,7 @@ export interface ActionCommandSpec<A extends string> {
 
 const RULES_SPEC: ActionCommandSpec<RuleAction> = {
   name: "rules",
+  article: "a",
   usage: RULES_USAGE,
   help: RULES_HELP,
   actions: RULE_ACTIONS,
@@ -42,6 +45,7 @@ const RULES_SPEC: ActionCommandSpec<RuleAction> = {
     "transaction it covers. To delete it, run the same command again with --yes.",
   exampleParams: `'{"rule_ref":"rule_..."}'`,
 };
+
 // A saved rule with learned patterns and its answers is a few KB; this
 // bounds a mistaken path to something like a log file.
 export const MAX_PARAMS_FILE_BYTES = 1_048_576;
@@ -235,7 +239,7 @@ function unknownAction<A extends string>(token: string, spec: ActionCommandSpec<
   const similar = didYouMean(token, spec.actions);
   const tip = similar === undefined ? "" : `\n\n  tip: a similar action exists: '${similar}'`;
   return usageError(
-    `error: ${quotedForTerminal(token, 60)} isn't a ${spec.name} action. Actions: ${spec.actions.join(", ")}.${tip}`,
+    `error: ${quotedForTerminal(token, 60)} isn't ${spec.article} ${spec.name} action. Actions: ${spec.actions.join(", ")}.${tip}`,
     spec,
   );
 }

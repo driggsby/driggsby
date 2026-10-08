@@ -10,7 +10,7 @@ import { APP_TOOL_ALLOWLIST } from "./dev/tool-allowlist.ts";
 import { QUERY_HELP } from "./help.ts";
 import { quotedForTerminal, wrapNames } from "./terminal-text.ts";
 
-// The two tools that take SQL: --sql applies only to these, and a retry
+// The tools that take SQL: --sql applies only to these, and a retry
 // line names --sql only for them.
 export const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql", "query_item_sql"]);
 
