@@ -13,6 +13,7 @@ import { parseInit } from "./args-init.ts";
 import { parseLogin } from "./args-login.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
+import { parseItems } from "./args-items.ts";
 import { parseRules } from "./args-rules.ts";
 import {
   type ParsedCommand,
@@ -50,7 +51,7 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "rules"],
+  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "rules", "items"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
@@ -64,6 +65,7 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "delete", longFlags: ["yes", "help"] },
     { name: "query", longFlags: ["sql", "params", "help"] },
     { name: "rules", longFlags: ["params", "params-file", "yes", "help"] },
+    { name: "items", longFlags: ["params", "params-file", "yes", "help"] },
   ],
   usagePrefix: "npx driggsby@latest",
   hasVersion: true,
@@ -143,6 +145,8 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseQuery(rest);
     case "rules":
       return parseRules(rest);
+    case "items":
+      return parseItems(rest);
     case "setup":
       return parseMcpSetup(rest);
     default:

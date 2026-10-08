@@ -1,7 +1,7 @@
 // Argv parsing for `driggsby query <TOOL> [--sql <SQL>] [--params <JSON>]`.
 // Same behavior contract as the rest of the tree: help on -h/--help, usage
 // errors exit 2, echoed argv is sanitized. The tool is checked against the
-// allowlist here so a typo is a usage error naming the twelve, not a
+// allowlist here so a typo is a usage error naming the thirteen, not a
 // server round trip.
 import { helpCommand, type ParsedCommand, unexpectedArgument } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
@@ -12,7 +12,7 @@ import { quotedForTerminal, wrapNames } from "./terminal-text.ts";
 
 // The two tools that take SQL: --sql applies only to these, and a retry
 // line names --sql only for them.
-export const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql"]);
+export const SQL_TOOLS: ReadonlySet<string> = new Set(["query_cash_sql", "query_investment_sql", "query_item_sql"]);
 
 const QUERY_USAGE = "Usage: npx driggsby@latest query <TOOL> [--sql <SQL>] [--params <JSON>]";
 
@@ -141,7 +141,7 @@ function unknownTool(tool: string): CliError {
 
 function sqlForNonSqlTool(tool: string): CliError {
   return new CliError(
-    `error: '--sql' only applies to query_cash_sql or query_investment_sql;\n` +
+    `error: '--sql' only applies to query_cash_sql, query_investment_sql, or query_item_sql;\n` +
       `'${tool}' takes no SQL.\n\n` +
       `${QUERY_USAGE}\n\nFor more information, try '--help'.`,
     2,

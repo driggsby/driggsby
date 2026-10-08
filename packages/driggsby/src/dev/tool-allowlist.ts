@@ -13,6 +13,7 @@ export const APP_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
   "list_recurring_transactions",
   "query_cash_sql",
   "query_investment_sql",
+  "query_item_sql",
   "search_cash_transactions",
   "search_investment_activity",
 ]);

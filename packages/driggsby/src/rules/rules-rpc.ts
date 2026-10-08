@@ -50,13 +50,22 @@ export async function callRuleTool(
 // this sign-in sees. None listed means the sign-in predates rules or rules
 // aren't open to the account; either way the next step is the same.
 export async function listRuleTools(session: DeploySession): Promise<RuleToolDescription[]> {
+  return listTools(session, new Set(Object.values(RULE_ACTION_TOOLS)), RULES_NOT_AVAILABLE_MESSAGE);
+}
+
+// The wanted tools' own descriptions from this sign-in's tools/list (the
+// rules and items commands each describe their own tools this way).
+export async function listTools(
+  session: DeploySession,
+  wanted: ReadonlySet<string>,
+  notAvailableMessage: string,
+): Promise<RuleToolDescription[]> {
   const payload = await postMcp(session, { jsonrpc: "2.0", id: 1, method: "tools/list" });
   const tools = asRecord(asRecord(payload)?.result)?.tools;
   if (!Array.isArray(tools)) {
     throw new CliError(GENERIC_TOOL_TROUBLE, 1);
   }
   const listed: unknown[] = tools;
-  const wanted: ReadonlySet<string> = new Set(Object.values(RULE_ACTION_TOOLS));
   const found = listed.flatMap((tool: unknown): RuleToolDescription[] => {
     const record = asRecord(tool);
     if (
@@ -77,7 +86,7 @@ export async function listRuleTools(session: DeploySession): Promise<RuleToolDes
     ];
   });
   if (found.length === 0) {
-    throw new CliError(RULES_NOT_AVAILABLE_MESSAGE, 1);
+    throw new CliError(notAvailableMessage, 1);
   }
   return found;
 }

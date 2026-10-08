@@ -149,6 +149,7 @@ Includes tools like:
 | `list_investment_holdings` | Portfolio positions |
 | `list_outstanding_debts` | Balances, rates, minimums |
 | `query_investment_sql` | SQL over investment data |
+| `query_item_sql` | SQL over the items in itemized charges |
 
 ## Examples
 

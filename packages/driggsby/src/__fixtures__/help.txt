@@ -12,6 +12,7 @@ Commands:
   delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
   rules     Create, change, and delete your transaction rules.
+  items     Save and remove the items behind your charges.
 
 Options:
   -h, --help     Print help
@@ -28,3 +29,4 @@ Examples:
   npx driggsby@latest deploy
   npx driggsby@latest query get_overview
   npx driggsby@latest rules describe
+  npx driggsby@latest items describe
