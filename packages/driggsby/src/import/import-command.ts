@@ -183,7 +183,8 @@ async function runStart(session: DeploySession, options: RunOptions, io: ImportC
     view,
     {
       compact: options.wait && startedIn === "categorizing",
-      repeated: target.kind === "file" && !created && given === null,
+      // Found already this far: a wait that watched it land shows it in full.
+      repeated: target.kind === "file" && !created && given === null && view.state === startedIn,
       unchanged: outcome.note !== null,
       rerun: { file: typedFile, account: options.account, create: options.create },
     },

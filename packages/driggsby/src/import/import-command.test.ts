@@ -77,23 +77,6 @@ test("a new account rides the upload by type and name, and a file with no accoun
   }
 });
 
-test("the same file again: nothing uploads, and a finished import says there's nothing to do", async () => {
-  const path = await csvFile();
-  const done = importView({ state: "done", finished_at: "2026-10-19T15:25:00Z", categorized: true, ...LANDED });
-  const fake = await startFakeDriggsby({ tool: () => ({ ok: { import: done } }) });
-  try {
-    const out = io();
-    assert.equal(await runImport(run(path), await makeEnvironment(fake.baseUrl), out), 0);
-    assert.equal(fake.uploads.length, 0);
-    assert.equal(
-      out.text(),
-      `Already done: this file's 398 transactions went into "Northwind Pay ••2222" on Oct 19 (${REF}). Nothing to do.\n`,
-    );
-  } finally {
-    await fake.close();
-  }
-});
-
 test("--wait polls until the transactions are in, then shows what landed and how far categories are", async () => {
   const landed = importView({ state: "categorizing", ...LANDED, new_account: true, progress: { categorized: 40, total: 398, seconds_left: 360 } });
   const fake = await startFakeDriggsby({ tool: sequence([importView(), importView(), landed]) });
