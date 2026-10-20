@@ -105,9 +105,11 @@ export const APP_JS = `// Your app's code. Edit anything — driggsby dev reload
 //                                over time (history_type is required:
 //                                "account_balances", "investment_holdings",
 //                                "liabilities", or "custom_items")
+//   get_other_cash_flow_out      money out that isn't spending, for a week,
+//                                month or year ({ period: "month",
+//                                date: "2026-10-01" })
 //   list_accounts                current balances per linked account
 //   list_assets_and_liabilities  the full balance sheet, incl. manual items
-//   list_findings                issues Driggsby has flagged
 //   list_investment_holdings     current investment positions
 //   list_outstanding_debts       linked debts with balances and rates
 //   list_recurring_transactions  subscriptions, bills, and paychecks

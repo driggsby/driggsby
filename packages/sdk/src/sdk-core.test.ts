@@ -64,7 +64,7 @@ test("null or omitted params become an empty object on the wire", () => {
   const { core, posted } = coreWithLog();
   hello(core);
   core.watch("list_accounts", null, () => undefined);
-  core.watch("list_findings", undefined, () => undefined);
+  core.watch("list_recurring_transactions", undefined, () => undefined);
   assert.deepEqual(posted[0]?.message.params, {});
   assert.deepEqual(posted[1]?.message.params, {});
 });

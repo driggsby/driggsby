@@ -4,10 +4,10 @@
 // disallowed call never even reaches Driggsby.
 export const APP_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
   "get_history",
+  "get_other_cash_flow_out",
   "get_overview",
   "list_accounts",
   "list_assets_and_liabilities",
-  "list_findings",
   "list_investment_holdings",
   "list_outstanding_debts",
   "list_recurring_transactions",
