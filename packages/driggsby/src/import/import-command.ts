@@ -3,7 +3,7 @@
 // answer its rare question, and undo it; and driggsby accounts list. Built for agents with
 // no Driggsby context: the file (or the ID Driggsby gives it) is the only
 // handle, repeating any command is safe, `--wait` never outlasts a coding
-// agent's command limit, and every output ends with the exact next command
+// agent's command limit, and every output ends with the exact next step
 // (import-render.ts holds that contract).
 import { apiBaseUrl } from "../api/base-url.ts";
 import { CliError } from "../cli-error.ts";

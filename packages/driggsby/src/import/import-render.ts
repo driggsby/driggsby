@@ -1,8 +1,9 @@
 // What the import command prints. Every output follows one contract, so an
 // agent with no Driggsby context never has to guess: the first line says
 // where things stand ("Started:", "Waiting for an answer:", "Done:", ...)
-// and is never wrapped, and the last lines give the exact command to run
-// next, complete, with one command per answer when the person must choose.
+// and is never wrapped, and the last lines give the exact next step: a
+// complete command wherever one exists, one per answer when the person must
+// choose, and otherwise what to do (email support at the limit).
 // Names Driggsby sends (a file, an account) print quoted and capped, so they
 // read as names and never as the CLI's own sentence.
 import { formatBytes } from "@driggsby/deploy";
@@ -115,10 +116,14 @@ function undoingLine(view: ImportView): string {
 }
 
 // Importing the file again, aimed where the first try was; a stop about the
-// account starts from the account list instead.
+// account starts from the account list instead, and one at the limit from
+// support, since running anything again would stop the same way.
 function rerun(view: ImportView, options: StatusOptions): string {
   if (ACCOUNT_STOPS.has(view.stopped?.code ?? "")) {
     return `Next, to see your accounts and their IDs:\n  ${CLI} accounts list\n`;
+  }
+  if (view.stopped?.code === "limit_reached") {
+    return next("Email support@driggsby.com to keep importing.");
   }
   const flags = accountFlags(options.rerun.account, options.rerun.create);
   if (options.rerun.file !== null && flags !== "") {

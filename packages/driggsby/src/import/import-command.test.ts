@@ -237,15 +237,22 @@ test("a refused file says so and exits 1; an account refusal names the next comm
   }
 });
 
-test("a stopped import exits 1 with Driggsby's words and the command to try again", async () => {
+test("a stopped import exits 1 with Driggsby's words and the command to try again, or whom to email at the limit", async () => {
   const path = await csvFile();
-  const stopped = importView({ state: "stopped", stopped: { code: "unreadable", message: "The file couldn't be read as a statement, so nothing was imported." } });
+  let stopped = importView({ state: "stopped", stopped: { code: "unreadable", message: "The file couldn't be read as a statement, so nothing was imported." } });
   const fake = await startFakeDriggsby({ tool: () => ({ ok: { import: stopped } }) });
   try {
     const out = io();
     assert.equal(await runImport(run(path, { account: "acct_7kq2" }), await makeEnvironment(fake.baseUrl), out), 1);
     assert.match(out.text(), /^Stopped: "made-up-export\.csv" wasn't imported\. Nothing landed\.\n\nThe file couldn't be read/);
     assert.match(out.text(), new RegExp(`Next:\\n  npx driggsby@latest import ${escaped(shellWord(path))} --account acct_7kq2\\n$`));
+
+    const limit = "Driggsby can't read more statements for you right now. Contact support@driggsby.com to keep importing.";
+    stopped = importView({ state: "stopped", stopped: { code: "limit_reached", message: limit } });
+    const limited = io();
+    assert.equal(await runImport(run(path, { account: "acct_7kq2" }), await makeEnvironment(fake.baseUrl), limited), 1);
+    assert.ok(limited.text().endsWith("Next:\n  Email support@driggsby.com to keep importing.\n"), limited.text());
+    assert.doesNotMatch(limited.text(), /npx driggsby@latest import/, "running it again would stop the same way");
   } finally {
     await fake.close();
   }
