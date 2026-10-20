@@ -4,6 +4,7 @@
 // terminal through an echoed argument, tip, or usage line.
 import { CliError } from "./cli-error.ts";
 import { type McpScope } from "./mcp-setup/known-client.ts";
+import { type ImportCommandOptions } from "./import/import-command.ts";
 import { type ItemAction } from "./items/item-actions.ts";
 import { type RuleAction } from "./rules/rule-actions.ts";
 import { sanitizeForTerminal } from "./terminal-text.ts";
@@ -23,7 +24,8 @@ export type ParsedCommand =
   | { kind: "versions" }
   | { kind: "query"; tool: string; params: Record<string, unknown> }
   | { kind: "rules"; action: RuleAction; params: Record<string, unknown>; yes: boolean }
-  | { kind: "items"; action: ItemAction; params: Record<string, unknown>; yes: boolean };
+  | { kind: "items"; action: ItemAction; params: Record<string, unknown>; yes: boolean }
+  | { kind: "import"; options: ImportCommandOptions };
 
 export function helpCommand(text: string): ParsedCommand {
   return { kind: "print-help", text, stream: "stdout", exitCode: 0 };

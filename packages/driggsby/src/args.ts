@@ -13,6 +13,7 @@ import { parseInit } from "./args-init.ts";
 import { parseLogin } from "./args-login.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
+import { parseAccounts, parseImport } from "./args-import.ts";
 import { parseItems } from "./args-items.ts";
 import { parseRules } from "./args-rules.ts";
 import {
@@ -51,7 +52,7 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "rules", "items"],
+  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "rules", "items", "import", "accounts"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
@@ -66,6 +67,8 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "query", longFlags: ["sql", "params", "help"] },
     { name: "rules", longFlags: ["params", "params-file", "yes", "help"] },
     { name: "items", longFlags: ["params", "params-file", "yes", "help"] },
+    { name: "import", longFlags: ["wait", "account", "create-account", "account-type", "account-name", "dates", "amounts", "yes", "help"] },
+    { name: "accounts", longFlags: ["help"] },
   ],
   usagePrefix: "npx driggsby@latest",
   hasVersion: true,
@@ -147,6 +150,10 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseRules(rest);
     case "items":
       return parseItems(rest);
+    case "import":
+      return parseImport(rest);
+    case "accounts":
+      return parseAccounts(rest);
     case "setup":
       return parseMcpSetup(rest);
     default:
@@ -238,7 +245,17 @@ function unknownLongFlagAtLevel(
 }
 
 // Flags anywhere in the tree whose next token is their value, not a word.
-const VALUE_FLAGS: ReadonlySet<string> = new Set(["--params", "--params-file", "--sql", "--to", "-s", "--scope"]);
+const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "--params",
+  "--params-file",
+  "--sql",
+  "--to",
+  "-s",
+  "--scope",
+  "--account",
+  "--dates",
+  "--amounts",
+]);
 
 function firstTypedSubcommand(level: CommandLevel, args: readonly string[]): string | undefined {
   return args.find((argument, index) => level.subcommands.includes(argument) && !VALUE_FLAGS.has(args[index - 1] ?? ""));
