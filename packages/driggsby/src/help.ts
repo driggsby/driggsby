@@ -24,6 +24,8 @@ Commands:
   query     Run one Driggsby data tool and print its result as JSON.
   rules     Create, change, and delete your transaction rules.
   items     Save and remove the items behind your charges.
+  import    Import a bank or card statement (a CSV file) into your accounts.
+  accounts  List your accounts and the IDs an import names.
 
 Options:
   -h, --help     Print help
@@ -41,6 +43,8 @@ Examples:
   npx driggsby@latest query get_overview
   npx driggsby@latest rules describe
   npx driggsby@latest items describe
+  npx driggsby@latest accounts list
+  npx driggsby@latest import statement.csv --account acct_7kq2
 `;
 
 export const INIT_HELP = `Create a new Driggsby app in a new folder.
@@ -281,6 +285,70 @@ Examples:
   npx driggsby@latest items describe
   npx driggsby@latest items save --params-file order.json
   npx driggsby@latest items delete --params-file refs.json --yes
+`;
+
+export const IMPORT_HELP = `Import a bank or card statement (a CSV file) into your Driggsby accounts.
+
+Sign in first with npx driggsby@latest login.
+
+Usage:
+  npx driggsby@latest import <FILE> --account <ID> [--wait]
+  npx driggsby@latest import <FILE> --create-account --account-type <card|bank> --account-name <NAME> [--wait]
+  npx driggsby@latest import <ID> [--dates <ORDER> | --amounts <DIRECTION>] [--wait]
+  npx driggsby@latest import undo <FILE or ID> [--yes]
+  npx driggsby@latest import list
+
+Every import names its account: one you have, by its ID (npx driggsby@latest
+accounts list shows each), or a new one by its type and name. Driggsby never
+picks an account for you.
+
+How it goes:
+  1. import <FILE> uploads the file and returns right away with an ID.
+  2. import <ID> --wait waits up to 90 seconds for the next milestone:
+     the transactions are in, a question, a stop, or categories done.
+  3. If Driggsby needs a fact it can't read from the file, like which way
+     round its dates are, the output asks and lists one command per answer.
+  4. Once the transactions are in, categories fill in on their own. If
+     you need them, run --wait again; each run shows how far along.
+
+Safe to repeat: importing the same file again shows where it stands and
+never imports it twice. Transactions already in the account are skipped,
+so overlapping exports are fine. A new account's name must be one no
+account has: after the first import, name that account by its ID.
+
+Options:
+      --account <ID>          The account to import into, by its ID
+      --create-account        Import into a new account, made by this import
+      --account-type <TYPE>   With --create-account: card or bank
+      --account-name <NAME>   With --create-account: the new account's name
+      --dates <ORDER>         Answer its question: day-first or month-first
+      --amounts <DIRECTION>   Answer its question: positive-is-out or positive-is-in
+      --wait                  Wait up to 90 seconds for the next milestone
+      --yes                   With undo: undo without asking
+  -h, --help                  Print help
+
+Files: CSV, up to 10 MB and 25,000 rows.
+
+Examples:
+  npx driggsby@latest accounts list
+  npx driggsby@latest import statement.csv --account acct_7kq2
+  npx driggsby@latest import statement.csv --create-account --account-type card --account-name "Everyday Card"
+  npx driggsby@latest import list
+`;
+
+export const ACCOUNTS_HELP = `List your Driggsby accounts and the IDs an import names.
+
+Sign in first with npx driggsby@latest login.
+
+Usage:
+  npx driggsby@latest accounts list
+
+Options:
+  -h, --help  Print help
+
+Examples:
+  npx driggsby@latest accounts list
+  npx driggsby@latest import statement.csv --account acct_7kq2
 `;
 
 export const MCP_HELP = `Set up Driggsby MCP clients.

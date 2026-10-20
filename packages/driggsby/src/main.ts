@@ -12,6 +12,7 @@ import { runInit } from "./init/init-command.ts";
 import { runRollback } from "./deploy/rollback-command.ts";
 import { runVersions } from "./deploy/versions-command.ts";
 import { runQuery } from "./query/query-command.ts";
+import { runImport } from "./import/import-command.ts";
 import { runItems } from "./items/items-command.ts";
 import { runRules } from "./rules/rules-command.ts";
 import { runLogin, runLoginWithCode } from "./login/login.ts";
@@ -56,6 +57,8 @@ async function run(argv: string[]): Promise<number> {
       return await runRules({ action: command.action, params: command.params, yes: command.yes });
     case "items":
       return await runItems({ action: command.action, params: command.params, yes: command.yes });
+    case "import":
+      return await runImport(command.options);
   }
 }
 

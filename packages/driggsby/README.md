@@ -131,6 +131,26 @@ saved or refused on its own, and the JSON result says which and why.
 `items delete` needs `--yes`. Read items back with
 `npx driggsby@latest query query_item_sql --sql "..."`.
 
+## Statement imports
+
+Every import names its account, so Driggsby never picks one for you:
+
+```sh
+npx driggsby@latest accounts list
+npx driggsby@latest import statement.csv --account acct_7kq2
+npx driggsby@latest import statement.csv --create-account --account-type card --account-name "Everyday Card"
+```
+
+`accounts list` shows each account's ID. `--create-account` makes a new
+account (`card` or `bank`) with that name; a name an account already has is
+refused with that account's ID, so a script names it by ID from then on.
+An import returns at once with an ID; `npx driggsby@latest import <ID> --wait`
+follows it until the transactions are in. Every output ends with the exact
+command to run next, including one command per answer when Driggsby needs a
+fact it can't read from the file. Importing the same file again is safe: it
+shows where that import stands. `import undo <ID>` shows what undoing would
+remove (`--yes` does it), and `import list` lists your recent imports.
+
 ## License
 
 Apache-2.0. The bundled Inter font (`assets/Inter.woff2`), which

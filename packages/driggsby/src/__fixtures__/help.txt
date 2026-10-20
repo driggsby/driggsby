@@ -13,6 +13,8 @@ Commands:
   query     Run one Driggsby data tool and print its result as JSON.
   rules     Create, change, and delete your transaction rules.
   items     Save and remove the items behind your charges.
+  import    Import a bank or card statement (a CSV file) into your accounts.
+  accounts  List your accounts and the IDs an import names.
 
 Options:
   -h, --help     Print help
@@ -30,3 +32,5 @@ Examples:
   npx driggsby@latest query get_overview
   npx driggsby@latest rules describe
   npx driggsby@latest items describe
+  npx driggsby@latest accounts list
+  npx driggsby@latest import statement.csv --account acct_7kq2

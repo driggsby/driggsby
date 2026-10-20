@@ -36,13 +36,18 @@ export async function callRuleTool(
   session: DeploySession,
   tool: string,
   toolArguments: Record<string, unknown>,
+  timeoutMs: number = RULES_CALL_TIMEOUT_MS,
 ): Promise<RuleToolOutcome> {
-  const payload = await postMcp(session, {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: { name: tool, arguments: toolArguments },
-  });
+  const payload = await postMcp(
+    session,
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: tool, arguments: toolArguments },
+    },
+    timeoutMs,
+  );
   return interpretToolCall(payload);
 }
 
@@ -120,7 +125,7 @@ function firstText(content: unknown): unknown {
   return Array.isArray(content) ? asRecord(content[0] as unknown)?.text : undefined;
 }
 
-async function postMcp(session: DeploySession, body: Record<string, unknown>): Promise<unknown> {
+async function postMcp(session: DeploySession, body: Record<string, unknown>, timeoutMs: number = RULES_CALL_TIMEOUT_MS): Promise<unknown> {
   // Bare headers on purpose: the Driggsby endpoint refuses anything that
   // looks like a browser call (an Origin or Sec-Fetch-Site header), and
   // Node's fetch sends neither on its own.
@@ -130,7 +135,7 @@ async function postMcp(session: DeploySession, body: Record<string, unknown>): P
     body: JSON.stringify(body),
     // The bearer token must never travel to a redirect target.
     redirect: "error",
-    signal: AbortSignal.timeout(RULES_CALL_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (response.status === 401) {
     throw new CliError(SIGN_IN_AGAIN_MESSAGE, 1);
