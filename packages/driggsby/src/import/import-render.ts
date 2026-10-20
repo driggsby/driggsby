@@ -94,7 +94,8 @@ function statusBody(view: ImportView, options: StatusOptions, context: RenderCon
     case "waiting":
       return ok(renderQuestion(view));
     case "categorizing":
-      return ok(options.compact ? categorizingLine(view) : landed(view, "Imported"));
+      if (options.compact) return ok(categorizingLine(view));
+      return ok(options.repeated ? alreadyImported(view) : landed(view, "Imported"));
     case "done":
       return ok(done(view, options, context));
     case "stopped":
@@ -182,10 +183,16 @@ export function choiceLines(choices: ImportChoice[], command: (choice: ImportCho
   return `${choices.map((choice) => `  ${name(choice.label)}\n    ${command(choice)}`).join("\n")}\n`;
 }
 
+// One transaction "is", any other count "are".
+function be(count: number): string {
+  return count === 1 ? "is" : "are";
+}
+
 // The transactions are in: what landed, then what's left to do.
 function landed(view: ImportView, headline: "Imported" | "Done"): string {
-  const where = view.account === null ? " landed" : ` are in ${name(view.account)}`;
-  const top = `${headline}: ${plural(view.counts?.new ?? 0, "transaction")} from ${name(view.file)}${where}.`;
+  const count = view.counts?.new ?? 0;
+  const where = view.account === null ? " landed" : ` ${be(count)} in ${name(view.account)}`;
+  const top = `${headline}: ${plural(count, "transaction")} from ${name(view.file)}${where}.`;
   const undoCommand = `  ${CLI} import undo ${view.ref}\n`;
   // A new account is the person's to name by its ID from here on.
   const again = view.newAccount && view.accountRef !== null ? `Next time, for this account:\n  ${CLI} import <FILE> --account ${view.accountRef}\n\n` : "";
@@ -233,6 +240,17 @@ function progressText(view: ImportView): string {
   return `${progress.categorized.toLocaleString("en-US")} of ${progress.total.toLocaleString("en-US")} so far${left}`;
 }
 
+// The same file sent again while categories fill in: it's already in, and
+// this run imported nothing, so it never reads as a second import.
+function alreadyImported(view: ImportView): string {
+  const count = view.counts?.new ?? 0;
+  const into = view.account === null ? " landed" : ` ${be(count)} in ${name(view.account)}`;
+  return (
+    `Already imported: this file's ${plural(count, "transaction")}${into} (${view.ref}). Categories: ${progressText(view)}.\n\n` +
+    `${wrapProse("Nothing else to do unless you need the categories. To wait for them:")}\n  ${waitCommand(view.ref)}\n`
+  );
+}
+
 function categorizingLine(view: ImportView): string {
   const progress = view.progress;
   const where =
@@ -247,16 +265,17 @@ function done(view: ImportView, options: StatusOptions, context: RenderContext):
     const why = NOTHING_NEW[view.nothingNew] ?? "none of its transactions were new";
     return `Done: nothing new in ${name(view.file)}: ${why}.\n\nNothing else to do.\n`;
   }
+  const count = view.counts?.new ?? 0;
   // A wait that followed categorizing ends on how it went, even for a file
   // sent again.
   if (options.compact && view.categorized === false) {
     return (
-      `Done: ${plural(view.counts?.new ?? 0, "transaction")} from ${name(view.file)} are in, but some couldn't be categorized.\n\n` +
+      `Done: ${plural(count, "transaction")} from ${name(view.file)} ${be(count)} in, but some couldn't be categorized.\n\n` +
       `${wrapProse("Those show as uncategorized. Nothing else to do: the import is finished.")}\n`
     );
   }
   if (options.compact) {
-    return `Done: all ${plural(view.counts?.new ?? 0, "transaction")} from ${name(view.file)} are categorized.\n\nNothing else to do: the import is finished.\n`;
+    return `Done: ${count === 1 ? "the" : "all"} ${plural(count, "transaction")} from ${name(view.file)} ${be(count)} categorized.\n\nNothing else to do: the import is finished.\n`;
   }
   if (options.repeated) {
     const on = view.finishedAt === null ? "" : ` on ${shortDate(view.finishedAt, context)}`;
