@@ -62,6 +62,16 @@ deploy limits locally.
 uploads only content Driggsby doesn't already have, and finalizes the
 version.
 
+Call `distrustCompromisedRoots()` once at startup, before any request. Some
+Node.js releases still trust the roots behind the eMudhra certificate
+compromise of October 2026. On official Node.js builds, 22.19.0 and later
+22.x or 24.5.0 and later, it removes them from your process's default CA
+list. Older releases can't change that list. Builds or settings that verify
+against the system's OpenSSL store (such as Homebrew's builds, or
+`--use-openssl-ca`) rely on that store's own update. In those cases, update
+Node.js or your system's CA certificates to a current release. The
+`driggsby` and `driggsby-deploy` commands already call it.
+
 Zero runtime dependencies; Node.js 18 or newer; macOS, Linux, and Windows.
 
 ## License

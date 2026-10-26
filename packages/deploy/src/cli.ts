@@ -3,8 +3,10 @@
 // real deploy on import.
 import process from "node:process";
 
+import { distrustCompromisedRoots } from "./distrusted-roots.ts";
 import { runDeployEntrypoint } from "./entrypoint.ts";
 
+distrustCompromisedRoots();
 process.exitCode = await runDeployEntrypoint({
   argv: process.argv.slice(2),
   cwd: process.cwd(),
