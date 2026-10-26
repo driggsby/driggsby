@@ -2,6 +2,8 @@
 // never imported as a library.
 import { homedir } from "node:os";
 
+import { distrustCompromisedRoots } from "@driggsby/deploy";
+
 import { parseArgv } from "./args.ts";
 import { CliError } from "./cli-error.ts";
 import { runDelete } from "./deploy/delete-command.ts";
@@ -62,6 +64,7 @@ async function run(argv: string[]): Promise<number> {
   }
 }
 
+distrustCompromisedRoots();
 try {
   process.exitCode = await run(process.argv.slice(2));
 } catch (error) {

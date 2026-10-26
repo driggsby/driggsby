@@ -2,6 +2,9 @@
 // The driggsby CLI's deploy/rollback/versions commands build on these
 // exports; Node-only sandboxes can use them directly.
 export { DeployApiError, DeployError } from "./errors.ts";
+// Drops the roots over the compromised eMudhra intermediates from the
+// process's default CA list. Both bins call it before any request.
+export { distrustCompromisedRoots } from "./distrusted-roots.ts";
 // The base-URL policy: which origin the token travels to, and what
 // DRIGGSBY_BASE_URL may override it with. One implementation for both this
 // package's bin and the driggsby CLI.
