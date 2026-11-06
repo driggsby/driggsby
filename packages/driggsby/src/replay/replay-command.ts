@@ -13,7 +13,7 @@ import { type CredentialEnvironment, defaultCredentialEnvironment, readStoredTok
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
 import { runLogin } from "../login/login.ts";
 import { CUES, type ReplayTimeline, SILENT, VOICED } from "./att-story.ts";
-import { type JoinState, MIN_COLS, MIN_ROWS, renderFrame } from "./feed-frame.ts";
+import { MIN_COLS, MIN_ROWS, renderFrame } from "./feed-frame.ts";
 import { castVote } from "./vote.ts";
 
 const PLAYER = "/usr/bin/afplay";
@@ -55,13 +55,14 @@ function play(timeline: ReplayTimeline, sound: boolean): Promise<Ending> {
   let pt = 0;
   let paused = false;
   let fast = false;
-  let join: JoinState = "closed";
   let last = Date.now();
+  // A full-screen app: the whole terminal, the header at the top and the
+  // progress bar and keys anchored to the bottom.
   const draw = (): void => {
     const cols = Math.max(MIN_COLS, stdout.columns - 1);
     const rows = Math.max(MIN_ROWS, stdout.rows);
-    const lines = renderFrame({ pt, nowMs: Date.now(), cols, rows, timeline, join, paused, fast });
-    stdout.write(`\u001b[H${lines.join("\r\n")}`);
+    const frame = renderFrame({ pt, nowMs: Date.now(), cols, rows, timeline, join: "closed", paused, fast });
+    stdout.write(`\u001b[H${frame.join("\r\n")}`);
   };
   const seek = (to: number): void => {
     hush();
@@ -92,19 +93,12 @@ function play(timeline: ReplayTimeline, sound: boolean): Promise<Ending> {
         finish("quit");
         return;
       }
-      if (join === "open") {
-        if (key === "\r" || key === "\n") {
-          finish("vote");
-          return;
-        }
-        if (key === "\u001b") join = "closed";
-        draw();
+      // j votes right away: no prompt to confirm.
+      if (key === "j") {
+        finish("vote");
         return;
       }
-      if (key === "j") {
-        hush();
-        join = "open";
-      } else if (key === " ") {
+      if (key === " ") {
         hush();
         paused = !paused;
       } else if (key === "f") {
@@ -121,7 +115,7 @@ function play(timeline: ReplayTimeline, sound: boolean): Promise<Ending> {
       const now = Date.now();
       const dt = (now - last) / 1000;
       last = now;
-      if (!paused && join === "closed" && pt < timeline.total) {
+      if (!paused && pt < timeline.total) {
         const next = Math.min(timeline.total, pt + dt * (fast ? 2 : 1));
         if (sound) for (const cue of CUES) if (cue.at > pt && cue.at <= next) playCue(cue.file, fast);
         pt = next;
