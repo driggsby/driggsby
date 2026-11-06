@@ -222,7 +222,9 @@ function help(input: FrameInput, w: number, narrow: boolean): Line {
     ? [["space", input.paused ? "play" : "pause"], ["q", "quit"]]
     : [["space", input.paused ? "play" : "pause"], ["f", input.fast ? "1×" : "2×"], ["r", "replay"], ["q", "quit"]];
   const left = keys.flatMap(([key, what], i) => [seg((i > 0 ? (narrow ? "  " : "  ·  ") : "") + key, C.mute), seg(` ${what}`, C.faint)]);
-  // j votes at any moment; once pressed, this spot says how the vote went.
+  // j belongs to the ending: nothing about it shows while the call plays.
+  if (input.pt < input.timeline.endStart) return line(...left);
+  // Once pressed, this spot says how the vote went.
   const state = input.vote ?? "idle";
   const vote: Seg[] = state === "counting" ? [seg("counting your vote…", C.mute)]
     : state === "counted" ? [seg("✓ ", C.money, { bold: true }), seg("your vote is in", C.money)]

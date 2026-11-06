@@ -2,9 +2,9 @@
 // internet bill, in the terminal. On a Mac it plays with sound (recreated
 // voices, the call's real words), paced around them; elsewhere, or with
 // --quiet, it plays silently and faster. Space pauses, f plays at 2x, r
-// starts over, the arrows move two seconds, q quits, and j votes to roll the
-// feature out, any time: signed in, the vote counts in place while the replay
-// plays on; signed out, it signs in first and comes back to the same moment.
+// starts over, the arrows move two seconds, and q quits. Once the call has
+// played to the end, j votes to roll the feature out: signed in, the vote counts
+// in place; signed out, it signs in first, votes, and the command ends.
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,6 @@ import { CliError } from "../cli-error.ts";
 import { type CredentialEnvironment, defaultCredentialEnvironment, readStoredToken } from "../credentials/store.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
 import { runLogin } from "../login/login.ts";
-import { abortableSleep } from "../login/sleep.ts";
 import { CUES, type ReplayTimeline, SILENT, VOICED } from "./att-story.ts";
 import { MIN_COLS, MIN_ROWS, renderFrame, type VoteState } from "./feed-frame.ts";
 import { castVote } from "./vote.ts";
@@ -21,37 +20,28 @@ import { castVote } from "./vote.ts";
 const PLAYER = "/usr/bin/afplay";
 const TICK_MS = 33;
 const RETRY_COMMAND = "npx driggsby@latest replay att";
-const BACK_TO_REPLAY_MS = 1_500;
 
 export interface ReplayOptions {
   quiet: boolean;
 }
 
-// Where a run of the player ended: quit, or left to sign in at a moment.
-type Ending = { kind: "quit" } | { kind: "sign-in"; pt: number };
+// How the player ended: quit, or left to sign in and vote.
+type Ending = "quit" | "sign-in";
 
 export async function runReplay(options: ReplayOptions, environment: CredentialEnvironment = defaultCredentialEnvironment()): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new CliError(`The replay plays in an interactive terminal. Open one and run:\n  ${RETRY_COMMAND}`, 1);
   }
   const sound = !options.quiet && process.platform === "darwin" && existsSync(PLAYER);
-  const timeline = sound ? VOICED : SILENT;
-  let pt = 0;
-  let vote: VoteState = "idle";
-  for (;;) {
-    const ending = await play(timeline, sound, pt, vote, environment);
-    if (ending.kind === "quit") return 0;
-    // Signing in needs the terminal: leave the replay, sign in, vote, and go
-    // back to the same moment.
-    process.stdout.write("To count your vote, sign in to Driggsby first. It takes about a minute.\n\n");
-    await runLogin(environment);
-    vote = await voteSignedIn(environment);
-    process.stdout.write(vote === "counted" ? "\nThanks. Your vote to roll this out is in. Back to the replay…\n"
-      : vote === "closed" ? "\nVoting on this has closed. Back to the replay…\n"
-        : "\nDriggsby couldn't count your vote just now; press j to try again. Back to the replay…\n");
-    await abortableSleep(BACK_TO_REPLAY_MS);
-    pt = ending.pt;
-  }
+  const ending = await play(sound ? VOICED : SILENT, sound, environment);
+  if (ending === "quit") return 0;
+  // Signing in needs the terminal: the replay has ended, so sign in, vote, done.
+  process.stdout.write("To count your vote, sign in to Driggsby first. It takes about a minute.\n\n");
+  await runLogin(environment);
+  const vote = await voteSignedIn(environment);
+  if (vote === "failed") return 1;
+  process.stdout.write(vote === "counted" ? "\nThanks. Your vote to roll this out is in.\n" : "\nVoting on this has closed. Thanks for watching.\n");
+  return 0;
 }
 
 async function voteSignedIn(environment: CredentialEnvironment): Promise<VoteState> {
@@ -66,7 +56,7 @@ async function voteSignedIn(environment: CredentialEnvironment): Promise<VoteSta
   }
 }
 
-function play(timeline: ReplayTimeline, sound: boolean, startPt: number, startVote: VoteState, environment: CredentialEnvironment): Promise<Ending> {
+function play(timeline: ReplayTimeline, sound: boolean, environment: CredentialEnvironment): Promise<Ending> {
   const stdin = process.stdin;
   const stdout = process.stdout;
   const playing = new Set<ChildProcess>();
@@ -88,10 +78,10 @@ function play(timeline: ReplayTimeline, sound: boolean, startPt: number, startVo
     playing.add(child);
   };
 
-  let pt = startPt;
+  let pt = 0;
   let paused = false;
   let fast = false;
-  let vote = startVote;
+  let vote: VoteState = "idle";
   let last = Date.now();
   // A full-screen app: the whole terminal, the header at the top and the
   // progress bar and keys anchored to the bottom.
@@ -126,7 +116,7 @@ function play(timeline: ReplayTimeline, sound: boolean, startPt: number, startVo
     // j, signed in: the vote counts in place and the bar shows how it went.
     const castInPlace = async (): Promise<void> => {
       if ((await readStoredToken(environment)) === null) {
-        finish({ kind: "sign-in", pt });
+        finish("sign-in");
         return;
       }
       vote = "counting";
@@ -145,11 +135,12 @@ function play(timeline: ReplayTimeline, sound: boolean, startPt: number, startVo
     const onKey = (data: Buffer): void => {
       const key = data.toString("utf8");
       if (key === "\u0003" || key === "q") {
-        finish({ kind: "quit" });
+        finish("quit");
         return;
       }
       if (key === "j") {
-        if (vote === "idle" || vote === "failed") void castInPlace();
+        // Only once the call has played to the end.
+        if (pt >= timeline.endStart && (vote === "idle" || vote === "failed")) void castInPlace();
       } else if (key === " ") {
         paused = !paused;
         freeze(paused);
