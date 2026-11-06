@@ -2,22 +2,19 @@
 // internet bill, in the terminal. On a Mac it plays with sound (recreated
 // voices, the call's real words), paced around them; elsewhere, or with
 // --quiet, it plays silently and faster. Space pauses, f plays at 2x, r
-// starts over, the arrows move two seconds, and q quits. Once the call has
-// played to the end, j votes to roll the feature out: signed in, the vote counts
-// in place; signed out, it signs in first, votes, and the command ends.
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
+// starts over, the arrows move two seconds, and q quits; the voice follows
+// each of them in place. Once the call has played to the end, j votes to roll
+// the feature out: signed in, the vote counts in place; signed out, it signs
+// in first, votes, and the command ends.
 import { CliError } from "../cli-error.ts";
 import { type CredentialEnvironment, defaultCredentialEnvironment, readStoredToken } from "../credentials/store.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
 import { runLogin } from "../login/login.ts";
 import { CUES, type ReplayTimeline, SILENT, VOICED } from "./att-story.ts";
 import { MIN_COLS, MIN_ROWS, renderFrame, type VoteState } from "./feed-frame.ts";
+import { lineAt, startVoice, type Voice } from "./voice.ts";
 import { castVote } from "./vote.ts";
 
-const PLAYER = "/usr/bin/afplay";
 const TICK_MS = 33;
 const RETRY_COMMAND = "npx driggsby@latest replay att";
 
@@ -32,8 +29,8 @@ export async function runReplay(options: ReplayOptions, environment: CredentialE
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new CliError(`The replay plays in an interactive terminal. Open one and run:\n  ${RETRY_COMMAND}`, 1);
   }
-  const sound = !options.quiet && process.platform === "darwin" && existsSync(PLAYER);
-  const ending = await play(sound ? VOICED : SILENT, sound, environment);
+  const voice = options.quiet ? null : await startVoice();
+  const ending = await play(voice === null ? SILENT : VOICED, voice, environment);
   if (ending === "quit") return 0;
   // Signing in needs the terminal: the replay has ended, so sign in, vote, done.
   process.stdout.write("To count your vote, sign in to Driggsby first. It takes about a minute.\n\n");
@@ -56,27 +53,9 @@ async function voteSignedIn(environment: CredentialEnvironment): Promise<VoteSta
   }
 }
 
-function play(timeline: ReplayTimeline, sound: boolean, environment: CredentialEnvironment): Promise<Ending> {
+function play(timeline: ReplayTimeline, voice: Voice | null, environment: CredentialEnvironment): Promise<Ending> {
   const stdin = process.stdin;
   const stdout = process.stdout;
-  const playing = new Set<ChildProcess>();
-  // SIGKILL, so a line frozen by a pause (SIGSTOP) stops too.
-  const hush = (): void => {
-    for (const child of playing) child.kill("SIGKILL");
-    playing.clear();
-  };
-  // A pause freezes whatever is being said and a resume picks it up where it
-  // stopped, instead of cutting it off until the next line.
-  const freeze = (frozen: boolean): void => {
-    for (const child of playing) child.kill(frozen ? "SIGSTOP" : "SIGCONT");
-  };
-  const playCue = (file: string, fast: boolean): void => {
-    const path = fileURLToPath(new URL(`../../assets/replay/${file}`, import.meta.url));
-    const child = spawn(PLAYER, fast ? ["-r", "2", path] : [path], { stdio: "ignore" });
-    child.on("error", () => playing.delete(child));
-    child.on("exit", () => playing.delete(child));
-    playing.add(child);
-  };
 
   let pt = 0;
   let paused = false;
@@ -91,9 +70,14 @@ function play(timeline: ReplayTimeline, sound: boolean, environment: CredentialE
     const frame = renderFrame({ pt, nowMs: Date.now(), cols, rows, timeline, vote, paused, fast });
     stdout.write(`\u001b[H${frame.join("\r\n")}`);
   };
+  const rate = (): number => (fast ? 2 : 1);
+  // A jump picks up whatever line is being said at the new moment, mid-word.
   const seek = (to: number): void => {
-    hush();
     pt = Math.max(0, Math.min(timeline.total, to));
+    if (voice === null) return;
+    const line = lineAt(CUES, pt);
+    if (line === null) voice.stop();
+    else voice.play(line.file, line.offset, rate(), paused);
   };
 
   return new Promise<Ending>((resolve) => {
@@ -105,7 +89,7 @@ function play(timeline: ReplayTimeline, sound: boolean, environment: CredentialE
       if (done) return;
       done = true;
       clearInterval(timer);
-      hush();
+      voice?.close();
       stdin.off("data", onKey);
       stdin.setRawMode(false);
       stdin.pause();
@@ -143,13 +127,14 @@ function play(timeline: ReplayTimeline, sound: boolean, environment: CredentialE
         if (pt >= timeline.endStart && (vote === "idle" || vote === "failed")) void castInPlace();
       } else if (key === " ") {
         paused = !paused;
-        freeze(paused);
+        if (paused) voice?.pause();
+        else voice?.resume();
       } else if (key === "f") {
-        // The line being said finishes at its own speed; the next plays faster.
         fast = !fast;
+        voice?.rate(rate());
       } else if (key === "r") {
-        seek(0);
         paused = false;
+        seek(0);
       } else if (key === "\u001b[C") seek(pt + 2);
       else if (key === "\u001b[D") seek(pt - 2);
       draw();
@@ -159,8 +144,8 @@ function play(timeline: ReplayTimeline, sound: boolean, environment: CredentialE
       const dt = (now - last) / 1000;
       last = now;
       if (!paused && pt < timeline.total) {
-        const next = Math.min(timeline.total, pt + dt * (fast ? 2 : 1));
-        if (sound) for (const cue of CUES) if (cue.at > pt && cue.at <= next) playCue(cue.file, fast);
+        const next = Math.min(timeline.total, pt + dt * rate());
+        if (voice !== null) for (const cue of CUES) if (cue.at > pt && cue.at <= next) voice.play(cue.file, 0, rate(), false);
         pt = next;
       }
       draw();
