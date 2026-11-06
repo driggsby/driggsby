@@ -25,7 +25,9 @@ export type ParsedCommand =
   | { kind: "query"; tool: string; params: Record<string, unknown> }
   | { kind: "rules"; action: RuleAction; params: Record<string, unknown>; yes: boolean }
   | { kind: "items"; action: ItemAction; params: Record<string, unknown>; yes: boolean }
-  | { kind: "import"; options: ImportCommandOptions };
+  | { kind: "import"; options: ImportCommandOptions }
+  // A hidden command (not in --help): a call replay, silent when quiet.
+  | { kind: "replay"; quiet: boolean };
 
 export function helpCommand(text: string): ParsedCommand {
   return { kind: "print-help", text, stream: "stdout", exitCode: 0 };

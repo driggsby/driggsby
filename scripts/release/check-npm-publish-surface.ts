@@ -72,9 +72,9 @@ const CLI_EXPECTATION: PackageExpectation = {
   // dist may nest (api/, deploy/, login/), but no path segment may start
   // with a dot — a stray dot-directory in dist must fail this check, not
   // pack silently. assets holds exactly the dashboard font `driggsby dev`
-  // serves and its license.
+  // serves and its license, and the call replay's numbered sounds.
   allowedFilePattern:
-    /^(package\.json|LICENSE|README\.md|bin\/driggsby\.js|assets\/Inter\.woff2|assets\/Inter-LICENSE\.txt|dist\/(?:[^/.][^/]*\/)*[^/.][^/]*\.js)$/,
+    /^(package\.json|LICENSE|README\.md|bin\/driggsby\.js|assets\/Inter\.woff2|assets\/Inter-LICENSE\.txt|assets\/replay\/att-\d{2}\.m4a|dist\/(?:[^/.][^/]*\/)*[^/.][^/]*\.js)$/,
 };
 
 // The dashboard font `driggsby dev` serves at /-/inter.woff2: the same
