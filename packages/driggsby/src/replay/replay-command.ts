@@ -1,8 +1,8 @@
 // driggsby replay att: a replay of an agent's call with AT&T about an
 // internet bill, in the terminal. On a Mac it plays with sound (recreated
 // voices, the call's real words), paced around them; elsewhere, or with
-// --quiet, it plays silently and faster. It starts at 1.5x. Space pauses, f
-// steps the speed (2x, 1x, back to 1.5x), r starts over, the arrows move two
+// --quiet, it plays silently and faster. It starts at 1.2x. Space pauses, f
+// switches between 1.2x and 2x, r starts over, the arrows move two
 // seconds, and q quits; the voice follows each of them in place. Once the
 // call has played to the end, j votes to roll the feature out: signed in, the
 // vote counts in place; signed out, it signs in first, votes, and the command
