@@ -19,11 +19,20 @@ export interface FrameInput {
   timeline: ReplayTimeline;
   vote?: VoteState;
   paused: boolean;
-  fast: boolean;
+  // How fast it plays: one of SPEEDS.
+  speed: number;
   // Inline (the terminal): only as tall as what's on it, at most `rows`, so
   // the bar sits right under the steps. Otherwise exactly `rows` tall (the
   // GIF's fixed window).
   fit?: boolean;
+}
+
+// The replay starts at 1.5x; f steps to 2x, then 1x, then back to 1.5x.
+export const SPEEDS = [1.5, 2, 1] as const;
+
+export function nextSpeed(speed: number): number {
+  const at = SPEEDS.findIndex((s) => s === speed);
+  return SPEEDS[(at + 1) % SPEEDS.length] ?? SPEEDS[0];
 }
 
 const C = {
@@ -220,7 +229,7 @@ function bottomBar(real: number, pt: number, ended: boolean, w: number, narrow: 
 function help(input: FrameInput, w: number, narrow: boolean): Line {
   const keys: [string, string][] = narrow
     ? [["space", input.paused ? "play" : "pause"], ["q", "quit"]]
-    : [["space", input.paused ? "play" : "pause"], ["f", input.fast ? "1×" : "2×"], ["r", "replay"], ["q", "quit"]];
+    : [["space", input.paused ? "play" : "pause"], ["f", `${String(nextSpeed(input.speed))}×`], ["r", "replay"], ["q", "quit"]];
   const left = keys.flatMap(([key, what], i) => [seg((i > 0 ? (narrow ? "  " : "  ·  ") : "") + key, C.mute), seg(` ${what}`, C.faint)]);
   // j belongs to the ending: nothing about it shows while the call plays.
   if (input.pt < input.timeline.endStart) return line(...left);

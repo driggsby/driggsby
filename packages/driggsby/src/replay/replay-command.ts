@@ -1,17 +1,18 @@
 // driggsby replay att: a replay of an agent's call with AT&T about an
 // internet bill, in the terminal. On a Mac it plays with sound (recreated
 // voices, the call's real words), paced around them; elsewhere, or with
-// --quiet, it plays silently and faster. Space pauses, f plays at 2x, r
-// starts over, the arrows move two seconds, and q quits; the voice follows
-// each of them in place. Once the call has played to the end, j votes to roll
-// the feature out: signed in, the vote counts in place; signed out, it signs
-// in first, votes, and the command ends.
+// --quiet, it plays silently and faster. It starts at 1.5x. Space pauses, f
+// steps the speed (2x, 1x, back to 1.5x), r starts over, the arrows move two
+// seconds, and q quits; the voice follows each of them in place. Once the
+// call has played to the end, j votes to roll the feature out: signed in, the
+// vote counts in place; signed out, it signs in first, votes, and the command
+// ends.
 import { CliError } from "../cli-error.ts";
 import { type CredentialEnvironment, defaultCredentialEnvironment, readStoredToken } from "../credentials/store.ts";
 import { deployFailure, requireDeploySession } from "../deploy/api-session.ts";
 import { runLogin } from "../login/login.ts";
 import { CUES, type ReplayTimeline, SILENT, VOICED } from "./att-story.ts";
-import { MIN_COLS, MIN_ROWS, renderFrame, type VoteState } from "./feed-frame.ts";
+import { MIN_COLS, MIN_ROWS, nextSpeed, renderFrame, SPEEDS, type VoteState } from "./feed-frame.ts";
 import { lineAt, startVoice, type Voice } from "./voice.ts";
 import { castVote } from "./vote.ts";
 
@@ -59,7 +60,7 @@ function play(timeline: ReplayTimeline, voice: Voice | null, environment: Creden
 
   let pt = 0;
   let paused = false;
-  let fast = false;
+  let speed: number = SPEEDS[0];
   let vote: VoteState = "idle";
   let last = Date.now();
   // A full-screen app: the whole terminal, the header at the top and the
@@ -67,17 +68,16 @@ function play(timeline: ReplayTimeline, voice: Voice | null, environment: Creden
   const draw = (): void => {
     const cols = Math.max(MIN_COLS, stdout.columns - 1);
     const rows = Math.max(MIN_ROWS, stdout.rows);
-    const frame = renderFrame({ pt, nowMs: Date.now(), cols, rows, timeline, vote, paused, fast });
+    const frame = renderFrame({ pt, nowMs: Date.now(), cols, rows, timeline, vote, paused, speed });
     stdout.write(`\u001b[H${frame.join("\r\n")}`);
   };
-  const rate = (): number => (fast ? 2 : 1);
   // A jump picks up whatever line is being said at the new moment, mid-word.
   const seek = (to: number): void => {
     pt = Math.max(0, Math.min(timeline.total, to));
     if (voice === null) return;
     const line = lineAt(CUES, pt);
     if (line === null) voice.stop();
-    else voice.play(line.file, line.offset, rate(), paused);
+    else voice.play(line.file, line.offset, speed, paused);
   };
 
   return new Promise<Ending>((resolve) => {
@@ -130,8 +130,8 @@ function play(timeline: ReplayTimeline, voice: Voice | null, environment: Creden
         if (paused) voice?.pause();
         else voice?.resume();
       } else if (key === "f") {
-        fast = !fast;
-        voice?.rate(rate());
+        speed = nextSpeed(speed);
+        voice?.rate(speed);
       } else if (key === "r") {
         paused = false;
         seek(0);
@@ -144,8 +144,8 @@ function play(timeline: ReplayTimeline, voice: Voice | null, environment: Creden
       const dt = (now - last) / 1000;
       last = now;
       if (!paused && pt < timeline.total) {
-        const next = Math.min(timeline.total, pt + dt * rate());
-        if (voice !== null) for (const cue of CUES) if (cue.at > pt && cue.at <= next) voice.play(cue.file, 0, rate(), false);
+        const next = Math.min(timeline.total, pt + dt * speed);
+        if (voice !== null) for (const cue of CUES) if (cue.at > pt && cue.at <= next) voice.play(cue.file, 0, speed, false);
         pt = next;
       }
       draw();
