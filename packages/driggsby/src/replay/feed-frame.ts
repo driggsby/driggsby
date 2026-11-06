@@ -7,7 +7,9 @@ import { CALL, LINES, OFFER_AT, type ReplayCheck, type ReplayStep, type ReplayTi
 import { type Line, type Seg, line, padTo, seg, width } from "./paint.ts";
 import { toPlay, toReal } from "./timeline.ts";
 
-export type JoinState = "closed" | "open";
+// Where the person's vote stands: not cast, being counted, counted, closed
+// (the poll ended), or failed (j tries again).
+export type VoteState = "idle" | "counting" | "counted" | "closed" | "failed";
 
 export interface FrameInput {
   pt: number;
@@ -15,7 +17,7 @@ export interface FrameInput {
   cols: number;
   rows: number;
   timeline: ReplayTimeline;
-  join: JoinState;
+  vote?: VoteState;
   paused: boolean;
   fast: boolean;
   // Inline (the terminal): only as tall as what's on it, at most `rows`, so
@@ -108,7 +110,7 @@ export function renderFrame(input: FrameInput): string[] {
         feed.push(line());
       }
     });
-    if (ended) feed.push(...result(input.pt - timeline.endStart, w, narrow));
+    if (ended) feed.push(...result(input.pt - timeline.endStart, w, narrow, input.vote ?? "idle"));
     return { feed, doneAt };
   };
 
@@ -172,7 +174,7 @@ function checkRows(checks: readonly ReplayCheck[], real: number, inner: number, 
   return out;
 }
 
-function result(t: number, w: number, narrow: boolean): Line[] {
+function result(t: number, w: number, narrow: boolean, vote: VoteState): Line[] {
   const after = CALL.before + (CALL.after - CALL.before) * ease(t / 0.9);
   const saved = `${money((CALL.before - CALL.after) * CALL.months)} saved`;
   const at = (n: number): boolean => t >= 0.15 * n;
@@ -184,7 +186,9 @@ function result(t: number, w: number, narrow: boolean): Line[] {
   if (at(1)) out.push(line(seg(saved, C.money), seg(terms, C.mute)));
   if (at(2)) out.push(line(seg(`${mmss(CALL.ends)} on the phone  ·  $${CALL.costUsd.toFixed(2)} to run`, C.mute)));
   if (at(2)) out.push(line(seg("Verizon, same week:  ", C.mute), seg("$95.71", C.faint, { strike: true }), seg(" → ", C.mute), seg("$74.01", C.money)));
-  if (at(3)) out.push(line(), line(seg(" j ", C.ink, { bg: C.money, bold: true }), seg("  Vote to roll this out", C.text, { bold: true })));
+  if (at(3)) out.push(line(), vote === "counted"
+    ? line(seg("✓", C.money, { bold: true }), seg("  Your vote is in. Thanks.", C.text, { bold: true }))
+    : line(seg(" j ", C.ink, { bg: C.money, bold: true }), seg("  Vote to roll this out", C.text, { bold: true })));
   return out;
 }
 
@@ -214,16 +218,18 @@ function bottomBar(real: number, pt: number, ended: boolean, w: number, narrow: 
 }
 
 function help(input: FrameInput, w: number, narrow: boolean): Line {
-  if (input.join === "open") {
-    return spread(
-      [seg("Count your vote to roll this out?", C.text, { bold: true })],
-      [seg("enter", C.money, { bold: true }), seg(" yes   ", C.mute), seg("esc", C.text), seg(" not now", C.mute)],
-      w,
-    );
-  }
   const keys: [string, string][] = narrow
     ? [["space", input.paused ? "play" : "pause"], ["q", "quit"]]
     : [["space", input.paused ? "play" : "pause"], ["f", input.fast ? "1×" : "2×"], ["r", "replay"], ["q", "quit"]];
   const left = keys.flatMap(([key, what], i) => [seg((i > 0 ? (narrow ? "  " : "  ·  ") : "") + key, C.mute), seg(` ${what}`, C.faint)]);
-  return spread(left, [seg(" j ", C.ink, { bg: C.money, bold: true }), seg(" vote to roll this out", C.money)], w);
+  // j belongs to the ending: nothing about it shows while the call plays.
+  if (input.pt < input.timeline.endStart) return line(...left);
+  // Once pressed, this spot says how the vote went.
+  const state = input.vote ?? "idle";
+  const vote: Seg[] = state === "counting" ? [seg("counting your vote…", C.mute)]
+    : state === "counted" ? [seg("✓ ", C.money, { bold: true }), seg("your vote is in", C.money)]
+      : state === "closed" ? [seg("voting has closed", C.faint)]
+        : state === "failed" ? [seg("couldn’t count it · ", C.faint), seg(" j ", C.ink, { bg: C.money, bold: true }), seg(" try again", C.money)]
+          : [seg(" j ", C.ink, { bg: C.money, bold: true }), seg(" vote to roll this out", C.money)];
+  return spread(left, vote, w);
 }
