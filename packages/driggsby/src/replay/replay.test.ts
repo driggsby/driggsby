@@ -15,7 +15,7 @@ import { castVote, POLL_SLUG } from "./vote.ts";
 setColor(false);
 
 const frameAt = (pt: number, cols: number, rows: number, timeline = SILENT): string[] =>
-  renderFrame({ pt, nowMs: pt * 1000, cols, rows, timeline, join: "closed", paused: false, fast: false });
+  renderFrame({ pt, nowMs: pt * 1000, cols, rows, timeline, paused: false, fast: false });
 
 test("every frame fills the window exactly, at email and terminal widths", () => {
   for (const timeline of [SILENT, VOICED]) {
@@ -32,15 +32,28 @@ test("every frame fills the window exactly, at email and terminal widths", () =>
 test("inline, the replay spans the terminal and is only as tall as what's on it", () => {
   for (const [cols, rows] of [[238, 61], [120, 40], [79, 24]] as const) {
     for (let pt = 0; pt <= SILENT.total; pt += 0.5) {
-      const lines = renderFrame({ pt, nowMs: pt * 1000, cols, rows, timeline: SILENT, join: "closed", paused: false, fast: false, fit: true });
+      const lines = renderFrame({ pt, nowMs: pt * 1000, cols, rows, timeline: SILENT, paused: false, fast: false, fit: true });
       assert.ok(lines.length <= rows, `fits ${cols}x${rows} at ${pt}s`);
       for (const l of lines) assert.equal(Array.from(l).length, cols, `full width ${cols} at ${pt}s`);
-      const vote = pt >= SILENT.endStart ? /vote to roll this out/ : /vote at the end/;
+      const vote = /vote to roll this out/;
       assert.match(lines.at(-1) ?? "", vote, `the bar ends the block, with j's hint for the moment, at ${pt}s`);
     }
   }
-  const early = renderFrame({ pt: 3, nowMs: 3000, cols: 238, rows: 61, timeline: SILENT, join: "closed", paused: false, fast: false, fit: true });
+  const early = renderFrame({ pt: 3, nowMs: 3000, cols: 238, rows: 61, timeline: SILENT, paused: false, fast: false, fit: true });
   assert.ok(early.length < 30, "no empty middle in a tall terminal");
+});
+
+test("j votes at any moment, and the bar and the ending say how it went", () => {
+  const at = (pt: number, vote: "idle" | "counting" | "counted" | "closed" | "failed"): string[] =>
+    renderFrame({ pt, nowMs: pt * 1000, cols: 100, rows: 32, timeline: SILENT, paused: false, fast: false, vote });
+  assert.match(at(5, "idle").at(-1) ?? "", /j {2}vote to roll this out/);
+  assert.match(at(5, "counting").at(-1) ?? "", /counting your vote…/);
+  assert.match(at(5, "counted").at(-1) ?? "", /✓ your vote is in/);
+  assert.match(at(5, "closed").at(-1) ?? "", /voting has closed/);
+  assert.match(at(5, "failed").at(-1) ?? "", /couldn’t count it .* try again/);
+  const end = at(SILENT.endStart + 3, "counted").join("\n");
+  assert.match(end, /Your vote is in\. Thanks\./);
+  assert.doesNotMatch(end, /Vote to roll this out/);
 });
 
 test("the replay ends on the deal and the vote", () => {
