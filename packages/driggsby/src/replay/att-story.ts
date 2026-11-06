@@ -54,7 +54,7 @@ export const STEPS: readonly ReplayStep[] = [
     title: "Verify the account",
     from: 829.1,
     to: 1110.5,
-    detail: "one PIN, emailed to Matt, relayed by chat"
+    detail: "one PIN, emailed to Sam, relayed by chat"
   },
   {
     id: "upsell",
@@ -147,7 +147,7 @@ export const LINES: readonly ReplayLine[] = [
   {
     at: 803.1,
     who: "agent",
-    text: "Honestly, Matt’s thinking about canceling because of the price, but Matt’s paid every month for years and would love to stay. Is there anything you could do?"
+    text: "Honestly, Sam’s thinking about canceling because of the price, but Sam’s paid every month for years and would love to stay. Is there anything you could do?"
   },
   {
     at: 829.1,
@@ -157,17 +157,17 @@ export const LINES: readonly ReplayLine[] = [
   {
     at: 1110.5,
     who: "att",
-    text: "Okay, I’m in."
+    text: "Ok, I’m in the account. Thanks for verifying."
   },
   {
     at: 1128.7,
     who: "att",
-    text: "Does Matt have cell phones with AT&T?"
+    text: "Does Sam have cell phones with AT&T?"
   },
   {
     at: 1130.1,
     who: "agent",
-    text: "Matt’s not looking to add anything, just hoping to bring the internet price down."
+    text: "Sam’s not looking to add anything, just hoping to bring the internet price down."
   },
   {
     at: 1148.5,
@@ -177,7 +177,7 @@ export const LINES: readonly ReplayLine[] = [
   {
     at: 1205.6,
     who: "agent",
-    text: "Spectrum just started offering service at Matt’s address, so Matt’s honestly weighing a switch."
+    text: "Spectrum just started offering service at Sam’s address, so Sam’s honestly weighing a switch."
   },
   {
     at: 1228.7,
@@ -192,7 +192,7 @@ export const LINES: readonly ReplayLine[] = [
   {
     at: 1262.5,
     who: "agent",
-    text: "Is that on Matt’s current plan and speed, with no contract?"
+    text: "Is that on Sam’s current plan and speed, with no contract?"
   },
   {
     at: 1275,
@@ -202,7 +202,7 @@ export const LINES: readonly ReplayLine[] = [
   {
     at: 1318.6,
     who: "agent",
-    text: "If Matt cancels before the two years are up, is there any fee?"
+    text: "If Sam cancels before the two years are up, is there any fee?"
   },
   {
     at: 1331.3,
@@ -229,10 +229,10 @@ export const SILENT: ReplayTimeline = {
 };
 
 export const VOICED: ReplayTimeline = {
-  keys: [[0,0],[40.1,1.745],[76.4,3.234],[77.3,7.332],[161.1,9.354],[201.6,12.746],[238.4,13.596],[753.6,20.236],[803.1,22.061],[829.1,31.21],[1110.5,34.364],[1128.7,35.741],[1130.1,38.377],[1148.5,42.583],[1205.6,46.249],[1228.7,51.471],[1260.8,55.504],[1262.5,60.418],[1275,63.977],[1318.6,66.694],[1331.3,70.341],[1365.5,71.844],[1506,74.432],[1509.3,76.846]],
-  endStart: 77.646,
-  total: 87.646,
-  speak: new Map([[40.1,1.039],[76.4,3.648],[77.3,0.361],[161.1,2.943],[201.6,0.4],[238.4,2.19],[753.6,1.374],[803.1,8.7],[829.1,1.496],[1110.5,0.926],[1128.7,2.186],[1130.1,3.757],[1148.5,3.215],[1205.6,4.772],[1228.7,3.584],[1260.8,4.464],[1262.5,3.108],[1275,2.267],[1318.6,3.198],[1331.3,0.308],[1365.5,2.138],[1506,1.614]]),
+  keys: [[0,0],[40.1,1.745],[76.4,3.234],[77.3,7.332],[161.1,9.354],[201.6,12.746],[238.4,13.596],[753.6,20.236],[803.1,22.061],[829.1,31.517],[1110.5,34.671],[1128.7,37.725],[1130.1,40.504],[1148.5,44.816],[1205.6,48.481],[1228.7,53.955],[1260.8,57.989],[1262.5,62.902],[1275,66.519],[1318.6,69.236],[1331.3,73.208],[1365.5,74.711],[1506,77.299],[1509.3,79.713]],
+  endStart: 80.513,
+  total: 90.513,
+  speak: new Map([[40.1,1.039],[76.4,3.648],[77.3,0.361],[161.1,2.943],[201.6,0.4],[238.4,2.19],[753.6,1.374],[803.1,9.006],[829.1,1.496],[1110.5,2.604],[1128.7,2.329],[1130.1,3.862],[1148.5,3.215],[1205.6,5.024],[1228.7,3.584],[1260.8,4.464],[1262.5,3.167],[1275,2.267],[1318.6,3.522],[1331.3,0.308],[1365.5,2.138],[1506,1.614]]),
 };
 
 // Each sound and the replay second it starts at, on the voiced timeline.
@@ -278,63 +278,63 @@ export const CUES: readonly { at: number; file: string }[] = [
     file: "att-09.m4a"
   },
   {
-    at: 31.21,
+    at: 31.517,
     file: "att-10.m4a"
   },
   {
-    at: 34.364,
+    at: 34.671,
     file: "att-11.m4a"
   },
   {
-    at: 35.741,
+    at: 37.725,
     file: "att-12.m4a"
   },
   {
-    at: 38.377,
+    at: 40.504,
     file: "att-13.m4a"
   },
   {
-    at: 42.583,
+    at: 44.816,
     file: "att-14.m4a"
   },
   {
-    at: 46.249,
+    at: 48.481,
     file: "att-15.m4a"
   },
   {
-    at: 51.471,
+    at: 53.955,
     file: "att-16.m4a"
   },
   {
-    at: 55.504,
+    at: 57.989,
     file: "att-17.m4a"
   },
   {
-    at: 60.418,
+    at: 62.902,
     file: "att-18.m4a"
   },
   {
-    at: 63.977,
+    at: 66.519,
     file: "att-19.m4a"
   },
   {
-    at: 66.694,
+    at: 69.236,
     file: "att-20.m4a"
   },
   {
-    at: 70.341,
+    at: 73.208,
     file: "att-21.m4a"
   },
   {
-    at: 71.844,
+    at: 74.711,
     file: "att-22.m4a"
   },
   {
-    at: 74.432,
+    at: 77.299,
     file: "att-23.m4a"
   },
   {
-    at: 77.646,
+    at: 80.513,
     file: "att-24.m4a"
   }
 ];

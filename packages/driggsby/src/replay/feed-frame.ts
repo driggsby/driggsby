@@ -18,6 +18,10 @@ export interface FrameInput {
   join: JoinState;
   paused: boolean;
   fast: boolean;
+  // Inline (the terminal): only as tall as what's on it, at most `rows`, so
+  // the bar sits right under the steps. Otherwise exactly `rows` tall (the
+  // GIF's fixed window).
+  fit?: boolean;
 }
 
 const C = {
@@ -66,7 +70,7 @@ export function renderFrame(input: FrameInput): string[] {
   const { timeline } = input;
   const ended = input.pt >= timeline.endStart;
   const real = ended ? CALL.ends : toReal(timeline.keys, input.pt);
-  const w = Math.min(cols - 4, 88);
+  const w = cols - 4;
   const narrow = w < 76;
   const pulse = Math.sin(input.nowMs / 260) > -0.2;
 
@@ -76,31 +80,46 @@ export function renderFrame(input: FrameInput): string[] {
     w,
   );
 
-  const feed: Line[] = [];
-  const doneAt: number[] = [];
   const stepRow = (title: string, time: string, icon: Seg, titleColor: string, timeColor: string, bold: boolean): Line =>
     line(icon, seg("  "), seg(padTo(title, w - 3 - time.length), titleColor, { bold }), seg(time, timeColor));
-  for (const step of STEPS) {
-    const done = ended || real >= step.to;
-    const active = !done && real >= step.from;
-    if (done) {
-      doneAt.push(feed.length);
-      feed.push(stepRow(step.title, mmss(step.to - step.from), seg("✓", C.money), C.soft, C.faint, false));
-    } else if (!active) {
-      feed.push(stepRow(step.title, "", seg("·", C.ghost), C.faint, C.faint, false));
-    } else {
-      const spinner = SPIN[Math.floor(input.nowMs / 80) % SPIN.length] ?? "·";
-      feed.push(line());
-      feed.push(stepRow(step.title, mmss(real - step.from), seg(spinner, C.agent), C.text, C.agent, true));
-      feed.push(...activeStep(step, real, input.pt, w, narrow, timeline));
-      feed.push(line());
-    }
-  }
-  if (ended) feed.push(...result(input.pt - timeline.endStart, w, narrow));
+  const doneCount = STEPS.filter((s) => ended || real >= s.to).length;
+  // The feed with the `open` most recent finished steps still showing what
+  // was said in them (dimmed), and the earlier ones as one line each.
+  const build = (open: number): { feed: Line[]; doneAt: number[] } => {
+    const feed: Line[] = [];
+    const doneAt: number[] = [];
+    STEPS.forEach((step, i) => {
+      const done = ended || real >= step.to;
+      const active = !done && real >= step.from;
+      if (done && i >= doneCount - open) {
+        feed.push(stepRow(step.title, mmss(step.to - step.from), seg("✓", C.money), C.soft, C.faint, false));
+        feed.push(...activeStep(step, real, input.pt, w, narrow, timeline, true));
+        feed.push(line());
+      } else if (done) {
+        doneAt.push(feed.length);
+        feed.push(stepRow(step.title, mmss(step.to - step.from), seg("✓", C.money), C.soft, C.faint, false));
+      } else if (!active) {
+        feed.push(stepRow(step.title, "", seg("·", C.ghost), C.faint, C.faint, false));
+      } else {
+        const spinner = SPIN[Math.floor(input.nowMs / 80) % SPIN.length] ?? "·";
+        if (feed.at(-1)?.segs.length !== 0) feed.push(line());
+        feed.push(stepRow(step.title, mmss(real - step.from), seg(spinner, C.agent), C.text, C.agent, true));
+        feed.push(...activeStep(step, real, input.pt, w, narrow, timeline, false));
+        feed.push(line());
+      }
+    });
+    if (ended) feed.push(...result(input.pt - timeline.endStart, w, narrow));
+    return { feed, doneAt };
+  };
 
   const room = rows - 6;
+  let open = doneCount;
+  let built = build(open);
+  while (built.feed.length > room && open > 0) built = build(--open);
+  const { feed, doneAt } = built;
   const shown = fold(feed, doneAt, room, w).slice(-room);
-  while (shown.length < room) shown.push(line());
+  while (input.fit !== true && shown.length < room) shown.push(line());
+  if (shown.at(-1)?.segs.length === 0 && input.fit === true) shown.pop();
 
   const frame: Line[] = [
     head, line(), ...shown, line(),
@@ -109,7 +128,10 @@ export function renderFrame(input: FrameInput): string[] {
   return frame.map((l) => line(seg("  "), ...l.segs).render(cols));
 }
 
-function activeStep(step: ReplayStep, real: number, pt: number, w: number, narrow: boolean, timeline: ReplayTimeline): Line[] {
+// What happened in a step: its note, the keys pressed, the lines said (the
+// last one typing out while the step is under way), the hold bar, the terms
+// checked. Dimmed throughout once the step is finished.
+function activeStep(step: ReplayStep, real: number, pt: number, w: number, narrow: boolean, timeline: ReplayTimeline, finished: boolean): Line[] {
   const out: Line[] = [];
   const guide = (): Seg => seg("  │ ", C.ghost);
   const inner = w - 4;
@@ -118,7 +140,7 @@ function activeStep(step: ReplayStep, real: number, pt: number, w: number, narro
   if (keys !== undefined) out.push(line(guide(), seg(padTo("keys", 7), C.faint), seg(keys.text, C.keys)));
   const said = LINES.filter((l) => l.at >= step.from && l.at < step.to && real >= l.at && l.who !== "keys");
   said.forEach((l, k) => {
-    const last = k === said.length - 1;
+    const last = !finished && k === said.length - 1;
     const typing = timeline.speak.get(l.at) ?? Math.max(0.3, l.text.length / 80);
     const typed = last ? Math.min(1, (pt - toPlay(timeline.keys, l.at)) / typing) : 1;
     const text = l.text.slice(0, Math.max(1, Math.round(l.text.length * typed)));
@@ -129,9 +151,9 @@ function activeStep(step: ReplayStep, real: number, pt: number, w: number, narro
   });
   if (step.id === "hold") {
     const f = Math.min(1, (real - step.from) / (step.to - step.from));
-    const bw = inner - 12;
+    const bw = Math.min(inner - 12, 48);
     const n = Math.round(bw * f);
-    out.push(line(guide(), seg("♪  ", C.music), seg("━".repeat(n), C.music), seg("━".repeat(bw - n), C.ghost), seg(`  of ${mmss(step.to - step.from)}`, C.faint)));
+    out.push(line(guide(), seg("♪  ", finished ? C.faint : C.music), seg("━".repeat(n), finished ? C.ghost : C.music), seg("━".repeat(bw - n), C.ghost), seg(`  of ${mmss(step.to - step.from)}`, C.faint)));
     out.push(line(guide(), seg("hold music. the agent waits so you don’t.", C.faint)));
   }
   if (step.checks !== undefined) out.push(...checkRows(step.checks, real, inner, narrow, guide));

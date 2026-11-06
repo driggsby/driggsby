@@ -29,6 +29,19 @@ test("every frame fills the window exactly, at email and terminal widths", () =>
   }
 });
 
+test("inline, the replay spans the terminal and is only as tall as what's on it", () => {
+  for (const [cols, rows] of [[238, 61], [120, 40], [79, 24]] as const) {
+    for (let pt = 0; pt <= SILENT.total; pt += 0.5) {
+      const lines = renderFrame({ pt, nowMs: pt * 1000, cols, rows, timeline: SILENT, join: "closed", paused: false, fast: false, fit: true });
+      assert.ok(lines.length <= rows, `fits ${cols}x${rows} at ${pt}s`);
+      for (const l of lines) assert.equal(Array.from(l).length, cols, `full width ${cols} at ${pt}s`);
+      assert.match(lines.at(-1) ?? "", /vote to roll this out/, `the bar ends the block at ${pt}s`);
+    }
+  }
+  const early = renderFrame({ pt: 3, nowMs: 3000, cols: 238, rows: 61, timeline: SILENT, join: "closed", paused: false, fast: false, fit: true });
+  assert.ok(early.length < 30, "no empty middle in a tall terminal");
+});
+
 test("the replay ends on the deal and the vote", () => {
   for (const timeline of [SILENT, VOICED]) {
     const end = frameAt(timeline.endStart + 3, 100, 32, timeline).join("\n");
