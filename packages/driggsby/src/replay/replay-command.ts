@@ -40,9 +40,15 @@ function play(timeline: ReplayTimeline, sound: boolean): Promise<Ending> {
   const stdin = process.stdin;
   const stdout = process.stdout;
   const playing = new Set<ChildProcess>();
+  // SIGKILL, so a line frozen by a pause (SIGSTOP) stops too.
   const hush = (): void => {
-    for (const child of playing) child.kill();
+    for (const child of playing) child.kill("SIGKILL");
     playing.clear();
+  };
+  // A pause freezes whatever is being said and a resume picks it up where it
+  // stopped, instead of cutting it off until the next line.
+  const freeze = (frozen: boolean): void => {
+    for (const child of playing) child.kill(frozen ? "SIGSTOP" : "SIGCONT");
   };
   const playCue = (file: string, fast: boolean): void => {
     const path = fileURLToPath(new URL(`../../assets/replay/${file}`, import.meta.url));
@@ -93,16 +99,18 @@ function play(timeline: ReplayTimeline, sound: boolean): Promise<Ending> {
         finish("quit");
         return;
       }
-      // j votes right away: no prompt to confirm.
+      // j votes once the replay has played to the end, with no prompt to
+      // confirm; before that it does nothing.
       if (key === "j") {
-        finish("vote");
-        return;
-      }
-      if (key === " ") {
-        hush();
+        if (pt >= timeline.endStart) {
+          finish("vote");
+          return;
+        }
+      } else if (key === " ") {
         paused = !paused;
+        freeze(paused);
       } else if (key === "f") {
-        hush();
+        // The line being said finishes at its own speed; the next plays faster.
         fast = !fast;
       } else if (key === "r") {
         seek(0);

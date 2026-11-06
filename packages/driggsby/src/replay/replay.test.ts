@@ -35,7 +35,8 @@ test("inline, the replay spans the terminal and is only as tall as what's on it"
       const lines = renderFrame({ pt, nowMs: pt * 1000, cols, rows, timeline: SILENT, join: "closed", paused: false, fast: false, fit: true });
       assert.ok(lines.length <= rows, `fits ${cols}x${rows} at ${pt}s`);
       for (const l of lines) assert.equal(Array.from(l).length, cols, `full width ${cols} at ${pt}s`);
-      assert.match(lines.at(-1) ?? "", /vote to roll this out/, `the bar ends the block at ${pt}s`);
+      const vote = pt >= SILENT.endStart ? /vote to roll this out/ : /vote at the end/;
+      assert.match(lines.at(-1) ?? "", vote, `the bar ends the block, with j's hint for the moment, at ${pt}s`);
     }
   }
   const early = renderFrame({ pt: 3, nowMs: 3000, cols: 238, rows: 61, timeline: SILENT, join: "closed", paused: false, fast: false, fit: true });

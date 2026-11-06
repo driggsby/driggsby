@@ -225,5 +225,9 @@ function help(input: FrameInput, w: number, narrow: boolean): Line {
     ? [["space", input.paused ? "play" : "pause"], ["q", "quit"]]
     : [["space", input.paused ? "play" : "pause"], ["f", input.fast ? "1×" : "2×"], ["r", "replay"], ["q", "quit"]];
   const left = keys.flatMap(([key, what], i) => [seg((i > 0 ? (narrow ? "  " : "  ·  ") : "") + key, C.mute), seg(` ${what}`, C.faint)]);
-  return spread(left, [seg(" j ", C.ink, { bg: C.money, bold: true }), seg(" vote to roll this out", C.money)], w);
+  // j counts once the replay has played to the end; until then it says so, dimmed.
+  const vote = input.pt >= input.timeline.endStart
+    ? [seg(" j ", C.ink, { bg: C.money, bold: true }), seg(" vote to roll this out", C.money)]
+    : [seg(" j ", C.mute, { bg: C.ghost, bold: true }), seg(" vote at the end", C.faint)];
+  return spread(left, vote, w);
 }
