@@ -20,6 +20,7 @@ import { runRules } from "./rules/rules-command.ts";
 import { runLogin, runLoginWithCode } from "./login/login.ts";
 import { runLogout } from "./login/logout.ts";
 import { runMcpSetup } from "./mcp-setup/setup.ts";
+import { runReplay } from "./replay/replay-command.ts";
 import { VERSION } from "./version.ts";
 
 async function run(argv: string[]): Promise<number> {
@@ -61,6 +62,8 @@ async function run(argv: string[]): Promise<number> {
       return await runItems({ action: command.action, params: command.params, yes: command.yes });
     case "import":
       return await runImport(command.options);
+    case "replay":
+      return await runReplay({ quiet: command.quiet });
   }
 }
 

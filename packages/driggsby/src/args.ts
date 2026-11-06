@@ -13,6 +13,7 @@ import { parseInit } from "./args-init.ts";
 import { parseLogin } from "./args-login.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
 import { parseQuery } from "./args-query.ts";
+import { parseReplay } from "./args-replay.ts";
 import { parseAccounts, parseImport } from "./args-import.ts";
 import { parseItems } from "./args-items.ts";
 import { parseRules } from "./args-rules.ts";
@@ -101,6 +102,11 @@ function parseLevel(level: CommandLevel, argv: string[]): ParsedCommand {
   }
   if (level.subcommands.includes(first)) {
     return dispatchSubcommand(first, argv.slice(1));
+  }
+  // Hidden on purpose: not a listed subcommand, so it stays out of --help
+  // and out of "did you mean" tips.
+  if (level === ROOT_LEVEL && first === "replay") {
+    return parseReplay(argv.slice(1));
   }
   if (first === "--") {
     return parseLevelAfterEndOfOptions(level, argv[1]);
