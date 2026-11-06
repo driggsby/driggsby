@@ -27,8 +27,8 @@ export interface FrameInput {
   fit?: boolean;
 }
 
-// The replay starts at 1.5x; f steps to 2x, then 1x, then back to 1.5x.
-export const SPEEDS = [1.5, 2, 1] as const;
+// The replay starts at 1.2x; f switches between it and 2x.
+export const SPEEDS = [1.2, 2] as const;
 
 export function nextSpeed(speed: number): number {
   const at = SPEEDS.findIndex((s) => s === speed);
