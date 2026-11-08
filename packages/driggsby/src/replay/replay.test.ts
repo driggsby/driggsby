@@ -119,3 +119,12 @@ test("the replay starts at 1.2x, and f switches between it and 2x, with the bar 
   assert.match(bar(1.2), /f 2×/);
   assert.match(bar(2), /f 1\.2×/);
 });
+
+test("the replay never shows what the call cost to run", () => {
+  for (const timeline of [SILENT, VOICED]) {
+    for (let pt = 0; pt <= timeline.total; pt += 0.5) {
+      const screen = renderFrame({ pt, nowMs: pt * 1000, cols: 160, rows: 48, timeline, paused: false, speed: 1.2 }).join("\n");
+      assert.doesNotMatch(screen, /\bcost\b|to run|\$0\.\d\d/, `no cost at ${pt}s`);
+    }
+  }
+});

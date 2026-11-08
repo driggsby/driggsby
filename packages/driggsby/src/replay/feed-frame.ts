@@ -134,7 +134,7 @@ export function renderFrame(input: FrameInput): string[] {
 
   const frame: Line[] = [
     head, line(), ...shown, line(),
-    bottomBar(real, input.pt, ended, w, narrow, timeline), line(seg("─".repeat(w), C.ghost)), help(input, w, narrow),
+    bottomBar(real, input.pt, ended, w, timeline), line(seg("─".repeat(w), C.ghost)), help(input, w, narrow),
   ];
   return frame.map((l) => line(seg("  "), ...l.segs).render(cols));
 }
@@ -193,7 +193,7 @@ function result(t: number, w: number, narrow: boolean, vote: VoteState): Line[] 
   else out.push(line(seg("Deal closed.  ", C.text, { bold: true }), ...price));
   const terms = narrow ? "  ·  no contract  ·  no fee to leave" : "  ·  same speed  ·  no contract  ·  no fee to leave";
   if (at(1)) out.push(line(seg(saved, C.money), seg(terms, C.mute)));
-  if (at(2)) out.push(line(seg(`${mmss(CALL.ends)} on the phone  ·  $${CALL.costUsd.toFixed(2)} to run`, C.mute)));
+  if (at(2)) out.push(line(seg(`${mmss(CALL.ends)} on the phone`, C.mute)));
   if (at(2)) out.push(line(seg("Verizon, same week:  ", C.mute), seg("$95.71", C.faint, { strike: true }), seg(" → ", C.mute), seg("$74.01", C.money)));
   if (at(3)) out.push(line(), vote === "counted"
     ? line(seg("✓", C.money, { bold: true }), seg("  Your vote is in. Thanks.", C.text, { bold: true }))
@@ -212,7 +212,7 @@ function fold(feed: Line[], doneAt: number[], room: number, w: number): Line[] {
   return [summary, ...feed.filter((_, i) => !folded.has(i))];
 }
 
-function bottomBar(real: number, pt: number, ended: boolean, w: number, narrow: boolean, timeline: ReplayTimeline): Line {
+function bottomBar(real: number, pt: number, ended: boolean, w: number, timeline: ReplayTimeline): Line {
   const offered = real >= OFFER_AT;
   const k = ease((pt - toPlay(timeline.keys, OFFER_AT)) / 1.4);
   const price = offered ? CALL.before + (CALL.after - CALL.before) * k : CALL.before;
@@ -222,7 +222,6 @@ function bottomBar(real: number, pt: number, ended: boolean, w: number, narrow: 
     ? [seg(money(CALL.before), C.faint, { strike: true }), seg(" → ", C.mute), seg(money(price), C.money, { bold: true })]
     : [seg(money(CALL.before), C.text, { bold: true })];
   right.push(seg(" /mo", C.mute));
-  if (!narrow) right.push(seg("   │   ", C.ghost), seg("cost ", C.mute), seg(`$${(CALL.costUsd * Math.min(1, real / CALL.ends)).toFixed(2)}`, C.text));
   return spread(left, right, w);
 }
 
