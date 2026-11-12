@@ -1,8 +1,10 @@
 // driggsby listen: keep running and print what newly reaches Driggsby
 // (card and bank transactions, and investment activity), one line each,
-// until stopped. stdout carries only those lines, so the output can be
-// piped, or read line by line by an agent (Claude Code's Monitor tool reads
-// a command's output this way); every status message goes to stderr.
+// until stopped. An agent reads the plain output line by line (Claude
+// Code's Monitor tool turns each stdout line into an event), so in plain
+// output the status lines (the data-not-instructions note, trouble and
+// recovery) go to stdout too, where the agent sees them. With --json,
+// stdout carries only the JSON lines and status goes to stderr.
 import { randomBytes } from "node:crypto";
 
 import { apiBaseUrl } from "../api/base-url.ts";
@@ -134,15 +136,16 @@ export async function runListen(
         throw new CliError(started.message === SIGN_IN_AGAIN_MESSAGE ? started.message : wrapProse(started.message), 1);
       }
     }
-    io.err(STARTED_MESSAGE);
-    await loop(cursors, io, runtime);
+    const say = options.json ? io.err : io.out;
+    say(STARTED_MESSAGE);
+    await loop(cursors, io, say, runtime);
     return 0;
   } catch (error) {
     throw deployFailure(error, apiBaseUrl(environment.env), RETRY_COMMAND);
   }
 }
 
-async function loop(cursors: FeedCursor[], io: ListenIo, runtime: ListenRuntime): Promise<void> {
+async function loop(cursors: FeedCursor[], io: ListenIo, say: (text: string) => void, runtime: ListenRuntime): Promise<void> {
   let troubled = false;
   let checks = 0;
   while (runtime.maxChecks === undefined || checks < runtime.maxChecks) {
@@ -151,10 +154,14 @@ async function loop(cursors: FeedCursor[], io: ListenIo, runtime: ListenRuntime)
     let trouble: "connection" | "service" | null = null;
     for (const cursor of cursors) {
       const result = await cursor.check();
+      // A fixed line first, so an agent following stdout learns why it
+      // stopped; the full message goes to stderr as for any command.
       if (result.kind === "signed-out") {
+        say("Stopped: the sign-in on this machine isn't valid anymore.\n");
         throw new CliError(SIGN_IN_AGAIN_MESSAGE, 1);
       }
       if (result.kind === "stop") {
+        say("Stopped: today's limit on Driggsby checks is reached.\n");
         throw new CliError(wrapProse(result.message), 1);
       }
       if (result.kind === "trouble") {
@@ -166,13 +173,13 @@ async function loop(cursors: FeedCursor[], io: ListenIo, runtime: ListenRuntime)
       }
     }
     if (trouble !== null && !troubled) {
-      io.err(
+      say(
         trouble === "connection"
           ? "Can't reach Driggsby right now. Still listening; trying again every minute.\n"
           : "Driggsby couldn't answer just now. Still listening; trying again every minute.\n",
       );
     } else if (trouble === null && troubled) {
-      io.err("Reached Driggsby again. Still listening.\n");
+      say("Reached Driggsby again. Still listening.\n");
     }
     troubled = trouble !== null;
   }
