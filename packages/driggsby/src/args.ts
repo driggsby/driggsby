@@ -12,6 +12,7 @@ import { parseDelete } from "./args-delete.ts";
 import { parseInit } from "./args-init.ts";
 import { parseLogin } from "./args-login.ts";
 import { parseMcpSetup } from "./args-mcp-setup.ts";
+import { parseListen } from "./args-listen.ts";
 import { parseQuery } from "./args-query.ts";
 import { parseReplay } from "./args-replay.ts";
 import { parseAccounts, parseImport } from "./args-import.ts";
@@ -53,7 +54,7 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "rules", "items", "import", "accounts"],
+  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "listen", "rules", "items", "import", "accounts"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
@@ -66,6 +67,7 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "versions", longFlags: ["help"] },
     { name: "delete", longFlags: ["yes", "help"] },
     { name: "query", longFlags: ["sql", "params", "help"] },
+    { name: "listen", longFlags: ["json", "help"] },
     { name: "rules", longFlags: ["params", "params-file", "yes", "help"] },
     { name: "items", longFlags: ["params", "params-file", "yes", "help"] },
     { name: "import", longFlags: ["wait", "account", "create-account", "account-type", "account-name", "dates", "amounts", "yes", "help"] },
@@ -152,6 +154,8 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseVersions(rest);
     case "query":
       return parseQuery(rest);
+    case "listen":
+      return parseListen(rest);
     case "rules":
       return parseRules(rest);
     case "items":

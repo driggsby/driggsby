@@ -13,6 +13,7 @@ import { runDevStop } from "./dev/dev-stop.ts";
 import { runInit } from "./init/init-command.ts";
 import { runRollback } from "./deploy/rollback-command.ts";
 import { runVersions } from "./deploy/versions-command.ts";
+import { runListen } from "./listen/listen-command.ts";
 import { runQuery } from "./query/query-command.ts";
 import { runImport } from "./import/import-command.ts";
 import { runItems } from "./items/items-command.ts";
@@ -56,6 +57,8 @@ async function run(argv: string[]): Promise<number> {
       return await runVersions({});
     case "query":
       return await runQuery({ tool: command.tool, params: command.params });
+    case "listen":
+      return await runListen({ json: command.json });
     case "rules":
       return await runRules({ action: command.action, params: command.params, yes: command.yes });
     case "items":
