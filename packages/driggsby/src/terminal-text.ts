@@ -46,8 +46,9 @@ export function wrapNames(names: string[], indent: string): string {
 // character) becomes a valid surrogate-pair escape.
 const TERMINAL_UNSAFE_IN_JSON = /[\u007f-\u009f\u2028\u2029\ufff9-\ufffb]|\p{Default_Ignorable_Code_Point}/gu;
 
-export function terminalSafeJson(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2).replace(TERMINAL_UNSAFE_IN_JSON, (match) =>
+// indent 0 prints one line (driggsby listen --json prints one per row).
+export function terminalSafeJson(value: unknown, indent = 2): string {
+  return JSON.stringify(value ?? null, null, indent).replace(TERMINAL_UNSAFE_IN_JSON, (match) =>
     Array.from({ length: match.length }, (_, index) => `\\u${match.charCodeAt(index).toString(16).padStart(4, "0")}`).join(""),
   );
 }
