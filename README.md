@@ -155,7 +155,9 @@ a minute or two, investment activity within a few minutes. The history that
 comes with connecting an account or importing a statement, and anything that
 reaches Driggsby more than two weeks after its own date, isn't new and
 doesn't print; a charge whose amount changes prints again. `--json` prints
-each one as a JSON object on its own line, for scripts. Stop it with Ctrl+C.
+each one as a JSON object on its own line, for scripts; the plain output also
+carries a few status lines (the note below, and when a connection drops or
+comes back), so use `--json` when a script reads it. Stop it with Ctrl+C.
 
 In Claude Code, ask Claude to run it in the background with its Monitor
 tool ("watch my new Driggsby transactions and tell me about anything
