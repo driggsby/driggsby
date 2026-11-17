@@ -278,7 +278,10 @@ Actions, to pass before a pull request merges: `verify (ubuntu-latest)`,
   required name unreported, which blocks every pull request, admins
   included.
 - When `npm-audit` fails on an advisory with no upstream fix, the fixing pull
-  request adds an `overrides` entry in `package.json`.
+  request adds an `overrides` entry in `package.json`. When no published
+  release is fixed at all, it skips that one advisory in the audit step's
+  filter (`.github/workflows/pr-security.yml`), with a note to remove the
+  skip once a fix ships.
 
 ## CLI Output Rules
 
