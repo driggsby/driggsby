@@ -1,0 +1,19 @@
+{
+  "name": "driggsby",
+  "owner": {
+    "name": "Driggsby",
+    "url": "https://driggsby.com"
+  },
+  "metadata": {
+    "description": "Driggsby's plugins for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "driggsby",
+      "source": "./plugins/driggsby",
+      "description": "Sends new transactions and investment activity from Driggsby into a running Claude Code session as they arrive.",
+      "homepage": "https://driggsby.com",
+      "license": "Apache-2.0"
+    }
+  ]
+}

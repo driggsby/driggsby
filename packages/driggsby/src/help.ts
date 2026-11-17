@@ -23,6 +23,7 @@ Commands:
   delete    Permanently remove a deployed app.
   query     Run one Driggsby data tool and print its result as JSON.
   listen    Print new transactions and investment activity as they arrive.
+  channel   Send new transactions and investment activity into Claude Code.
   rules     Create, change, and delete your transaction rules.
   items     Save and remove the items behind your charges.
   import    Import a bank or card statement (a CSV file) into your accounts.
@@ -231,6 +232,32 @@ Usage: npx driggsby@latest listen [--json]
 
 Options:
       --json  Print each line as one JSON object, for scripts
+  -h, --help  Print help
+`;
+
+export const CHANNEL_HELP = `Send new transactions and investment activity into Claude Code.
+
+This is the Driggsby plugin's channel for Claude Code: it sends the same new
+activity as listen into a running Claude Code session as it arrives, and
+Claude speaks up only about what looks unusual. Claude Code starts it
+through the plugin; you don't run it by hand. It uses your saved sign-in
+(npx driggsby@latest login).
+
+Install the plugin once, inside Claude Code:
+  /plugin install driggsby --marketplace driggsby/driggsby
+
+Then start each session that should get new activity with the switch on,
+on the command that starts it:
+  DRIGGSBY_CHANNEL=on claude --dangerously-load-development-channels plugin:driggsby@driggsby
+
+Sessions started without DRIGGSBY_CHANNEL=on get nothing from Driggsby.
+Don't set it for your whole shell: every Claude Code started from there
+would check Driggsby too. Activity that arrives from about a minute after
+the session opens is sent.
+
+Usage: npx driggsby@latest channel
+
+Options:
   -h, --help  Print help
 `;
 

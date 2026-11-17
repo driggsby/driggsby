@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "driggsby": {
+      "command": "npx",
+      "args": ["--prefix", "${CLAUDE_PLUGIN_DATA}", "-y", "driggsby@0.12.0", "channel"]
+    }
+  }
+}

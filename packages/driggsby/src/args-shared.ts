@@ -24,6 +24,7 @@ export type ParsedCommand =
   | { kind: "versions" }
   | { kind: "query"; tool: string; params: Record<string, unknown> }
   | { kind: "listen"; json: boolean }
+  | { kind: "channel" }
   | { kind: "rules"; action: RuleAction; params: Record<string, unknown>; yes: boolean }
   | { kind: "items"; action: ItemAction; params: Record<string, unknown>; yes: boolean }
   | { kind: "import"; options: ImportCommandOptions }

@@ -5,7 +5,7 @@ TypeScript npm packages that set up supported AI clients to connect to the
 remote Driggsby MCP endpoint, scaffold and locally preview Driggsby apps,
 and deploy static apps to Driggsby's app hosting. `driggsby` is the CLI
 (`mcp setup`, `login`/`logout`, `init`, `dev`, `deploy`, `rollback`,
-`versions`, `delete`, `query`, `listen`, `rules`, `items`, `import`); `@driggsby/deploy` is the deploy protocol library it depends
+`versions`, `delete`, `query`, `listen`, `channel`, `rules`, `items`, `import`); `@driggsby/deploy` is the deploy protocol library it depends
 on, which also ships a minimal standalone `driggsby-deploy` bin for
 sandboxed agents; `@driggsby/sdk` is the in-page SDK bundle that scaffolded
 apps load (`driggsby dev` serves it locally; deployed apps get it from the
@@ -75,8 +75,21 @@ https://app.driggsby.com/mcp
   user-facing and concise; do not include internal release runbooks,
   maintainer-only operational notes, or environment variable names — except
   `DRIGGSBY_TOKEN`, which `packages/deploy/README.md` must document because
-  it is the standalone bin's only way to authenticate. `DRIGGSBY_BASE_URL`
-  stays out of all public docs.
+  it is the standalone bin's only way to authenticate, and
+  `DRIGGSBY_CHANNEL`, the per-session switch the channel docs must name.
+  `DRIGGSBY_BASE_URL` stays out of all public docs.
+- `.claude-plugin/marketplace.json` and `plugins/driggsby/` make this repo
+  a Claude Code plugin marketplace. The `driggsby` plugin runs
+  `driggsby channel` as a Claude Code channel. Claude Code
+  starts it in every session where the plugin is installed and can't tell
+  it whether that session opted in, so the command reads nothing unless
+  `DRIGGSBY_CHANNEL=on`, and reads nothing in its first minute. Its stdout
+  carries only MCP protocol messages: never write anything else there.
+  `plugins/driggsby/.mcp.json` pins the exact CLI version (a test fails
+  when it differs from the package version) and passes
+  `--prefix ${CLAUDE_PLUGIN_DATA}` so the open folder's `.npmrc` and
+  `node_modules` (which could hold a `driggsby` of its own) never apply. Check plugin changes with `claude plugin validate .` when
+  Claude Code is available.
 
 ## Security
 
@@ -320,8 +333,9 @@ Before creating a release tag:
    workspace root `package.json`; update `packages/driggsby/package.json`'s
    exact-pinned `dependencies` on `@driggsby/deploy` and `@driggsby/sdk` to
    the same version (the packages version in lockstep and the
-   publish-surface check fails on any mismatch); then refresh
-   `package-lock.json` (`npm install`).
+   publish-surface check fails on any mismatch); set the same version in
+   `plugins/driggsby/.mcp.json`; then refresh `package-lock.json`
+   (`npm install`).
 2. Run `just verify` and `just check-npm-package`.
 3. Merge the PR to `main`.
 4. Sync local `main` with `origin/main`.
