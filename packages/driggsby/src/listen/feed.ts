@@ -90,7 +90,7 @@ export class FeedCursor {
   // Everything already in Driggsby counts as printed, so only what arrives
   // from now on prints: the newest arrival, in the service's own time, and
   // the rows within LOOK_BACK of it (a late row is looked for among them).
-  async start(): Promise<{ ok: true } | { ok: false; message: string }> {
+  async start(): Promise<{ ok: true } | { ok: false; message: string; stop?: boolean }> {
     this.reads += 1;
     const latest = await this.query(
       this.feed.tool,

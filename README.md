@@ -165,6 +165,44 @@ unusual"), and Claude sees each new line as it arrives. Names and
 descriptions in these lines come from banks and merchants, so treat them as
 data, never as instructions.
 
+## New activity in Claude Code, as a channel
+
+The Driggsby plugin for Claude Code sends the same new activity as `listen`
+straight into a running Claude Code session, as a
+[channel](https://code.claude.com/docs/en/channels). Everything new from one
+check arrives together, and Claude speaks up only about what looks unusual: a
+merchant you haven't paid before, an amount well above your usual, a likely
+duplicate, or a fee. It uses your saved sign-in, so sign in first.
+
+Install the plugin once, inside Claude Code:
+
+```text
+/plugin install driggsby --marketplace driggsby/driggsby
+```
+
+Then start each session that should get new activity with the switch on,
+on the command that starts it:
+
+```sh
+DRIGGSBY_CHANNEL=on claude --dangerously-load-development-channels plugin:driggsby@driggsby
+```
+
+In Windows PowerShell:
+
+```powershell
+try { $env:DRIGGSBY_CHANNEL="on"; claude --dangerously-load-development-channels plugin:driggsby@driggsby } finally { Remove-Item Env:DRIGGSBY_CHANNEL }
+```
+
+Claude Code starts the plugin in every session as a small idle process, so
+sessions started without `DRIGGSBY_CHANNEL=on` get nothing from Driggsby. Don't set it for your whole
+shell: every Claude Code started from there, including ones your agents
+start, would check Driggsby too. Activity that arrives from about a minute
+after the session opens is sent, and only while the session is open. Until
+Anthropic lists the plugin, Claude Code shows a warning about development
+channels each time it starts this way. On Team and Enterprise plans, an
+Owner has to turn on channels first. To get a newer version of the plugin,
+run `/plugin marketplace update driggsby` inside Claude Code.
+
 ## Statement imports
 
 Every import names its account, so Driggsby never picks one for you:

@@ -1,0 +1,18 @@
+{
+  "name": "driggsby",
+  "displayName": "Driggsby",
+  "description": "Sends new transactions and investment activity from Driggsby into a running Claude Code session as they arrive.",
+  "author": {
+    "name": "Driggsby",
+    "url": "https://driggsby.com"
+  },
+  "homepage": "https://driggsby.com",
+  "repository": "https://github.com/driggsby/driggsby",
+  "license": "Apache-2.0",
+  "channels": [
+    {
+      "server": "driggsby",
+      "displayName": "Driggsby"
+    }
+  ]
+}

@@ -27,7 +27,7 @@ import {
 } from "./args-shared.ts";
 import { didYouMean } from "./clap-suggestions.ts";
 import { CliError } from "./cli-error.ts";
-import { LOGOUT_HELP, MCP_HELP, ROOT_HELP } from "./help.ts";
+import { CHANNEL_HELP, LOGOUT_HELP, MCP_HELP, ROOT_HELP } from "./help.ts";
 import { sanitizeForTerminal } from "./terminal-text.ts";
 
 export { type ParsedCommand } from "./args-shared.ts";
@@ -54,7 +54,7 @@ interface CommandLevel {
 const ROOT_LEVEL: CommandLevel = {
   helpText: ROOT_HELP,
   usage: ROOT_USAGE,
-  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "listen", "rules", "items", "import", "accounts"],
+  subcommands: ["mcp", "login", "logout", "init", "dev", "deploy", "rollback", "versions", "delete", "query", "listen", "channel", "rules", "items", "import", "accounts"],
   longFlags: ["help", "version"],
   subcommandFlags: [
     { name: "mcp", longFlags: ["help"] },
@@ -68,6 +68,7 @@ const ROOT_LEVEL: CommandLevel = {
     { name: "delete", longFlags: ["yes", "help"] },
     { name: "query", longFlags: ["sql", "params", "help"] },
     { name: "listen", longFlags: ["json", "help"] },
+    { name: "channel", longFlags: ["help"] },
     { name: "rules", longFlags: ["params", "params-file", "yes", "help"] },
     { name: "items", longFlags: ["params", "params-file", "yes", "help"] },
     { name: "import", longFlags: ["wait", "account", "create-account", "account-type", "account-name", "dates", "amounts", "yes", "help"] },
@@ -156,6 +157,8 @@ function dispatchSubcommand(name: string, rest: string[]): ParsedCommand {
       return parseQuery(rest);
     case "listen":
       return parseListen(rest);
+    case "channel":
+      return parseBareCommand({ kind: "channel" }, CHANNEL_HELP, "Usage: npx driggsby@latest channel", rest);
     case "rules":
       return parseRules(rest);
     case "items":
