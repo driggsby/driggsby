@@ -182,11 +182,80 @@ Claude Code starts the plugin in every session as a small idle process, so
 sessions started without `DRIGGSBY_CHANNEL=on` get nothing from Driggsby. Don't set it for your whole
 shell: every Claude Code started from there, including ones your agents
 start, would check Driggsby too. Activity that arrives from about a minute
-after the session opens is sent, and only while the session is open. Until
+after the session opens is sent; a session restarted in the same folder also
+gets what arrived while it was down, up to a week. Until
 Anthropic lists the plugin, Claude Code shows a warning about development
 channels each time it starts this way. On Team and Enterprise plans, an
 Owner has to turn on channels first. To get a newer version of the plugin,
 run `/plugin marketplace update driggsby` inside Claude Code.
+
+### Keep a session running unattended
+
+For an agent that follows your money around the clock, run one session in
+`tmux` on a computer that stays on, and have the computer start it again
+whenever it stops. Give it a folder of its own: `claude --continue` resumes
+that folder's conversation after a restart, and the channel sends whatever
+arrived while it was down (up to a week). Claude Code shortens old
+conversation over time, so have Claude keep anything it must remember, like
+a running ledger, in files in that folder.
+
+First, make the folder (readable only by you) and start one conversation
+there by hand: say hello, trust the folder when asked, then quit with
+`/exit`. `claude --continue` needs a conversation to continue.
+
+```sh
+mkdir -m 700 ~/money && cd ~/money && claude
+```
+
+On macOS, save this script as `~/bin/driggsby-session` (`mkdir -p ~/bin`
+first if that folder doesn't exist) and make it executable
+(`chmod +x ~/bin/driggsby-session`). It runs the session on a tmux server
+of its own, named `driggsby`:
+
+```sh
+#!/bin/zsh
+# Starts the Driggsby session in tmux unless it's already running. The
+# folders that hold tmux, claude and npx go first (see: which tmux claude npx).
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+[ -d ~/money ] || { echo "~/money is missing" >&2; exit 1; }
+tmux -L driggsby has-session -t '=driggsby' 2>/dev/null && exit 0
+tmux -L driggsby new-session -d -s driggsby -c ~/money \
+  "DRIGGSBY_CHANNEL=on claude --continue --dangerously-load-development-channels plugin:driggsby@driggsby"
+```
+
+Then have macOS run it at login and every minute, from
+`~/Library/LaunchAgents/com.driggsby.session.plist` (replace `/Users/you`
+with your home folder), and load it with
+`launchctl load ~/Library/LaunchAgents/com.driggsby.session.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.driggsby.session</string>
+  <key>ProgramArguments</key><array><string>/Users/you/bin/driggsby-session</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>60</integer>
+  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/driggsby-session.log</string>
+</dict>
+</plist>
+```
+
+On Linux, a systemd user timer that runs a script like it every minute does
+the same job.
+
+Each time the session starts, Claude Code waits at its warning about
+development channels until you answer it. Run
+`tmux -L driggsby attach -t '=driggsby'`, choose "I am using this for local
+development", then leave the session running with your tmux prefix
+(Ctrl+B unless you've changed it), then D. Once Anthropic lists the plugin,
+replace `--dangerously-load-development-channels` with `--channels` in the
+script, and there's nothing to answer.
+
+To stop it, run
+`launchctl unload ~/Library/LaunchAgents/com.driggsby.session.plist`, then
+`tmux -L driggsby kill-server`.
 
 ## Statement imports
 

@@ -9,88 +9,10 @@ import { fileURLToPath } from "node:url";
 
 import { CliError } from "../cli-error.ts";
 import { makeEnvironment, TEST_TOKEN } from "../deploy/test-support/deploy-command-harness.ts";
-import { activity, fakeService, held, S0, S1, S2, type Script, txn } from "../listen/test-support/fake-feed-service.ts";
+import { activity, held, S0, S1, S2, txn } from "../listen/test-support/fake-feed-service.ts";
 import { CHECK_INTERVAL_MS } from "../listen/watch.ts";
-import { startFakeMcp } from "../test-support/fake-mcp.ts";
 import { CHANNEL_SWITCH, LIMIT_RETRY_MS, runChannel } from "./channel-command.ts";
-
-interface Run {
-  code: number;
-  initialize: Record<string, unknown>;
-  events: { content: string; meta: Record<string, string> }[];
-  log: string;
-  waits: number[];
-  queries: number;
-}
-
-const HANDSHAKE =
-  `${JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {} } })}\n` +
-  `${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`;
-
-// Runs the channel against the fake service for `checks` checks after its
-// first minute's wait (-1: end during that wait), then closes stdin the
-// way Claude Code does when the session ends.
-async function channel(script: Script, checks: number, options: { switch?: string | null; signedIn?: boolean } = {}): Promise<Run> {
-  let sleeps = 0;
-  // The first wait comes before anything is read, so it isn't a check.
-  const phase = (): number => Math.max(0, sleeps - 1);
-  const fake = await startFakeMcp(fakeService(script, phase));
-  const environment = await makeEnvironment(fake.baseUrl, { signedIn: options.signedIn ?? true });
-  const value = options.switch === undefined ? "on" : options.switch;
-  if (value !== null) {
-    environment.env[CHANNEL_SWITCH] = value;
-  }
-  const input = new PassThrough();
-  const written: string[] = [];
-  let log = "";
-  const waits: number[] = [];
-  let followed: () => void = () => undefined;
-  const followDone = new Promise<void>((resolve) => {
-    followed = resolve;
-  });
-  const end = async (): Promise<void> => {
-    input.end();
-    await new Promise((resolve) => setImmediate(resolve));
-  };
-  try {
-    const running = runChannel(
-      environment,
-      { input, interactive: false, write: (line) => written.push(line), log: (text) => (log += text) },
-      {
-        sleep: async (milliseconds) => {
-          waits.push(milliseconds);
-          sleeps += 1;
-          if (sleeps - 1 > checks) {
-            await end();
-          }
-        },
-        onStopped: () => {
-          followed();
-          void end();
-        },
-      },
-    );
-    input.write(HANDSHAKE);
-    if (value !== "on") {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await end();
-    }
-    const code = await running;
-    // With the switch on, wait for the follow loop itself to finish, so a
-    // read it makes after stdin closes is counted.
-    if (value === "on") {
-      await Promise.race([followDone, new Promise((resolve) => setTimeout(resolve, 2_000))]);
-    }
-    const messages = written.map((line) => JSON.parse(line) as Record<string, unknown>);
-    const initialize = messages.find((message) => message.id === 0)?.result as Record<string, unknown>;
-    const events = messages
-      .filter((message) => message.method === "notifications/claude/channel")
-      .map((message) => message.params as { content: string; meta: Record<string, string> });
-    return { code, initialize, events, log, waits, queries: fake.requests.length };
-  } finally {
-    await fake.close();
-  }
-}
+import { channel, HANDSHAKE } from "./test-support/channel-harness.ts";
 
 test("without the switch it answers Claude Code but declares no channel and reads nothing", async () => {
   const run = await channel({ transactions: [held(txn("t1", S1), 1)] }, 3, { switch: null });

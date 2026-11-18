@@ -253,7 +253,8 @@ on the command that starts it:
 Sessions started without DRIGGSBY_CHANNEL=on get nothing from Driggsby.
 Don't set it for your whole shell: every Claude Code started from there
 would check Driggsby too. Activity that arrives from about a minute after
-the session opens is sent.
+the session opens is sent; a session restarted in the same folder also gets
+what arrived while it was down, up to a week.
 
 Usage: npx driggsby@latest channel
 

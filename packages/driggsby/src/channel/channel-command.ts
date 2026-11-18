@@ -10,8 +10,10 @@ import type { Readable } from "node:stream";
 import { CliError } from "../cli-error.ts";
 import { type CredentialEnvironment, defaultCredentialEnvironment } from "../credentials/store.ts";
 import { SIGN_IN_AGAIN_MESSAGE } from "../deploy/api-session.ts";
+import { arrivalTime } from "../listen/feed.ts";
 import { CHECK_INTERVAL_MS, openWatch, type Watch } from "../listen/watch.ts";
 import { VERSION } from "../version.ts";
+import { type Bookmark, bookmarkPath, readBookmark, writeBookmark } from "./bookmark.ts";
 import { ChannelRpc } from "./rpc.ts";
 
 export const CHANNEL_SWITCH = "DRIGGSBY_CHANNEL";
@@ -61,6 +63,8 @@ export interface ChannelRuntime {
   sleep: (milliseconds: number) => Promise<void>;
   // Called once the channel has stopped checking for good.
   onStopped?: () => void;
+  // The clock the saved place is checked and stamped with. Tests fix it.
+  now?: () => number;
 }
 
 function defaultIo(): ChannelIo {
@@ -123,6 +127,7 @@ export async function runChannel(
       const context: FollowContext = {
         environment,
         runtime,
+        now: runtime.now ?? Date.now,
         log: io.log,
         stopped: () => stopped,
         send: (content, meta) => {
@@ -149,6 +154,7 @@ export async function runChannel(
 interface FollowContext {
   environment: CredentialEnvironment;
   runtime: ChannelRuntime;
+  now: () => number;
   log: (text: string) => void;
   stopped: () => boolean;
   send: (content: string, meta: Record<string, string>) => void;
@@ -172,9 +178,13 @@ async function follow(context: FollowContext): Promise<void> {
     status(context, NOT_SIGNED_IN);
     return;
   }
-  if (!(await start(context, watch))) {
+  const place = bookmarkPath(context.environment.env);
+  const saved = place === null ? null : await readBookmark(place, context.now());
+  if (!(await start(context, watch, saved))) {
     return;
   }
+  const save = place === null ? () => Promise.resolve() : saver(context, watch, place);
+  await save();
   let paused = false;
   let troubled = false;
   for (;;) {
@@ -212,17 +222,49 @@ async function follow(context: FollowContext): Promise<void> {
       context.log("Couldn't get an answer from Driggsby just now. Still watching; trying again.\n");
     }
     troubled = trouble;
+    // Closed mid-check: what was read was never sent, so it isn't saved as
+    // sent either.
+    if (context.stopped()) {
+      return;
+    }
     sendArrivals(context, arrived.transactions, arrived.investments);
+    await save();
   }
 }
 
-// Everything already in Driggsby counts as sent. A start refused for
-// today's limit says so once and tries hourly; any other failure but the
-// sign-in (Driggsby unreachable, say) is tried again every minute.
-async function start(context: FollowContext, watch: Watch): Promise<boolean> {
+// Saves where the channel is after each check. A failed save is logged once
+// and costs only the catch-up after a restart.
+function saver(context: FollowContext, watch: Watch, place: string): () => Promise<void> {
+  let logged = false;
+  return async () => {
+    const bookmark: Bookmark = {
+      savedAt: arrivalTime(context.now()),
+      transactions: watch.transactions.state(),
+      investments: watch.investments.state(),
+    };
+    await writeBookmark(place, bookmark).catch(() => {
+      if (!logged) {
+        logged = true;
+        context.log("Couldn't save where the channel left off; a restart may miss what arrives while it's down.\n");
+      }
+    });
+  };
+}
+
+// Everything already in Driggsby counts as sent, or, after a restart, the
+// saved place is picked up as if the session had never stopped. A start
+// refused for today's limit says so once and tries hourly; any other
+// failure but the sign-in (Driggsby unreachable, say) is tried again every
+// minute.
+async function start(context: FollowContext, watch: Watch, saved: Bookmark | null): Promise<boolean> {
   let logged = false;
   let limited = false;
-  for (const cursor of [watch.transactions, watch.investments]) {
+  for (const kind of ["transactions", "investments"] as const) {
+    const cursor = watch[kind];
+    // A restored stream reads nothing until its next check.
+    if (saved !== null && cursor.restore(saved[kind])) {
+      continue;
+    }
     for (;;) {
       if (context.stopped()) {
         return false;

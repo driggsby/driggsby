@@ -6,6 +6,8 @@
 // printed: rows are matched by facts that don't change (not by names a
 // person can edit), and counted, so two identical rows both print and a
 // pending charge that posts unchanged doesn't print twice.
+import { createHash } from "node:crypto";
+
 import { SIGN_IN_AGAIN_MESSAGE } from "../deploy/api-session.ts";
 
 // stop: a refusal that trying again soon won't change (today's call limit).
@@ -41,19 +43,42 @@ type Window = { ok: true; rows: ParsedRow[] } | { ok: false; message: string; st
 
 const PAGE_SIZE = 250;
 // How far behind the newest row a late one is still looked for.
-const LOOK_BACK_MS = 60 * 60 * 1000;
+export const LOOK_BACK_MS = 60 * 60 * 1000;
 // Pages one check reads, newest first; older rows beyond them are left.
 const PAGES_PER_CHECK = 8;
 // A stamp further ahead of this machine's clock than this is refused.
-const FUTURE_SLACK_MS = 24 * 60 * 60 * 1000;
+export const FUTURE_SLACK_MS = 24 * 60 * 60 * 1000;
 // The only shape an arrival time may have before it is written into SQL
 // text: what the service publishes, or what this file builds from it.
-const ARRIVAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+export const ARRIVAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const BEGINNING = "1970-01-01T00:00:00Z";
 
 interface Printed {
   count: number;
   arrivedAt: string;
+}
+
+// What a cursor remembers, as a later run can pick it up: the newest arrival
+// seen, and, for rows in the look-back window, one-way digests of what was
+// printed (a row's matching facts with how many printed, and its id). No
+// names, amounts or ids in the clear.
+export interface CursorState {
+  newest: string | null;
+  printed: [digest: string, count: number, arrivedAt: string][];
+  ids: [digest: string, arrivedAt: string][];
+}
+
+const DIGEST = /^[0-9a-f]{32}$/;
+const MAX_COUNT = 100_000;
+
+// Rows are remembered by digest, so what a cursor remembers can be saved.
+function digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 32);
+}
+
+// A time on this machine's clock, in the service's arrival-time format.
+export function arrivalTime(time: number): string {
+  return new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 // A real UTC time in the service's format, not ahead of this machine by
@@ -63,7 +88,7 @@ export function validArrival(value: unknown, now: number): value is string {
     return false;
   }
   const time = Date.parse(value);
-  return Number.isFinite(time) && new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z") === value && time <= now + FUTURE_SLACK_MS;
+  return Number.isFinite(time) && arrivalTime(time) === value && time <= now + FUTURE_SLACK_MS;
 }
 
 export class FeedCursor {
@@ -74,7 +99,8 @@ export class FeedCursor {
   private readonly now: () => number;
   private newest: string | null = null;
   private printed = new Map<string, Printed>();
-  private printedIds = new Set<string>();
+  // Digest of each printed id, with its row's arrival, kept for the window.
+  private printedIds = new Map<string, string>();
   private checks = 0;
   private reads = 0;
 
@@ -115,6 +141,44 @@ export class FeedCursor {
     return { ok: true };
   }
 
+  // What this cursor remembers, for a later run to pick up.
+  state(): CursorState {
+    return {
+      newest: this.newest,
+      printed: [...this.printed].map(([key, entry]) => [key, entry.count, entry.arrivedAt]),
+      ids: [...this.printedIds],
+    };
+  }
+
+  // Picks up exactly where an earlier run left off, as if it had never
+  // stopped: the next check prints what arrived since, late rows included.
+  // Returns false, remembering nothing, for a state in any other shape or a
+  // newest arrival more than a day ahead of this machine's clock.
+  restore(state: CursorState): boolean {
+    const now = this.now();
+    if (state.newest !== null && !validArrival(state.newest, now)) {
+      return false;
+    }
+    const printed = new Map<string, Printed>();
+    for (const [key, count, arrivedAt] of state.printed) {
+      if (!DIGEST.test(key) || !Number.isInteger(count) || count < 1 || count > MAX_COUNT || !validArrival(arrivedAt, now)) {
+        return false;
+      }
+      printed.set(key, { count, arrivedAt });
+    }
+    const ids = new Map<string, string>();
+    for (const [key, arrivedAt] of state.ids) {
+      if (!DIGEST.test(key) || !validArrival(arrivedAt, now)) {
+        return false;
+      }
+      ids.set(key, arrivedAt);
+    }
+    this.newest = state.newest;
+    this.printed = printed;
+    this.printedIds = ids;
+    return true;
+  }
+
   async check(): Promise<CheckResult> {
     this.checks += 1;
     if (this.checks % this.feed.everyChecks !== 0) {
@@ -141,9 +205,10 @@ export class FeedCursor {
   private take(rows: ParsedRow[], print: boolean): string[] {
     const groups = new Map<string, ParsedRow[]>();
     for (const row of [...rows].reverse()) {
-      const group = groups.get(row.match);
+      const key = digest(row.match);
+      const group = groups.get(key);
       if (group === undefined) {
-        groups.set(row.match, [row]);
+        groups.set(key, [row]);
       } else {
         group.push(row);
       }
@@ -168,24 +233,28 @@ export class FeedCursor {
       }
       for (const row of group) {
         if (row.id !== null) {
-          this.printedIds.add(row.id);
+          this.printedIds.set(digest(row.id), row.arrivedAt);
         }
       }
     }
+    // Rows older than the window are never read again, so what was printed
+    // of them can go.
     const lower = this.lowerBound();
-    for (const [match, entry] of this.printed) {
+    for (const [key, entry] of this.printed) {
       if (entry.arrivedAt < lower) {
-        this.printed.delete(match);
+        this.printed.delete(key);
       }
     }
-    if (this.printedIds.size > 10_000) {
-      this.printedIds = new Set([...this.printedIds].slice(-5_000));
+    for (const [key, arrivedAt] of this.printedIds) {
+      if (arrivedAt < lower) {
+        this.printedIds.delete(key);
+      }
     }
     return lines;
   }
 
   private wasPrinted(row: ParsedRow): boolean {
-    return row.id !== null && this.printedIds.has(row.id);
+    return row.id !== null && this.printedIds.has(digest(row.id));
   }
 
   // The rows stamped within LOOK_BACK of the newest, newest first. A row
@@ -236,7 +305,7 @@ export class FeedCursor {
     if (this.newest === null) {
       return BEGINNING;
     }
-    const lower = new Date(Date.parse(this.newest) - LOOK_BACK_MS).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const lower = arrivalTime(Date.parse(this.newest) - LOOK_BACK_MS);
     return ARRIVAL_TIME.test(lower) ? lower : BEGINNING;
   }
 }
