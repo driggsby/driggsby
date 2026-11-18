@@ -257,8 +257,10 @@ with your home folder), and load it with
 </plist>
 ```
 
-On Linux, a systemd user timer that runs a script like it every minute does
-the same job.
+If you start Claude Code through a wrapper of your own, or with environment
+settings of your own, put the same in the script: a background job doesn't
+load your shell's settings. On Linux, a systemd user timer that runs a
+script like it every minute does the same job.
 
 Each time the session starts, Claude Code waits at its warning about
 development channels until you answer it. Run
